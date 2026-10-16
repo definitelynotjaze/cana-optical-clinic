@@ -1236,7 +1236,33 @@ function checkPatientApptConflict(PDO $pdo, string $patientId, string $date, str
 // With $time, also drops doctors whose own hours that weekday
 // (doctor_days.start_time/end_time) don't cover it — NULL hours = the
 // clinic's full day, so those always pass.
+// ── Clinic-wide closures (api/clinic/closures.php) ───────────────
+// The clinic_closures row for a date, or null. Table missing (not yet
+// migrated) = never closed.
+function clinicClosureOn(PDO $pdo, string $date): ?array {
+    if ($date === '') return null;
+    try {
+        $s = $pdo->prepare('SELECT date, reason FROM clinic_closures WHERE date = ? LIMIT 1');
+        $s->execute([$date]);
+        return $s->fetch() ?: null;
+    } catch (PDOException $e) { return null; }
+}
+function clinicClosedMessage(array $c): string {
+    return 'The clinic is closed on ' . date('M j, Y', strtotime($c['date']))
+         . ($c['reason'] ? " ({$c['reason']})" : '') . '. Please choose another date.';
+}
+// Upcoming closures as [date => reason], for merging into doctors'
+// blocked dates (api/doctors/index.php, public.php).
+function upcomingClinicClosures(PDO $pdo): array {
+    try {
+        $out = [];
+        foreach ($pdo->query('SELECT date, reason FROM clinic_closures WHERE date >= CURDATE() ORDER BY date') as $r) $out[$r['date']] = $r['reason'] ?? '';
+        return $out;
+    } catch (PDOException $e) { return []; }
+}
+
 function eligibleDoctorsForDate(PDO $pdo, string $date, string $time = ''): array {
+    if (clinicClosureOn($pdo, $date)) return [];   // clinic closed: nobody
     $dow = date('D', strtotime($date)); // 'Mon','Tue',… — matches doctor_days' ENUM
     $stmt = $pdo->prepare(
         "SELECT d.id, d.first_name, d.middle_name, d.last_name
@@ -1279,6 +1305,7 @@ function eligibleDoctorsForDate(PDO $pdo, string $date, string $time = ''): arra
 // or null when the time is fine.
 function doctorScheduleProblem(PDO $pdo, string $doctorId, string $date, string $time): ?string {
     if ($doctorId === '' || $date === '' || $time === '') return null;
+    if ($closed = clinicClosureOn($pdo, $date)) return clinicClosedMessage($closed);
     $dow      = date('D', strtotime($date));            // Mon, Tue, …
     $dowLong  = date('l', strtotime($date));            // Monday, …
     $toMin = function (?string $t): ?int {
@@ -1795,7 +1822,9 @@ function appointmentConfirmUrl(string $apptId): string {
 // Patients can cancel or request a reschedule online up to this many hours
 // before the appointment (mirrors pages.js's CANCEL_DEADLINE_HOURS /
 // RESCHEDULE_DEADLINE_HOURS and api/appointments/update.php's checks).
-const PATIENT_CHANGE_CUTOFF_HOURS = 24;
+// 0 = right up to the appointment time: no down payment to protect, and
+// cancelling beats a no-show.
+const PATIENT_CHANGE_CUTOFF_HOURS = 0;
 
 // Unix timestamp of an appointment's date+time, or null if unparseable.
 function apptTimestamp(array $appt): ?int {
@@ -1804,9 +1833,8 @@ function apptTimestamp(array $appt): ?int {
 }
 
 // "If you can't make it" guidance that's actually true at the moment it's
-// read: while online cancellation is still open, say until when; once
-// inside the 24-hour cutoff, point to the clinic instead (online cancel
-// is blocked by then).
+// read: while online cancellation is still open, say until when; once the
+// appointment time has passed, point to the clinic instead.
 // $now overrides the current time (for previewing a reminder as it would
 // read when sent later); defaults to now.
 function apptChangeGuidance(PDO $pdo, array $appt, ?int $now = null): string {
@@ -1818,8 +1846,7 @@ function apptChangeGuidance(PDO $pdo, array $appt, ?int $now = null): string {
         return "If you can no longer make it, you can cancel or request a reschedule from your account until {$when}.";
     }
     $phone = trim((string)$pdo->query('SELECT phone FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn());
-    return 'If you can no longer make it, please contact the clinic' . ($phone ? " at {$phone}" : '')
-         . '. Online cancellation closes ' . PATIENT_CHANGE_CUTOFF_HOURS . ' hours before your visit.';
+    return 'If you can no longer make it, please contact the clinic' . ($phone ? " at {$phone}" : '') . '.';
 }
 
 // In-app + email notice for a missed appointment — shared by the manual

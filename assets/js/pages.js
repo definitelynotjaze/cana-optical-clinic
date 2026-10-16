@@ -469,18 +469,16 @@ function fmtTimestamp12h(ts) {
 }
 
 // ── Patient cancellation deadline ───────────────────────────────
-// Patients may cancel up to this many hours before their appointment.
-// Inside that window — including same-day — cancellation is blocked and
-// they're told to contact the clinic directly. 24h gives staff enough
-// lead time to free up/refill the slot without being overly restrictive
-// for patients (matches the existing 1-day default for advance booking).
-const CANCEL_DEADLINE_HOURS = 24
+// Patients may cancel online right up to their appointment time (0 hours).
+// There's no down payment to protect, and a patient who can't make it is
+// better off cancelling (freeing the slot, no no-show) than being locked
+// out by a 24-hour rule. Only a visit whose time has already passed is
+// blocked.
+const CANCEL_DEADLINE_HOURS = 0
 
 // ── Patient reschedule-request deadline ─────────────────────────
-// Same 24h cutoff as cancellation — a reschedule request this close to the
-// appointment leaves staff no real lead time to work it, so it's blocked
-// the same way and the patient is pointed to calling the clinic directly.
-const RESCHEDULE_DEADLINE_HOURS = 24
+// Same as cancellation: allowed until the appointment time.
+const RESCHEDULE_DEADLINE_HOURS = 0
 
 function apptDateTime(a) {
   if (!a?.date) return null
@@ -1057,7 +1055,7 @@ function pageAdminUsers() {
               <div class="patient-name-info"><strong>${u.name}</strong><span>${u.id}</span></div>
             </div></td>
             <td data-label="Email" style="font-size:.82rem">${u.email}</td>
-            <td data-label="Contact" style="font-size:.82rem">${u.contact || '—'}</td>
+            <td data-label="Contact" style="font-size:.82rem">${orEmpty(u.contact, 'No contact number')}</td>
             <td data-label="Role">${badge(u.role.toLowerCase())}</td>
             <td data-label="Status">${badge(u.status || 'active')}</td>
             <td data-label="Actions"><div style="display:flex;gap:6px;align-items:center;flex-wrap:nowrap">
@@ -1547,7 +1545,7 @@ function pagePatientView() {
               ['Address',         orEmpty(p.address, 'No address set')],
               ['Occupation',      orEmpty(p.occupation, 'Not specified')],
               ['Registered',      p.registeredDate ? fmtDate(p.registeredDate) : emptyVal('Not recorded')],
-              ['Last Visit',      p.lastVisit ? fmtDate(p.lastVisit) : emptyVal('No visits yet')],
+              ['Last Visit',      p.lastVisit && p.lastVisit !== '—' ? fmtDate(p.lastVisit) : emptyVal('No visits yet')],
               ['No-Shows', (() => {
                 const n = p.noShowCount || 0
                 if (n === 0) return '<span style="color:#059669;font-weight:600">0</span>'
@@ -1684,7 +1682,7 @@ function pageContactMessages() {
                 ${avatar(m.name, 'patient-avatar', _accountPhotoForEmail(m.email, m.name))}
                 <div class="patient-name-info"><strong>${m.name}</strong><span>${m.email}</span></div>
               </div></td>
-              <td data-label="Service" style="font-size:.82rem">${m.service || '—'}</td>
+              <td data-label="Service" style="font-size:.82rem">${orEmpty(m.service, 'Not specified')}</td>
               <td data-label="Message" style="font-size:.82rem;color:#6b7280">
                 ${excerpt}
                 ${m.reply ? `<span style="display:inline-flex;align-items:center;gap:3px;margin-left:8px;font-size:.68rem;font-weight:600;color:#059669;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:999px;padding:1px 8px;white-space:nowrap">${ic('check', 'icon-xs')} Replied</span>` : ''}
@@ -2045,6 +2043,9 @@ function pageSchedule() {
       <h1 class="page-title">Doctor Schedule</h1>
       <p class="page-subtitle">View and manage doctor availability</p>
     </div>
+    <button class="btn-secondary" onclick="window.openClinicClosureModal()" title="Close the whole clinic on a date, for every doctor">
+      ${ic('lock','icon-sm')} Close Clinic
+    </button>
   </div>
   <div class="page-body">
 
@@ -2541,20 +2542,20 @@ function pageAdminSettings() {
             <div class="form-row-2">
               <div class="form-group">
                 <label class="form-label">First Name</label>
-                <input class="form-input" id="ad-fname" value="${adm.firstName || ''}">
+                <input class="form-input" id="ad-fname" value="${adm.firstName || ''}" placeholder="e.g. Juan">
               </div>
               <div class="form-group">
                 <label class="form-label">Middle Name</label>
-                <input class="form-input" id="ad-mname" value="${adm.middleName || ''}">
+                <input class="form-input" id="ad-mname" value="${adm.middleName || ''}" placeholder="Middle name (optional)">
               </div>
             </div>
             <div class="form-group">
               <label class="form-label">Last Name</label>
-              <input class="form-input" id="ad-lname" value="${adm.lastName || ''}">
+              <input class="form-input" id="ad-lname" value="${adm.lastName || ''}" placeholder="e.g. Dela Cruz">
             </div>
             <div class="form-group">
               <label class="form-label">Phone Number</label>
-              <input class="form-input" id="ad-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${adm.contact || ''}">
+              <input class="form-input" id="ad-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${adm.contact || ''}" placeholder="e.g. 0912-345-6789">
             </div>
             <div style="display:flex;justify-content:flex-end;margin-top:4px">
               <button class="btn-primary" onclick="window.saveUserProfile(this)">
@@ -2644,31 +2645,31 @@ function pageAdminSettings() {
           <div class="form-row-2">
             <div class="form-group">
               <label class="form-label">Clinic Name <span class="req">*</span></label>
-              <input class="form-input" id="ci-name" oninput="window._ciUpdateFooterPreview()" value="${clinicInfo.name.replace(/"/g,'&quot;')}">
+              <input class="form-input" id="ci-name" oninput="window._ciUpdateFooterPreview()" value="${clinicInfo.name.replace(/"/g,'&quot;')}" placeholder="e.g. Cana Optical Clinic">
               <div style="font-size:.72rem;color:#9CA3AF;margin-top:5px">Displayed as the logo name across all pages, the loader, and auth screens.</div>
             </div>
             <div class="form-group">
               <label class="form-label">Contact Number <span class="req">*</span></label>
-              <input class="form-input" id="ci-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this);window._ciUpdateFooterPreview()" value="${clinicInfo.phone.replace(/"/g,'&quot;')}">
+              <input class="form-input" id="ci-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this);window._ciUpdateFooterPreview()" value="${clinicInfo.phone.replace(/"/g,'&quot;')}" placeholder="e.g. 0929-663-6080">
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Clinic Address <span class="req">*</span></label>
-            <input class="form-input" id="ci-address" oninput="window._ciUpdateFooterPreview()" value="${clinicInfo.address.replace(/"/g,'&quot;')}">
+            <input class="form-input" id="ci-address" oninput="window._ciUpdateFooterPreview()" value="${clinicInfo.address.replace(/"/g,'&quot;')}" placeholder="e.g. Unit 3, Paseo de Carmona, Carmona, Cavite">
           </div>
           <div class="form-row-2">
             <div class="form-group">
               <label class="form-label">Email Address <span class="req">*</span></label>
-              <input class="form-input" type="email" id="ci-email" oninput="window._ciUpdateFooterPreview()" value="${clinicInfo.email.replace(/"/g,'&quot;')}">
+              <input class="form-input" type="email" id="ci-email" oninput="window._ciUpdateFooterPreview()" value="${clinicInfo.email.replace(/"/g,'&quot;')}" placeholder="e.g. clinic@email.com">
             </div>
             <div class="form-group">
               <label class="form-label">Operating Hours <span class="req">*</span></label>
-              <input class="form-input" id="ci-hours" oninput="window._ciUpdateFooterPreview()" value="${clinicInfo.hours.replace(/"/g,'&quot;')}">
+              <input class="form-input" id="ci-hours" oninput="window._ciUpdateFooterPreview()" value="${clinicInfo.hours.replace(/"/g,'&quot;')}" placeholder="e.g. Monday – Saturday: 8:00 AM – 5:00 PM">
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Footer Tagline</label>
-            <input class="form-input" id="ci-tagline" maxlength="255" oninput="window._ciUpdateFooterPreview()" value="${(clinicInfo.tagline || '').replace(/"/g,'&quot;')}">
+            <input class="form-input" id="ci-tagline" maxlength="255" oninput="window._ciUpdateFooterPreview()" value="${(clinicInfo.tagline || '').replace(/"/g,'&quot;')}" placeholder="A short line about the clinic (optional)">
             <div style="font-size:.72rem;color:#9CA3AF;margin-top:5px">Short description shown under the clinic name in the footer of every public page.</div>
           </div>
           <div class="form-group">
@@ -3029,6 +3030,15 @@ function pageAdminSettings() {
             ${ic('check','icon-sm')} Save Operating Hours
           </button>
         </div>
+      </div>
+
+      <!-- Clinic Closures: close the whole clinic on a date (every doctor) -->
+      <div class="card" style="padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div style="min-width:0">
+          <div style="font-size:.9rem;font-weight:700;color:#1C1C1C;margin-bottom:4px">Clinic Closures</div>
+          <div style="font-size:.78rem;color:#9CA3AF;line-height:1.5;max-width:560px">Close the clinic for every doctor on a specific date, such as a sudden holiday, clinic outing or emergency, instead of blocking each doctor one by one.</div>
+        </div>
+        <button class="btn-secondary" onclick="window.openClinicClosureModal()">${ic('lock','icon-sm')} Manage Closures</button>
       </div>
     </div>`
   }
@@ -3932,20 +3942,20 @@ function pageDoctorSettings() {
           <div class="form-row-2">
             <div class="form-group">
               <label class="form-label">First Name</label>
-              <input class="form-input" id="doc-fname" value="${doc.firstName || ''}">
+              <input class="form-input" id="doc-fname" value="${doc.firstName || ''}" placeholder="e.g. Juan">
             </div>
             <div class="form-group">
               <label class="form-label">Middle Name</label>
-              <input class="form-input" id="doc-mname" value="${doc.middleName || ''}">
+              <input class="form-input" id="doc-mname" value="${doc.middleName || ''}" placeholder="Middle name (optional)">
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Last Name</label>
-            <input class="form-input" id="doc-lname" value="${doc.lastName || ''}">
+            <input class="form-input" id="doc-lname" value="${doc.lastName || ''}" placeholder="e.g. Dela Cruz">
           </div>
             <div class="form-group">
               <label class="form-label">Phone Number</label>
-              <input class="form-input" id="doc-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${doc.contact || ''}">
+              <input class="form-input" id="doc-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${doc.contact || ''}" placeholder="e.g. 0912-345-6789">
             </div>
           <!-- Same credential fields as the admin's Edit User form (minus
                Display Order, a website-layout setting). Read-only here: these
@@ -5669,7 +5679,7 @@ function pagePatientDashboard() {
             onmouseout="this.style.background='rgba(255,255,255,.1)';this.style.borderColor='rgba(255,255,255,.18)';this.style.color='rgba(255,255,255,.85)';this.style.transform='translateY(0)'"
             onmousedown="this.style.transform='translateY(0)'"
             onmouseup="this.style.transform='translateY(-2px)'">
-            ${ic('calendar','icon-sm')} Doctor Availability
+            ${ic('stethoscope','icon-sm')} Our Doctors
           </button>
           <button onclick="window.navigate('patient-prescriptions')"
             style="display:flex;align-items:center;justify-content:center;gap:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:rgba(255,255,255,.85);padding:8px 14px;border-radius:8px;font-size:.8rem;font-weight:500;cursor:pointer;font-family:inherit;transition:background .18s ease,border-color .18s ease,transform .18s ease,color .18s ease"
@@ -6062,6 +6072,7 @@ function appointmentWizardHtml(mode) {
               <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#E8760A;display:inline-block"></span>Selected</span>
               <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#F3F4F6;display:inline-block"></span>Unavailable</span>
               <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFF1F2;border:1px solid #fda4af;display:inline-block"></span>PH Holiday</span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFEDD5;border:1px solid #FDBA74;display:inline-block"></span>Clinic Closed</span>
             </div>
             <div class="wiz-nav">
               ${isStaff ? '<span></span>' : `
@@ -6465,6 +6476,7 @@ function pagePatientAppts() {
                 <div class="pt-appt-act">
                   <button class="btn-icon" title="View Details" onclick="window.viewAppt('${a.id}')">${ic('eye','icon-sm')}</button>
                   ${(a.status==='pending'||a.status==='approved') ? `
+                    ${a.status==='pending' && apptReschedulable(a) ? `<button class="btn-icon" title="Edit Request" style="color:#D97706" onclick="window.requestReschedule('${a.id}')">${ic('edit','icon-sm')}</button>` : ''}
                     ${a.status==='approved' && !a.rescheduleRequest ? (apptReschedulable(a)
                       ? `<button class="btn-icon" title="Request Reschedule" style="color:#D97706" onclick="window.requestReschedule('${a.id}')">${ic('refresh-cw','icon-sm')}</button>`
                       : `<button class="btn-icon" title="Reschedule window has passed" style="color:#9CA3AF;opacity:.5;cursor:not-allowed" onclick="window.explainRescheduleDeadline()">${ic('refresh-cw','icon-sm')}</button>`) : ''}
@@ -6728,20 +6740,20 @@ function pageStaffSettings() {
           <div class="form-row-2">
             <div class="form-group">
               <label class="form-label">First Name</label>
-              <input class="form-input" id="st-fname" value="${staffMember.firstName || ''}">
+              <input class="form-input" id="st-fname" value="${staffMember.firstName || ''}" placeholder="e.g. Juan">
             </div>
             <div class="form-group">
               <label class="form-label">Middle Name</label>
-              <input class="form-input" id="st-mname" value="${staffMember.middleName || ''}">
+              <input class="form-input" id="st-mname" value="${staffMember.middleName || ''}" placeholder="Middle name (optional)">
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Last Name</label>
-            <input class="form-input" id="st-lname" value="${staffMember.lastName || ''}">
+            <input class="form-input" id="st-lname" value="${staffMember.lastName || ''}" placeholder="e.g. Dela Cruz">
           </div>
             <div class="form-group">
               <label class="form-label">Phone Number</label>
-              <input class="form-input" id="st-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${staffMember.contact || ''}">
+              <input class="form-input" id="st-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${staffMember.contact || ''}" placeholder="e.g. 0912-345-6789">
             </div>
           <div style="display:flex;justify-content:flex-end;margin-top:4px">
             <button class="btn-primary" onclick="window.saveUserProfile(this)">
@@ -7187,24 +7199,24 @@ function pagePatientSettings() {
           <div class="form-row-2">
             <div class="form-group">
               <label class="form-label">First Name</label>
-              <input type="text" class="form-input" value="${patient?.firstName || user.firstName}" id="sett-first">
+              <input type="text" class="form-input" value="${patient?.firstName || user.firstName}" id="sett-first" placeholder="e.g. Juan">
             </div>
             <div class="form-group">
               <label class="form-label">Middle Name</label>
-              <input type="text" class="form-input" value="${patient?.middleName || user.middleName || ''}" id="sett-middle">
+              <input type="text" class="form-input" value="${patient?.middleName || user.middleName || ''}" id="sett-middle" placeholder="Middle name (optional)">
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Last Name</label>
-            <input type="text" class="form-input" value="${patient?.lastName || user.lastName}" id="sett-last">
+            <input type="text" class="form-input" value="${patient?.lastName || user.lastName}" id="sett-last" placeholder="e.g. Dela Cruz">
           </div>
           <div class="form-group">
             <label class="form-label">Contact Number</label>
-            <input type="text" class="form-input" id="sett-contact" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${patient?.contact || ''}">
+            <input type="text" class="form-input" id="sett-contact" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${patient?.contact || ''}" placeholder="e.g. 0912-345-6789">
           </div>
           <div class="form-group">
             <label class="form-label">Complete Address</label>
-            <input type="text" class="form-input" value="${patient?.address || ''}" id="sett-address">
+            <input type="text" class="form-input" value="${patient?.address || ''}" id="sett-address" placeholder="Street, barangay, city (optional)">
           </div>
           <div class="form-group">
             <label class="form-label">Occupation</label>
@@ -7411,7 +7423,7 @@ function pageComingSoon() {
       'exam-records':          'Examination Records',
       'doctor-schedule':       'My Schedule',
       'doctor-settings':       'Settings',
-      'doctor-availability':   'Doctor Availability',
+      'doctor-availability':   'Our Doctors',
       'patient-prescriptions': 'Prescriptions',
       'patient-exam-history':  'Examination History',
       'patient-notifications': 'Notifications',
@@ -7497,9 +7509,10 @@ function pagePatientDoctorAvail() {
       const dayAppts    = apptsByDate[dateStr] || []
       const avail       = (doctor.availableDays || []).includes(dayName)
       const isSel       = dateStr === selDate
-      const isHoliday   = !!phHolidays[dateStr]
-      const holidayName = phHolidays[dateStr] || ''
-      const blockedReason = blockedByDate[dateStr]
+      const closedReason = clinicClosedReason(dateStr)
+      const isHoliday   = !!closedReason || !!phHolidays[dateStr]
+      const holidayName = closedReason || phHolidays[dateStr] || ''
+      const blockedReason = closedReason ? '' : blockedByDate[dateStr]
       const isBlocked   = !!blockedReason
       const daysOut     = Math.round((new Date(viewYear, viewMonth, d) - new Date(baseYear, baseMonth, todayDate)) / 86400000)
       const tooSoon     = daysOut >= 0 && daysOut < minAdvanceDays()
@@ -7508,7 +7521,7 @@ function pagePatientDoctorAvail() {
       if (isSel)                          cls += ' cal-selected'
       else if (isToday)                   cls += ' today'
       else if (isBlocked && !isPast)      cls += ' date-blocked'
-      else if (isHoliday && !isPast)      cls += ' cal-holiday'
+      else if (isHoliday && !isPast)      cls += ' cal-holiday' + (closedReason ? ' cal-closed' : '')
       else if (isHoliday && isPast)       cls += ' blocked'
       // Past/out-of-range/too-soon dates fall here BEFORE the avail check
       // below — same priority order as the booking wizard's own calendar
@@ -7750,6 +7763,9 @@ function pagePatientDoctorAvail() {
               <div style="display:flex;align-items:center;gap:6px;font-size:.72rem;color:#6B7280">
                 <div style="width:10px;height:10px;background:#FFF1F2;border:1px solid #fda4af;border-radius:2px"></div>PH Holiday
               </div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:.72rem;color:#6B7280">
+                <div style="width:10px;height:10px;background:#FFEDD5;border:1px solid #FDBA74;border-radius:2px"></div>Clinic Closed
+              </div>
             </div>
           </div>
 
@@ -7786,8 +7802,8 @@ function pagePatientDoctorAvail() {
   return `
   <div class="page-header">
     <div class="page-header-left">
-      <h1 class="page-title">Doctor Availability</h1>
-      <p class="page-subtitle">View schedules and book an appointment with your preferred doctor</p>
+      <h1 class="page-title">Our Doctors</h1>
+      <p class="page-subtitle">See each doctor's schedule and book with the one you prefer</p>
     </div>
   </div>
   <div class="page-body">

@@ -52,7 +52,7 @@ const SIDEBAR_CONFIG = {
         { key: 'exam-records',     label: 'Examination Records' }
       ]
     },
-    { key: 'schedule',             label: 'Doctor Schedule',  icon: 'clock' },
+    { key: 'schedule',             label: 'Doctor Schedule',  icon: 'calendar-clock' },
     { key: 'admin-reports',        label: 'Reports',          icon: 'bar-chart' },
     { section: 'System' },
     { key: 'admin-users',          label: 'User Management',  icon: 'users',
@@ -97,7 +97,7 @@ const SIDEBAR_CONFIG = {
     },
     { key: 'patient-list',         label: 'Patients',         icon: 'id-card' },
     { key: 'exam-records',         label: 'Examination Records', icon: 'eye' },
-    { key: 'schedule',             label: 'Doctor Schedule',  icon: 'clock' },
+    { key: 'schedule',             label: 'Doctor Schedule',  icon: 'calendar-clock' },
     // No Reports for staff — reports and report generation are admin-only.
     { section: 'Account' },
     { key: 'staff-settings',       label: 'Settings',         icon: 'settings',
@@ -127,7 +127,7 @@ const SIDEBAR_CONFIG = {
       ]
     },
     { key: 'patient-list',         label: 'Patients',         icon: 'id-card' },
-    { key: 'doctor-schedule',      label: 'My Schedule',      icon: 'clock' },
+    { key: 'doctor-schedule',      label: 'My Schedule',      icon: 'calendar-clock' },
     { section: 'Account' },
     { key: 'doctor-settings',      label: 'Settings',         icon: 'settings',
       children: [
@@ -152,7 +152,7 @@ const SIDEBAR_CONFIG = {
         { key: 'patient-appts', filter: 'no-show',     label: 'No-show',     color: '#6D28D9' },
       ]
     },
-    { key: 'doctor-availability',  label: 'Doctor Availability', icon: 'user' },
+    { key: 'doctor-availability',  label: 'Our Doctors',         icon: 'stethoscope' },
     { key: 'patient-records',      label: 'My Records',       icon: 'file-text',
       children: [
         { key: 'patient-prescriptions',  label: 'Prescriptions' },
@@ -224,7 +224,7 @@ const PAGE_LABELS = {
   'patient-request-appt': 'Request Appointment',
   'patient-records':       'My Records',
   'patient-qr':            'My QR Code',
-  'doctor-availability':   'Doctor Availability',
+  'doctor-availability':   'Our Doctors',
   'patient-prescriptions': 'Prescriptions',
   'patient-exam-history':  'Examination History',
   'patient-consultations': 'Consultations',

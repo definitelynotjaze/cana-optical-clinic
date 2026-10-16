@@ -11,6 +11,7 @@
 //  action:'withdraw_reschedule_request' — patient takes back their own pending request
 //  action:'respond_reschedule'   → { accept, reason? } — patient answers a clinic-proposed new slot
 //  action:'withdraw_reschedule_proposal' — admin/staff cancel an unanswered proposal
+//  action:'change_pending'     → { date, time, doctorId?, notes? } — patient edits their own still-pending request
 //  action:'revert_no_show'     → { reason }  — admin/staff; no-show → approved
 //  action:'assign_doctor'      → { doctorId }  — admin/staff only, for
 //                                 "any available optometrist" requests
@@ -173,13 +174,14 @@ try {
             }
         }
 
-        // Patients can only cancel up to CANCEL_DEADLINE_HOURS before the
-        // appointment — mirrors the same window enforced client-side
-        // (pages.js's CANCEL_DEADLINE_HOURS) so a direct API call can't bypass it.
+        // Patients can cancel online right up to the appointment time — no
+        // 24-hour rule (no down payment to protect; cancelling beats a
+        // no-show). Only a visit whose time has passed is refused. Mirrors
+        // pages.js's CANCEL_DEADLINE_HOURS so a direct API call can't bypass it.
         if ($role === 'patient' && $newStatus === 'cancelled') {
             $apptDt = DateTime::createFromFormat('Y-m-d g:i A', $appt['date'] . ' ' . $appt['time']);
-            if ($apptDt && (time() > $apptDt->getTimestamp() - 24 * 3600)) {
-                jsonResponse(['success' => false, 'message' => "This appointment can no longer be cancelled online — cancellations require at least 24 hours' notice. Please call the clinic directly."]);
+            if ($apptDt && (time() > $apptDt->getTimestamp() - PATIENT_CHANGE_CUTOFF_HOURS * 3600)) {
+                jsonResponse(['success' => false, 'message' => "This appointment's time has already passed, so it can no longer be cancelled online. Please contact the clinic directly."]);
             }
         }
 
@@ -275,6 +277,9 @@ try {
         $fulfillRequest = !empty($b['fulfillRequest']);
         if (!$newDate || !$newTime) {
             jsonResponse(['success' => false, 'message' => 'Date and time are required.']);
+        }
+        if ($closed = clinicClosureOn($pdo, $newDate)) {
+            jsonResponse(['success' => false, 'message' => clinicClosedMessage($closed)]);
         }
         // A clinic-initiated move needs a reason for the patient's email;
         // fulfilling the patient's own request already has theirs.
@@ -382,17 +387,124 @@ try {
     }
 
     // ── Patient requests a reschedule ──────────────────────────────
+    // ── Patient: change the date/time of a still-PENDING request ────
+    // Nothing has been approved yet, so there's no reschedule round-trip:
+    // the new date/time simply replaces the old one and the request stays
+    // pending for the clinic to review. Same checks as a new booking
+    // (api/appointments/create.php), ignoring this appointment's own slot.
+    if ($action === 'change_pending') {
+        if ($role !== 'patient') {
+            jsonResponse(['success' => false, 'message' => 'Only the patient can change their own pending request.'], 403);
+        }
+        if ($appt['status'] !== 'pending') {
+            jsonResponse(['success' => false, 'message' => 'Only a pending request can be changed directly. For an approved appointment, request a reschedule instead.']);
+        }
+        $date = trim($b['date'] ?? '');
+        $time = trim($b['time'] ?? '');
+        $dt   = DateTime::createFromFormat('Y-m-d g:i A', $date . ' ' . $time);
+        if (!$dt || $dt->format('Y-m-d') !== $date) {
+            jsonResponse(['success' => false, 'message' => 'Please choose a valid date and time.']);
+        }
+        if ($dt->getTimestamp() <= time()) {
+            jsonResponse(['success' => false, 'message' => 'Please choose a date and time that hasn\'t passed.']);
+        }
+        if ($closed = clinicClosureOn($pdo, $date)) {
+            jsonResponse(['success' => false, 'message' => clinicClosedMessage($closed)]);
+        }
+        // Doctor: sent as '' for "Any available optometrist"; left out = unchanged.
+        $newDocId = array_key_exists('doctorId', $b) ? trim((string)$b['doctorId']) : (string)($appt['doctor_id'] ?? '');
+        $newDocName = null;
+        if ($newDocId !== '') {
+            $ds = $pdo->prepare("SELECT first_name, middle_name, last_name FROM doctors WHERE id = ? AND archived_at IS NULL AND status = 'active' LIMIT 1");
+            $ds->execute([$newDocId]);
+            $dr = $ds->fetch();
+            if (!$dr) jsonResponse(['success' => false, 'message' => 'That doctor is not available for booking. Please choose another.']);
+            $newDocName = trim('Dr. ' . $dr['first_name'] . _mi($dr['middle_name'] ?? '') . ' ' . $dr['last_name']);
+        }
+        $notes = array_key_exists('notes', $b) ? mb_substr(trim((string)$b['notes']), 0, 500) : (string)($appt['notes'] ?? '');
+
+        $docChanged   = $newDocId !== (string)($appt['doctor_id'] ?? '');
+        $whenChanged  = $date !== $appt['date'] || $time !== $appt['time'];
+        $notesChanged = $notes !== (string)($appt['notes'] ?? '');
+        if (!$docChanged && !$whenChanged && !$notesChanged) {
+            jsonResponse(['success' => false, 'message' => 'Nothing was changed.']);
+        }
+        $minDays = minAdvanceBookingDays($pdo);
+        $daysOut = (int)(new DateTime('today'))->diff(new DateTime($date))->format('%r%a');
+        if ($daysOut < $minDays) {
+            jsonResponse(['success' => false, 'message' => "Appointments must be booked at least {$minDays} day" . ($minDays === 1 ? '' : 's') . ' in advance.']);
+        }
+
+        $durStr = $pdo->query('SELECT default_duration FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn();
+        preg_match('/(\d+)/', $durStr ?: '45', $dm);
+        $durationMin = isset($dm[1]) ? (int)$dm[1] : 45;
+        $maxPerDay   = (int)($pdo->query('SELECT max_appts_per_doctor_per_day FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn() ?: 12);
+        $dayCount = function (string $docId) use ($pdo, $date, $id): int {
+            $s = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE doctor_id = ? AND date = ? AND id <> ? AND status NOT IN ('cancelled','disapproved')");
+            $s->execute([$docId, $date, $id]);
+            return (int)$s->fetchColumn();
+        };
+
+        $own = checkPatientApptConflict($pdo, (string)$appt['patient_id'], $date, $time, $durationMin, $id);
+        if ($own !== null) {
+            jsonResponse(['success' => false, 'message' => "You already have an appointment at {$own} on this date. Please choose a different time."]);
+        }
+
+        if ($newDocId !== '') {
+            $docId = $newDocId;
+            $bs = $pdo->prepare('SELECT reason FROM blocked_dates WHERE doctor_id = ? AND date = ? LIMIT 1');
+            $bs->execute([$docId, $date]);
+            if ($blocked = $bs->fetch()) {
+                jsonResponse(['success' => false, 'message' => 'This doctor is unavailable on the selected date' . ($blocked['reason'] ? " ({$blocked['reason']})" : '') . '. Please choose another date.']);
+            }
+            if ($problem = doctorScheduleProblem($pdo, $docId, $date, $time)) {
+                jsonResponse(['success' => false, 'message' => $problem]);
+            }
+            if ($dayCount($docId) >= $maxPerDay) {
+                jsonResponse(['success' => false, 'message' => 'This doctor is fully booked on the selected date. Please choose another date.']);
+            }
+            if (($conflict = checkApptConflict($pdo, $docId, $date, $time, $durationMin, $id)) !== null) {
+                jsonResponse(['success' => false, 'message' => "This time conflicts with an existing appointment at {$conflict}. Please choose a different slot."]);
+            }
+        } else {
+            // "Any available optometrist" — some doctor must be free then.
+            $free = false;
+            foreach (eligibleDoctorsForDate($pdo, $date, $time) as $doc) {
+                if ($dayCount($doc['id']) >= $maxPerDay) continue;
+                if (checkApptConflict($pdo, $doc['id'], $date, $time, $durationMin, $id) !== null) continue;
+                $free = true; break;
+            }
+            if (!$free) {
+                jsonResponse(['success' => false, 'message' => 'No doctor is available at that time. Please choose a different date or slot.']);
+            }
+        }
+
+        $pdo->prepare("UPDATE appointments SET date = ?, time = ?, doctor_id = ?, doctor_name = ?, notes = ? WHERE id = ? AND status = 'pending'")
+            ->execute([$date, $time, $newDocId !== '' ? $newDocId : null, $newDocName, $notes, $id]);
+
+        // The clinic reviews pending requests — tell them exactly what changed.
+        $fmt = fn($d, $t) => date('M j, Y', strtotime($d)) . " at {$t}";
+        $anyLbl = 'Any available optometrist';
+        $parts = [];
+        if ($docChanged)   $parts[] = 'doctor: ' . (($appt['doctor_name'] ?? '') ?: $anyLbl) . ' → ' . ($newDocName ?: $anyLbl);
+        if ($whenChanged)  $parts[] = 'schedule: ' . $fmt($appt['date'], $appt['time']) . ' → ' . $fmt($date, $time);
+        if ($notesChanged) $parts[] = 'notes updated';
+        notifyAdminStaff($pdo, 'new_appointment', 'Pending Request Updated',
+            "{$appt['patient_name']} updated their pending request (" . implode('; ', $parts) . ').', $id);
+
+        jsonResponse(['success' => true, 'date' => $date, 'time' => $time, 'doctorId' => $newDocId, 'doctorName' => $newDocName, 'notes' => $notes]);
+    }
+
     if ($action === 'request_reschedule') {
         if ($role !== 'patient') {
             jsonResponse(['success' => false, 'message' => 'Only patients may submit reschedule requests.'], 403);
         }
 
-        // Same 24h cutoff as cancellation (see the 'cancelled' branch above) —
-        // mirrors pages.js's RESCHEDULE_DEADLINE_HOURS so a direct API call
-        // can't bypass it.
+        // Same as cancellation (see the 'cancelled' branch above): allowed
+        // until the appointment time. Mirrors pages.js's RESCHEDULE_DEADLINE_HOURS.
         $apptDt = DateTime::createFromFormat('Y-m-d g:i A', $appt['date'] . ' ' . $appt['time']);
-        if ($apptDt && (time() > $apptDt->getTimestamp() - 24 * 3600)) {
-            jsonResponse(['success' => false, 'message' => "This appointment can no longer be rescheduled online — reschedule requests require at least 24 hours' notice. Please call the clinic directly."]);
+        if ($apptDt && (time() > $apptDt->getTimestamp() - PATIENT_CHANGE_CUTOFF_HOURS * 3600)) {
+            jsonResponse(['success' => false, 'message' => "This appointment's time has already passed, so it can no longer be rescheduled online. Please contact the clinic directly."]);
         }
 
         $reason   = trim($b['reason']        ?? '');
@@ -400,6 +512,9 @@ try {
         $prefTime = trim($b['preferredTime'] ?? '');
         if (!$reason) {
             jsonResponse(['success' => false, 'message' => 'Please provide a reason.']);
+        }
+        if ($prefDate && ($closed = clinicClosureOn($pdo, $prefDate))) {
+            jsonResponse(['success' => false, 'scheduleChanged' => true, 'message' => clinicClosedMessage($closed)]);
         }
         // The preferred slot must fit the doctor's current schedule (days,
         // hours, blocked dates) — the modal's slot list may be stale.
@@ -482,6 +597,9 @@ try {
         $newWhen  = date('M j, Y', strtotime($prop['date'])) . " at {$prop['time']}";
 
         if ($accept) {
+            if ($closed = clinicClosureOn($pdo, $prop['date'])) {
+                jsonResponse(['success' => false, 'message' => 'The clinic has since closed on that date' . ($closed['reason'] ? " ({$closed['reason']})" : '') . '. Please contact the clinic for a new time.']);
+            }
             $propDt = DateTime::createFromFormat('Y-m-d g:i A', $prop['date'] . ' ' . $prop['time']);
             if ($propDt && $propDt->getTimestamp() <= time()) {
                 $pdo->prepare('UPDATE appointments SET reschedule_proposal = NULL WHERE id = ?')->execute([$id]);

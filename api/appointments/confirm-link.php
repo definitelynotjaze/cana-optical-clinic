@@ -79,7 +79,7 @@ switch ($state) {
     case 'ask':
         $icon = '?'; $tone = 'orange';
         $title = 'Confirm your appointment';
-        // Online cancel/reschedule closes 24h before the visit — only offer
+        // Online cancel/reschedule stays open until the visit time — only offer
         // the account link while it's still open; otherwise point to the clinic.
         $apptTs   = apptTimestamp($appt);
         $canClose = $apptTs !== null && time() < $apptTs - PATIENT_CHANGE_CUTOFF_HOURS * 3600;

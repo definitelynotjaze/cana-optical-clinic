@@ -69,6 +69,11 @@ if (!in_array($status, $allowedStatus, true)) $status = 'pending';
 try {
     $pdo = getDB();
 
+    // Clinic closed that day (api/clinic/closures.php) — no bookings by anyone.
+    if ($closed = clinicClosureOn($pdo, $date)) {
+        jsonResponse(['success' => false, 'message' => clinicClosedMessage($closed)]);
+    }
+
     // Patients with repeated no-shows lose self-service booking — they have
     // to go through the clinic directly instead. Checked first since there's
     // no point validating anything else if this blocks the request outright.

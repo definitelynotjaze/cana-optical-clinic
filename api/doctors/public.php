@@ -66,6 +66,11 @@ try {
         }
     } catch (PDOException) { /* table not yet migrated — skip */ }
 
+    // Clinic-wide closures show as a blocked date for every doctor, so all
+    // calendars grey them out. Flagged clinicClosure so they can't be
+    // unblocked per doctor (managed in Clinic Closures instead).
+    $closures = upcomingClinicClosures($pdo);
+
     $dayHoursMap = doctorDayHoursMap($pdo);
 
     $seen    = [];
@@ -92,7 +97,12 @@ try {
             'available'      => (bool)$r['available'],
             'status'         => $r['status'],
             'photoUrl'       => $photoMap[(int)$r['user_id']] ?? null,
-            'blockedDates'   => $blockedMap[$r['id']] ?? [],
+            'blockedDates'   => (function () use ($blockedMap, $closures, $r) {
+            $list = array_values(array_filter($blockedMap[$r['id']] ?? [], fn($b) => !isset($closures[$b['date']])));
+            foreach ($closures as $cd => $cr) $list[] = ['date' => $cd, 'reason' => 'Clinic closed' . ($cr ? ': ' . $cr : ''), 'clinicClosure' => true, 'closureReason' => $cr];
+            usort($list, fn($a, $b) => strcmp($a['date'], $b['date']));
+            return $list;
+        })(),
         ];
     }
 

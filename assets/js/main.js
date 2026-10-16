@@ -54,6 +54,10 @@ function icon(name, cls = 'icon') {
     calendar:      '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
     users:         '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     user:          '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    // Calendar with a clock — Doctor Schedule / My Schedule sidebar items.
+    'calendar-clock': '<path d="M21 10V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="12" y2="10"/><circle cx="17" cy="17" r="5"/><polyline points="17 15 17 17 18.5 18"/>',
+    // Stethoscope — the patient's "Our Doctors" sidebar item.
+    stethoscope:   '<path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><line x1="5" y1="2" x2="5" y2="4"/><line x1="11" y1="2" x2="11" y2="4"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
     // Patient card (a person on an ID card) — the Patients sidebar item.
     'id-card':     '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10.5" r="2.5"/><path d="M5.5 17a3.5 3.5 0 0 1 7 0"/><line x1="15" y1="9" x2="18.5" y2="9"/><line x1="15" y1="13" x2="18.5" y2="13"/>',
     'user-x':      '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="18" y1="8" x2="23" y2="13"/><line x1="23" y1="8" x2="18" y2="13"/>',
@@ -2960,6 +2964,64 @@ function _patientHasAccount(patientId) {
   return !!(patients.find(p => p.id === patientId)?.email)
 }
 
+// ════════════════════════════════════════════════════════════════
+//  REASON PICKER — common reasons in a dropdown + "Other (please specify)",
+//  like Shopee's cancel flow: one tap instead of typing, and reasons worded
+//  the same every time (so they can be counted later). Only "Other" opens
+//  a (required) text box to specify the reason.
+//  Drop-in for the old reason <textarea>: the hidden input keeps the SAME
+//  id and holds the final text ("Doctor unavailable: seminar until Fri"),
+//  so every existing read/validation of that id keeps working, and an
+//  'input' event fires on it whenever it changes (for listeners that
+//  enable a submit button).
+// ════════════════════════════════════════════════════════════════
+const REASON_PRESETS = {
+  patientCancel:     ['Schedule conflict', 'Feeling unwell', 'Personal or family matter', 'Transportation issue', 'Booked by mistake', 'Will book another date'],
+  patientReschedule: ['Schedule conflict', 'Feeling unwell', 'Personal or family matter', 'Transportation issue'],
+  patientDecline:    ["The new time doesn't work for me", 'I prefer my original schedule', "I'd like a different date"],
+  patientDelete:     ['I no longer need the account', 'Moving to another clinic', 'Privacy concerns', 'Duplicate account'],
+  clinicCancel:      ['Doctor unavailable', 'Clinic closed (holiday or emergency)', 'Patient requested by phone', 'Duplicate booking'],
+  clinicDisapprove:  ['Selected time is fully booked', 'Doctor unavailable on that date', 'Duplicate request', 'Incomplete or invalid details'],
+  clinicReschedule:  ['Doctor unavailable', "Doctor's schedule changed", 'Clinic closed', 'Overlapping appointment'],
+  clinicDeclineResched: ['Requested time is unavailable', 'Doctor unavailable then', 'Too close to the appointment'],
+  blockDate:         ['Leave or vacation', 'Seminar or training', 'Holiday', 'Sick leave'],
+  revertNoShow:      ['Patient was seen, exam not saved', 'Marked by mistake', 'Patient arrived late but was seen'],
+  archivePatient:    ['Duplicate record', 'Requested account deletion', 'Inactive or test record'],
+  archiveAccount:    ['Staff left the clinic', 'Duplicate account', 'Requested account deletion', 'Test account'],
+  archiveService:    ['No longer offered', 'Merged with another service', 'Temporarily unavailable'],
+  clinicClosure:     ['Holiday', 'Clinic outing or team building', 'Emergency', 'Power or water interruption', 'Bad weather', 'Renovation or maintenance'],
+}
+function reasonFieldHtml(id, presetKey, { oninput = '' } = {}) {
+  const opts = [...(REASON_PRESETS[presetKey] || []), 'Other']
+    .map(v => ({ value: v, label: v === 'Other' ? 'Other (please specify)' : v }))
+  return `
+    <div class="rsn-field">
+      ${window.selectFieldHtml(id + '-preset', { value: '', placeholder: 'Select a reason', options: opts, onchange: `window._rsnCompose('${id}')` })}
+      <textarea id="${id}-detail" class="form-textarea rsn-detail" rows="2" maxlength="400" style="display:none;resize:none;margin-top:8px"
+                placeholder="Please specify the reason" oninput="window._rsnCompose('${id}')"></textarea>
+      <input type="hidden" id="${id}" value=""${oninput ? ` oninput="${esc(oninput)}"` : ''}>
+    </div>`
+}
+window.reasonFieldHtml = reasonFieldHtml
+window._rsnCompose = id => {
+  const preset = document.getElementById(id + '-preset')?.value || ''
+  const ta     = document.getElementById(id + '-detail')
+  const out    = document.getElementById(id)
+  if (!out) return
+  const other  = preset === 'Other'
+  // The text box only opens for "Other" — a preset is a complete reason in
+  // one tap. Switching back to a preset folds it away and drops its text.
+  if (ta) {
+    const wasHidden = ta.style.display === 'none'
+    ta.style.display = other ? '' : 'none'
+    ta.placeholder   = 'Please specify the reason'
+    if (!other) ta.value = ''
+    if (other && wasHidden) setTimeout(() => ta.focus(), 30)
+  }
+  out.value = other ? (ta?.value || '').trim() : preset
+  out.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 function rescheduleAppt(id) {
   const a = appointments.find(a => a.id === id)
   if (!a) return
@@ -3053,6 +3115,7 @@ function rescheduleAppt(id) {
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#F3F4F6;display:inline-block"></span>Unavailable</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FEE2E2;border:1px solid #FCA5A5;display:inline-block"></span>Doctor Unavailable</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFF1F2;border:1px solid #fda4af;display:inline-block"></span>PH Holiday</span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFEDD5;border:1px solid #FDBA74;display:inline-block"></span>Clinic Closed</span>
         </div>
       </div>
       <div class="form-group"><label class="form-label">New Time</label>
@@ -3067,7 +3130,7 @@ function rescheduleAppt(id) {
       <div class="form-group" style="margin-bottom:0"><label class="form-label">${fulfillingRequest
           ? 'Note to Patient <span style="font-size:.75rem;color:#9CA3AF">(optional)</span>'
           : 'Reason for Reschedule <span style="color:#DC2626">*</span>'}</label>
-        <textarea id="re-note" class="form-textarea" rows="2" placeholder="${fulfillingRequest ? 'e.g. Your preferred slot was taken, so we booked the next available time…' : 'e.g. Doctor unavailable on the original date, clinic closed for a holiday…'}" style="resize:none"></textarea></div>
+        ${fulfillingRequest ? `<textarea id="re-note" class="form-textarea" rows="2" placeholder="e.g. Your preferred slot was taken, so we booked the next available time…" style="resize:none"></textarea>` : reasonFieldHtml('re-note', 'clinicReschedule')}</div>
       ${!fulfillingRequest && _patientHasAccount(a.patientId) ? `
       <!-- Clinic-initiated move of a patient with an account: they're asked
            to accept the new schedule first (respond_reschedule), unless they
@@ -3380,6 +3443,7 @@ function openFollowUpPicker() {
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#F3F4F6;display:inline-block"></span>Unavailable</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FEE2E2;border:1px solid #FCA5A5;display:inline-block"></span>Doctor Unavailable</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFF1F2;border:1px solid #fda4af;display:inline-block"></span>PH Holiday</span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFEDD5;border:1px solid #FDBA74;display:inline-block"></span>Clinic Closed</span>
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0"><label class="form-label">Time</label>
@@ -3458,7 +3522,7 @@ function _rsSlotConflicts(slotTime, slotDur) {
 let _rsCal = { doctorId: '', apptId: '', year: 0, month: 0, selectedDate: '', time: '' }
 
 function rsCalRender() {
-  const doctor = doctors.find(d => d.id === _rsCal.doctorId)
+  const doctor = _rsDoctorObj()
   const lbl = document.getElementById('rs-cal-month-label')
   if (lbl) lbl.textContent = new Date(_rsCal.year, _rsCal.month, 1).toLocaleDateString('en-PH', { month:'long', year:'numeric' })
   const grid = document.getElementById('rs-cal-cells')
@@ -3619,16 +3683,28 @@ function requestReschedule(id) {
   // that blocks a real reschedule request.
   if (state.role === 'patient' && !apptReschedulable(a)) { explainRescheduleDeadline(); return }
 
+  // A still-pending request isn't confirmed yet, so the patient just edits
+  // its date/time directly (no reason, no approval round-trip) — it stays
+  // pending for the clinic to review. Approved ones go through a request.
+  const editPending = state.role === 'patient' && a.status === 'pending'
+
   _rsTakenSlotTimes = []
   _rsTakenSlotDur   = _durationMinutes(consultationSettings.defaultDuration)
   const now = new Date()
   _rsCal = { doctorId: a.doctorId, apptId: id, year: now.getFullYear(), month: now.getMonth(), selectedDate: '', time: '' }
+  if (editPending) {
+    // Start from the request as it is now; any part can be changed.
+    const cur = new Date(a.date + 'T00:00:00')
+    if (!isNaN(cur) && cur >= new Date(now.getFullYear(), now.getMonth(), 1)) { _rsCal.year = cur.getFullYear(); _rsCal.month = cur.getMonth() }
+    _rsCal.doctorId = a.doctorId || ''
+    _rsCal.allowAny = true
+  }
 
   const fmtD = d => { const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' }) }
 
   showModal(`
     <div class="modal-header">
-      <div class="modal-title">Request Reschedule</div>
+      <div class="modal-title">${editPending ? 'Edit Request' : 'Request Reschedule'}</div>
       <button class="modal-close" onclick="window.closeModal()">&times;</button>
     </div>
     <div class="modal-body">
@@ -3677,14 +3753,25 @@ function requestReschedule(id) {
       </style>
       <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:12px;margin-bottom:14px;font-size:.84rem">
         <div style="font-weight:600;color:#1a1a1a">${a.type}</div>
-        <div style="color:#6B7280;margin-top:2px">Currently: ${fmtD(a.date)} at ${a.time} · ${a.doctorName}</div>
+        <div style="color:#6B7280;margin-top:2px">Currently: ${fmtD(a.date)} at ${a.time} · ${a.doctorName || 'Any available optometrist'}</div>
       </div>
+      ${editPending ? `
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#F9FAFB;border:1px solid #F0F0F2;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.8rem;color:#4B5563;line-height:1.5">
+        <span style="flex-shrink:0;display:flex;margin-top:2px;color:#E8760A">${icon('info','icon-sm')}</span>
+        <span>Your request hasn't been approved yet, so you can change it directly: the doctor, date, time or notes. It stays pending until the clinic reviews it.</span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Doctor</label>
+        ${window.selectFieldHtml('rs-doctor', { value: a.doctorId || '', onchange: 'window._rsDoctorChange(this.value)',
+          options: [{ value: '', label: 'Any available optometrist' }, ...doctors.filter(d => d.available !== false).map(d => ({ value: d.id, label: d.name }))] })}
+        <div style="font-size:.72rem;color:#9CA3AF;margin-top:5px">Changing the doctor updates the available days and times below.</div>
+      </div>` : `
       <div class="form-group">
         <label class="form-label">Reason for Reschedule <span style="color:#DC2626">*</span></label>
-        <textarea id="rs-reason" class="form-textarea" rows="3" placeholder="e.g. Schedule conflict, unable to attend, medical emergency…" style="resize:none"></textarea>
-      </div>
+        ${reasonFieldHtml('rs-reason', 'patientReschedule')}
+      </div>`}
       <div class="form-group">
-        <label class="form-label">Preferred New Date <span style="color:#DC2626">*</span></label>
+        <label class="form-label">${editPending ? 'New Date' : 'Preferred New Date'} <span style="color:#DC2626">*</span></label>
         <input type="hidden" id="rs-date" value="">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <button type="button" class="btn-icon" id="rs-cal-prev" onclick="window.rsCalGoMonth(-1)">${icon('chevron-left','icon-sm')}</button>
@@ -3700,22 +3787,99 @@ function requestReschedule(id) {
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#F3F4F6;display:inline-block"></span>Unavailable</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FEE2E2;border:1px solid #FCA5A5;display:inline-block"></span>Doctor Unavailable</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFF1F2;border:1px solid #fda4af;display:inline-block"></span>PH Holiday</span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFEDD5;border:1px solid #FDBA74;display:inline-block"></span>Clinic Closed</span>
         </div>
       </div>
       <div class="form-group" id="rs-time-group" style="display:none">
-        <label class="form-label">Preferred Time <span style="color:#DC2626">*</span></label>
+        <label class="form-label">${editPending ? 'New Time' : 'Preferred Time'} <span style="color:#DC2626">*</span></label>
         <div id="rs-time-slots"></div>
         ${slotLegendHtml({ mineLabel: "Booked by you", showPast: true })}
         <input type="hidden" id="rs-time" value="">
       </div>
+      ${editPending ? `
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Notes <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
+        <textarea id="rs-notes" class="form-textarea" rows="2" maxlength="500" style="resize:none" placeholder="Anything the clinic should know, e.g. I wear contact lenses">${esc(a.notes || '')}</textarea>
+      </div>` : ''}
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
-      <button class="btn-primary" id="rs-submit-btn" onclick="window.doRequestReschedule('${id}')">Submit Request</button>
+      <button class="btn-primary" id="rs-submit-btn" onclick="window.${editPending ? 'doChangePending' : 'doRequestReschedule'}('${id}')">${editPending ? 'Save Changes' : 'Submit Request'}</button>
     </div>`, 'modal-xl')
 
   rsCalRender()
+  if (editPending && a.date >= localDateStr()) _rsPreselect(a.date, a.time)
 }
+
+// Selects a date (and, if it's still offered, a time) in the open picker.
+async function _rsPreselect(date, time) {
+  _rsCal.selectedDate = date
+  const inp = document.getElementById('rs-date'); if (inp) inp.value = date
+  rsCalRender()
+  await rsOnDateChange(_rsCal.doctorId, _rsCal.apptId)
+  if (!time) return
+  const btn = Array.from(document.querySelectorAll('#rs-time-slots .time-slot')).find(b => b.textContent.trim() === time && !b.disabled)
+  if (btn) rsSelectTime(time, btn)
+}
+
+// Edit Request: another doctor (or "any") changes which days and times are
+// offered — keep the picked date if that doctor works it, then re-check times.
+window._rsDoctorChange = docId => {
+  _rsCal.doctorId = docId || ''
+  const date = _rsCal.selectedDate, time = _rsCal.time
+  const doc  = _rsDoctorObj()
+  const day  = date ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(date + 'T00:00:00').getDay()] : ''
+  const fits = date && (doc?.availableDays || []).includes(day) && !(doc?.blockedDates || []).some(b => b.date === date)
+  if (fits) { _rsPreselect(date, time) }
+  else {
+    _rsCal.selectedDate = ''; _rsCal.time = ''
+    const d = document.getElementById('rs-date'); if (d) d.value = ''
+    const t = document.getElementById('rs-time'); if (t) t.value = ''
+    const g = document.getElementById('rs-time-group'); if (g) g.style.display = 'none'
+    rsCalRender()
+    if (date) toast('That doctor isn\'t available on your previous date. Please pick a new date.', 'info')
+  }
+}
+
+// The doctor whose schedule the picker follows. For "Any available
+// optometrist" (Edit Request only): any day at least one doctor works.
+function _rsDoctorObj() {
+  if (_rsCal.doctorId) return doctors.find(d => d.id === _rsCal.doctorId)
+  if (!_rsCal.allowAny) return undefined
+  const days = new Set()
+  doctors.filter(d => d.available !== false).forEach(d => (d.availableDays || d.days || []).forEach(x => days.add(x)))
+  return { availableDays: [...days], blockedDates: [] }
+}
+
+// Saves the patient's edits to their still-pending request (doctor, date,
+// time, notes) — api/appointments/update.php, action 'change_pending'.
+async function doChangePending(id) {
+  const a = appointments.find(a => a.id === id)
+  if (!a) return
+  const date = document.getElementById('rs-date')?.value || ''
+  const time = document.getElementById('rs-time')?.value || ''
+  if (!date) { toast('Please select a date.', 'error'); return }
+  if (!time) { toast('Please select a time.', 'error'); return }
+  const doctorId = document.getElementById('rs-doctor')?.value ?? (a.doctorId || '')
+  const notes    = (document.getElementById('rs-notes')?.value || '').trim()
+  if (date === a.date && time === a.time && doctorId === (a.doctorId || '') && notes === (a.notes || '').trim()) {
+    toast('Nothing was changed.', 'info'); return
+  }
+  const btn = document.getElementById('rs-submit-btn')
+  if (_btnBusy(btn, 'primary', 'Saving…')) return
+  const d = await _apptUpdate({ id, action: 'change_pending', date, time, doctorId, notes })
+  if (!d) { _btnIdle(btn); return }
+  const before = `${a.date} at ${a.time} · ${a.doctorName || 'Any available optometrist'}`
+  a.date = date; a.time = time; a.notes = d.notes ?? notes
+  a.doctorId = d.doctorId || ''; a.doctorName = d.doctorName || ''
+  addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
+    action: `Edited pending request ${id}: ${before} → ${date} at ${time} · ${a.doctorName || 'Any available optometrist'}`,
+    timestamp: nowTimestamp(), type:'appointment' })
+  closeModal()
+  toast('Request updated. It\'s still pending the clinic\'s review.')
+  renderPage()
+}
+window.doChangePending = doChangePending
 
 async function doRequestReschedule(id) {
   const a = appointments.find(a => a.id === id)
@@ -3764,7 +3928,7 @@ function dismissRescheduleRequest(id) {
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">Reason <span style="color:#DC2626">*</span></label>
-        <textarea id="dismiss-rs-reason" class="form-textarea" rows="3" placeholder="e.g. No available slot on the preferred date, doctor unavailable…" style="resize:none"></textarea>
+        ${reasonFieldHtml('dismiss-rs-reason', 'clinicDeclineResched')}
       </div>
     </div>
     <div class="modal-footer">
@@ -3831,7 +3995,7 @@ function declineRescheduleProposal(id) {
       <p style="font-size:.85rem;color:#6B7280;line-height:1.6;margin:0 0 14px">Your appointment stays on <strong style="color:#1C1C1C">${fmtDate(a.date)} at ${esc(a.time)}</strong>. The clinic will be told you declined the new time.</p>
       <div class="form-group" style="margin:0">
         <label class="form-label">Reason <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
-        <textarea id="decline-prop-reason" class="form-textarea" rows="3" style="resize:none" placeholder="e.g. I can't make the new time, but the original still works for me."></textarea>
+        ${reasonFieldHtml('decline-prop-reason', 'patientDecline')}
       </div>
     </div>
     <div class="modal-footer">
@@ -4037,7 +4201,8 @@ function viewAppt(id) {
       <!-- Patient did attend, but the exam wasn't saved before the date
            passed, so it auto-flipped to no-show (confirmRevertNoShow()). -->
       <button class="btn-secondary btn-revert-noshow" onclick="window.confirmRevertNoShow('${a.id}')">${icon('rotate-ccw','icon-sm')} Revert No-Show</button>` : ''}` :
-    isActive ? (patientCanCancel
+    isActive ? (a.status === 'pending' && patientCanCancel
+      ? `<button class="btn-secondary" onclick="window.closeModal();window.requestReschedule('${a.id}')">${icon('edit','icon-sm')} Edit Request</button>` : '') + (patientCanCancel
       ? `<button class="btn-danger" onclick="window.confirmCancelAppt('${a.id}')">Cancel Appointment</button>`
       : `<button class="btn-danger" disabled style="opacity:.45;cursor:not-allowed" title="Cancellation window has passed">Cancel Appointment</button>`
     ) : ''
@@ -4094,10 +4259,10 @@ function viewAppt(id) {
         </div>
         <button class="btn-primary" style="font-size:.78rem;padding:6px 14px;flex-shrink:0" onclick="window.closeModal();window.openAssignDoctorModal('${a.id}')">Assign Doctor</button>
       </div>` : ''}
-      ${a.notes ? `<div style="background:#F9FAFB;border-radius:6px;padding:10px;margin-bottom:14px;min-width:0">
+      <div style="background:#F9FAFB;border-radius:6px;padding:10px;margin-bottom:14px;min-width:0">
         <div style="font-size:.68rem;color:#9CA3AF;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Notes</div>
-        <div style="font-size:.84rem;overflow-wrap:anywhere;word-break:break-word">${a.notes}</div>
-      </div>` : ''}
+        <div style="font-size:.84rem;overflow-wrap:anywhere;word-break:break-word">${a.notes ? esc(a.notes) : window.emptyVal('No notes added')}</div>
+      </div>
       ${a.cancellationReason ? `<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px;margin-bottom:14px;min-width:0">
         <div style="font-size:.72rem;font-weight:700;color:#991B1B;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Cancellation Reason</div>
         <div style="font-size:.84rem;color:#374151;overflow-wrap:anywhere;word-break:break-word">${a.cancellationReason}</div>
@@ -4995,14 +5160,14 @@ window.filterApptTable = filterApptTable
 // Shown when a patient tries to cancel an appointment that's already inside
 // the cancellation deadline window (e.g. clicking a disabled cancel button).
 function explainCancelDeadline() {
-  toast(`This appointment can no longer be cancelled online, cancellations require at least ${CANCEL_DEADLINE_HOURS} hours notice. Please message or call the clinic directly.`, 'error')
+  toast("This appointment's time has already passed, so it can no longer be cancelled online. Please message or call the clinic directly.", 'error')
 }
 window.explainCancelDeadline = explainCancelDeadline
 
 // Shown when a patient tries to request a reschedule too close to the
 // appointment (e.g. clicking a disabled reschedule button).
 function explainRescheduleDeadline() {
-  toast(`This appointment can no longer be rescheduled online, reschedule requests require at least ${RESCHEDULE_DEADLINE_HOURS} hours notice. Please message or call the clinic directly.`, 'error')
+  toast("This appointment's time has already passed, so it can no longer be rescheduled online. Please message or call the clinic directly.", 'error')
 }
 window.explainRescheduleDeadline = explainRescheduleDeadline
 
@@ -5034,7 +5199,7 @@ function confirmCancelAppt(id) {
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">Reason for Cancellation <span style="color:#DC2626">*</span></label>
-        <textarea id="cancel-reason" class="form-textarea" rows="3" placeholder="${isPatient ? 'e.g. Schedule conflict, personal emergency, feeling better…' : 'e.g. Doctor unavailable, clinic closure, scheduling conflict…'}" style="resize:none"></textarea>
+        ${reasonFieldHtml('cancel-reason', isPatient ? 'patientCancel' : 'clinicCancel')}
       </div>
     </div>
     <div class="modal-footer">
@@ -5138,8 +5303,7 @@ function confirmRevertNoShow(id) {
       <div id="revert-ns-draft"></div>
       <div class="form-group" style="margin:0">
         <label class="form-label">Reason <span style="color:#DC2626">*</span></label>
-        <textarea id="revert-ns-reason" class="form-textarea" rows="3" style="resize:none"
-                  placeholder="e.g. Patient was seen; the doctor's exam wasn't saved because of a connection problem."></textarea>
+        ${reasonFieldHtml('revert-ns-reason', 'revertNoShow')}
       </div>
     </div>
     <div class="modal-footer">
@@ -5383,7 +5547,7 @@ function confirmDisapproveAppt(id) {
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">Reason for Disapproval <span style="color:#DC2626">*</span></label>
-        <textarea id="disapprove-reason" class="form-textarea" rows="3" placeholder="e.g. Slot unavailable, doctor on leave, scheduling conflict…" style="resize:none"></textarea>
+        ${reasonFieldHtml('disapprove-reason', 'clinicDisapprove')}
       </div>
     </div>
     <div class="modal-footer">
@@ -6203,9 +6367,12 @@ function _buildRescheduleCalCells(doctor, year, month, selectedDate, onSelectFn,
     const isFar     = enforceAdvanceWindow && new Date(year, month, d) > maxDate
     const isSun     = dow === 0
     const isSel     = dateStr === selectedDate
-    const isHoliday = !!phHolidays[dateStr]
-    const holidayName   = phHolidays[dateStr] || ''
-    const blockedReason = blockedMap[dateStr]
+    // A clinic-wide closure shows like a holiday (orange, its reason as the
+    // label) instead of the doctor-blocked red.
+    const closedReason = clinicClosedReason(dateStr)
+    const isHoliday = !!closedReason || !!phHolidays[dateStr]
+    const holidayName   = closedReason || phHolidays[dateStr] || ''
+    const blockedReason = closedReason ? '' : blockedMap[dateStr]
     const isBlocked = !!blockedReason
     const docAvail  = (doctor?.availableDays || []).includes(dayNames[dow])
     const daysOut   = Math.round((new Date(year, month, d) - new Date(todayY, todayM, todayD)) / 86400000)
@@ -6215,7 +6382,7 @@ function _buildRescheduleCalCells(doctor, year, month, selectedDate, onSelectFn,
     let cls = 'amc-day'
     if (isToday)                      cls += ' amc-today'
     else if (isBlocked && !isPast)    cls += ' amc-blocked'
-    else if (isHoliday && !isPast)    cls += ' amc-holiday'
+    else if (isHoliday && !isPast)    cls += ' amc-holiday' + (closedReason ? ' amc-closed' : '')
     else if (docAvail && !isDisabled) cls += ' amc-avail'
     if (isSel) cls += ' amc-selected'
     if (isDisabled) cls += ' amc-past'
@@ -6306,9 +6473,10 @@ function amcRender() {
     const isFar     = _wiz.mode !== 'staff' && new Date(year, month, d) > maxDate
     const isSun     = dow === 0
     const isSel     = dateStr === _wiz.selectedDate
-    const isHoliday = !!phHolidays[dateStr]
-    const holidayName = phHolidays[dateStr] || ''
-    const blockedReason = blockedMap[dateStr]
+    const closedReason = clinicClosedReason(dateStr)
+    const isHoliday = !!closedReason || !!phHolidays[dateStr]
+    const holidayName = closedReason || phHolidays[dateStr] || ''
+    const blockedReason = closedReason ? '' : blockedMap[dateStr]
     const isBlocked = !!blockedReason
     const daysOut   = Math.round((new Date(year, month, d) - new Date(todayY, todayM, todayD)) / 86400000)
     // Staff/admin booking on a patient's behalf (e.g. a walk-in) retain the
@@ -6352,7 +6520,7 @@ function amcRender() {
     // below either way, this only changes how it's colored/labeled.
     let cls = 'amc-day'
     if (isToday)                                     cls += ' amc-today'
-    else if (isHoliday && !isPast)                   cls += ' amc-holiday'
+    else if (isHoliday && !isPast)                   cls += ' amc-holiday' + (closedReason ? ' amc-closed' : '')
     else if (docAvail && !isDisabled && !isFar)      cls += ' amc-avail'
     else                                              cls += ' amc-unavailable'
     if (isSel) cls += ' amc-selected'
@@ -7635,20 +7803,20 @@ function editUserModal(id, role) {
     <div class="modal-body">
       <div class="form-row-2">
         <div class="form-group"><label class="form-label">First Name <span class="req">*</span></label>
-          <input id="eu-first" class="form-input" value="${u.firstName || ''}"></div>
+          <input id="eu-first" class="form-input" value="${u.firstName || ''}" placeholder="e.g. Juan"></div>
         <div class="form-group"><label class="form-label">Middle Name <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
-          <input id="eu-middle" class="form-input" value="${u.middleName || ''}"></div>
+          <input id="eu-middle" class="form-input" value="${u.middleName || ''}" placeholder="Middle name (optional)"></div>
       </div>
       <div class="form-group"><label class="form-label">Last Name <span class="req">*</span></label>
-        <input id="eu-last" class="form-input" value="${u.lastName || ''}"></div>
+        <input id="eu-last" class="form-input" value="${u.lastName || ''}" placeholder="e.g. Dela Cruz"></div>
       <div class="form-group"><label class="form-label">Email <span class="req">*</span></label>
-        <input id="eu-email" type="email" class="form-input" value="${u.email || ''}"></div>
+        <input id="eu-email" type="email" class="form-input" value="${u.email || ''}" placeholder="e.g. juan@email.com"></div>
       <div class="form-group"><label class="form-label">Contact <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
-        <input id="eu-contact" class="form-input" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${u.contact || ''}"></div>
+        <input id="eu-contact" class="form-input" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${u.contact || ''}" placeholder="e.g. 0912-345-6789"></div>
       ${role === 'Doctor' ? `
       <div class="form-row-2">
         <div class="form-group"><label class="form-label">Specialization</label>
-          <input id="eu-specialization" class="form-input" value="${(u.specialization || 'Optometrist').replace(/"/g,'&quot;')}"></div>
+          <input id="eu-specialization" class="form-input" value="${(u.specialization || 'Optometrist').replace(/"/g,'&quot;')}" placeholder="e.g. Optometrist"></div>
         <div class="form-group"><label class="form-label">Degree</label>
           <input id="eu-degree" class="form-input" placeholder="e.g. OD, MD" value="${(u.degree || 'OD').replace(/"/g,'&quot;')}"></div>
       </div>
@@ -7904,9 +8072,7 @@ function archiveUserConfirm(id, name) {
       <p style="font-size:.88rem;color:#6b7280;margin-bottom:16px">Are you sure you want to archive this account? It will be removed from active lists but the data will be preserved.</p>
       <div class="form-group" style="margin:0">
         <label class="form-label">Reason for Archiving <span class="req">*</span></label>
-        <textarea id="archive-reason-user" class="form-textarea" style="border-radius:8px;min-height:80px"
-                  placeholder="Please provide a reason for archiving…"
-                  oninput="document.getElementById('do-archive-user-btn').disabled=!this.value.trim()"></textarea>
+        ${reasonFieldHtml('archive-reason-user', 'archiveAccount')}
       </div>
     </div>
     <div class="modal-footer">
@@ -8290,12 +8456,12 @@ function openEditPatientModal(patientId) {
     <div class="modal-body">
       <div class="form-row-2">
         <div class="form-group"><label class="form-label">First Name <span class="req">*</span></label>
-          <input id="ep-first" class="form-input" value="${p.firstName}"></div>
+          <input id="ep-first" class="form-input" value="${p.firstName}" placeholder="e.g. Juan"></div>
         <div class="form-group"><label class="form-label">Middle Name <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
-          <input id="ep-middle" class="form-input" value="${p.middleName || ''}"></div>
+          <input id="ep-middle" class="form-input" value="${p.middleName || ''}" placeholder="Middle name (optional)"></div>
       </div>
       <div class="form-group"><label class="form-label">Last Name <span class="req">*</span></label>
-        <input id="ep-last" class="form-input" value="${p.lastName}"></div>
+        <input id="ep-last" class="form-input" value="${p.lastName}" placeholder="e.g. Dela Cruz"></div>
       <div class="form-row-2">
         <div class="form-group"><label class="form-label">Date of Birth</label>
           ${dobFieldHtml('ep-dob', { value: p.dob || '', max: localDateStr() })}</div>
@@ -8304,14 +8470,14 @@ function openEditPatientModal(patientId) {
       </div>
       <p style="font-size:.74rem;color:#9CA3AF;margin:-8px 0 14px">Locked on the patient's own Settings page, only admins can update these.</p>
       <div class="form-group"><label class="form-label">Contact <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
-        <input id="ep-contact" class="form-input" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${p.contact}"></div>
+        <input id="ep-contact" class="form-input" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${p.contact}" placeholder="e.g. 0912-345-6789 (optional)"></div>
       <div class="form-group"><label class="form-label">Email ${p.email ? '<span class="req">*</span>' : '<span style="font-weight:400;color:#9CA3AF">(optional)</span>'}</label>
         <input type="email" id="ep-email" class="form-input" value="${p.email}"
                title="${p.email ? "This patient already has a login account, so email is required and can't be cleared here." : ''}">
         ${!p.email ? `<div style="font-size:.72rem;color:#9CA3AF;margin-top:5px">This patient has no login account yet. Setting an email here creates one and generates a temporary password.</div>` : ''}
       </div>
       <div class="form-group"><label class="form-label">Address <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
-        <input id="ep-address" class="form-input" value="${p.address}"></div>
+        <input id="ep-address" class="form-input" value="${p.address}" placeholder="Street, barangay, city (optional)"></div>
       ${patientSourceFieldsHtml('ep', p.source, p.sourceNote)}
       ${isAdmin ? `
       <div style="background:#F9FAFB;border:1px solid #F0F0F2;border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
@@ -8785,8 +8951,7 @@ function confirmArchivePatient(id) {
       <p style="font-size:.88rem;color:#6b7280;margin-bottom:16px">Are you sure you want to archive this patient? They will be removed from active lists but the data will be preserved.</p>
       <div class="form-group" style="margin:0">
         <label class="form-label">Reason for Archiving <span class="req">*</span></label>
-        <textarea id="archive-reason-patient" class="form-textarea" style="border-radius:8px;min-height:80px"
-                  placeholder="Please provide a reason for archiving…"></textarea>
+        ${reasonFieldHtml('archive-reason-patient', 'archivePatient')}
       </div>
     </div>
     <div class="modal-footer">
@@ -8890,8 +9055,7 @@ function openRequestDeletionModal() {
       </p>
       <div class="form-group" style="margin:0">
         <label class="form-label">Reason <span style="color:#9CA3AF;font-weight:400">(optional)</span></label>
-        <textarea id="del-req-reason" class="form-textarea" style="border-radius:8px;min-height:80px" maxlength="500"
-                  placeholder="Let the clinic know why, if you'd like…"></textarea>
+        ${reasonFieldHtml('del-req-reason', 'patientDelete')}
       </div>
     </div>
     <div class="modal-footer">
@@ -10292,11 +10456,11 @@ function editServiceModal(id) {
     <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
       <div class="form-group">
         <label class="form-label">Service Name <span class="req">*</span></label>
-        <input class="form-input" id="es-name" value="${svc.name.replace(/"/g,'&quot;')}">
+        <input class="form-input" id="es-name" value="${svc.name.replace(/"/g,'&quot;')}" placeholder="e.g. Comprehensive Eye Examination">
       </div>
       <div class="form-group">
         <label class="form-label">Description</label>
-        <input class="form-input" id="es-desc" value="${svc.description.replace(/"/g,'&quot;')}">
+        <input class="form-input" id="es-desc" value="${svc.description.replace(/"/g,'&quot;')}" placeholder="A short description patients will see">
       </div>
       <div class="form-row-3" style="grid-template-columns:110px minmax(0,1.15fr) minmax(0,1fr)">
         <div class="form-group" style="margin-bottom:0">
@@ -10380,7 +10544,7 @@ function archiveServiceConfirm(id, name) {
       </p>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">Reason <span class="req">*</span></label>
-        <input class="form-input" id="svc-archive-reason" placeholder="Reason for archiving">
+        ${reasonFieldHtml('svc-archive-reason', 'archiveService')}
       </div>
     </div>
     <div class="modal-footer">
@@ -10600,8 +10764,8 @@ function showQRResult(p) {
         <div style="font-size:1.12rem;font-weight:800;color:#1C1C1C;letter-spacing:-.01em;margin-bottom:5px">${p.name}</div>
         <div style="display:flex;flex-wrap:wrap;gap:5px">
           <span style="font-size:.68rem;font-weight:700;font-family:monospace;color:#9A3412;background:#FFF1E0;border:1px solid #FED7AA;border-radius:5px;padding:2px 7px">${p.id}</span>
-          <span style="font-size:.68rem;font-weight:600;color:#374151;background:#F3F4F6;border-radius:5px;padding:2px 7px">${p.gender || '—'}</span>
-          <span style="font-size:.68rem;font-weight:600;color:#374151;background:#F3F4F6;border-radius:5px;padding:2px 7px">${p.age ? p.age + ' yrs' : '—'}</span>
+          <span style="font-size:.68rem;font-weight:600;color:#374151;background:#F3F4F6;border-radius:5px;padding:2px 7px">${p.gender || 'Gender not set'}</span>
+          <span style="font-size:.68rem;font-weight:600;color:#374151;background:#F3F4F6;border-radius:5px;padding:2px 7px">${p.age ? p.age + ' yrs' : 'Age not set'}</span>
           ${window.patientStageTag ? window.patientStageTag(p, 'sm') : ''}
         </div>
       </div>
@@ -11935,7 +12099,7 @@ function viewExamDetail(patientId, examId) {
         <!-- Diagnosis -->
         <div style="background:#F9FAFB;border:1px solid #F3F4F6;border-radius:10px;padding:14px 16px">
           <div style="font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9CA3AF;margin-bottom:8px">Diagnosis</div>
-          <div style="font-size:1rem;font-weight:800;color:#1C1C1C">${e.diagnosis || '—'}</div>
+          <div style="font-size:1rem;font-weight:800;color:#1C1C1C">${e.diagnosis ? esc(e.diagnosis) : window.emptyVal('No diagnosis recorded')}</div>
         </div>
 
         <!-- Ishihara -->
@@ -13429,14 +13593,15 @@ function buildCalCells(year, month, docDays, docId) {
     const dateStr  = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
     const avail    = (docDays || []).includes(dayAbb)
     const dayAppts = apptsByDate[dateStr] || []
-    const blockedReason = blockedByDate[dateStr]
-    const isHoliday   = !blockedReason && !!phHolidays[dateStr]
-    const holidayName = phHolidays[dateStr] || ''
+    const closedReason  = clinicClosedReason(dateStr)
+    const blockedReason = closedReason ? '' : blockedByDate[dateStr]
+    const isHoliday   = !blockedReason && (!!closedReason || !!phHolidays[dateStr])
+    const holidayName = closedReason || phHolidays[dateStr] || ''
     const isSel    = dateStr === selectedDate
     let cls = avail ? 'avail' : 'blocked'
     if (isToday)      cls += (cls ? ' ' : '') + 'today'
     if (blockedReason) cls = (isToday ? 'today date-blocked' : 'date-blocked')
-    else if (isHoliday) cls = (isToday ? 'today cal-holiday' : 'cal-holiday')
+    else if (isHoliday) cls = (isToday ? 'today cal-holiday' : 'cal-holiday') + (closedReason ? ' cal-closed' : '')
     if (isSel) cls += ' cal-selected'
     // Past days on the Doctor Schedule page can't be blocked/unblocked
     // (see `clickable` below) — muted + disabled look so they don't read
@@ -13449,7 +13614,7 @@ function buildCalCells(year, month, docDays, docId) {
     // Schedule page; unchanged elsewhere.
     const dayFullName = ['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'][dow]
     const titleText = blockedReason   ? `Blocked: ${blockedReason}${docId && isPast ? ' (past date)' : ''}`
-                    : isHoliday       ? `PH Holiday: ${holidayName}`
+                    : isHoliday       ? (closedReason ? `Clinic closed: ${holidayName}` : `PH Holiday: ${holidayName}`)
                     : docId && isPast ? 'Past date. Can\'t be blocked.'
                     : docId && !avail ? `Not a working day for this doctor (no ${dayFullName}).`
                     : docId           ? 'Click to block this date.' : ''
@@ -13506,18 +13671,19 @@ function buildDocCalCells(year, month, docDays) {
     const dayAppts = doc ? appointments.filter(a => a.date === dateStr && a.doctorId === doc.id && !['cancelled','disapproved'].includes(a.status))
                           .map(a => ({ time: a.time, patientName: a.patientName, status: a.status })) : []
     const hasAppts = dayAppts.length > 0
-    const blockedReason = blockedByDate[dateStr]
-    const isHoliday   = !blockedReason && !!phHolidays[dateStr]
-    const holidayName = phHolidays[dateStr] || ''
+    const closedReason  = clinicClosedReason(dateStr)
+    const blockedReason = closedReason ? '' : blockedByDate[dateStr]
+    const isHoliday   = !blockedReason && (!!closedReason || !!phHolidays[dateStr])
+    const holidayName = closedReason || phHolidays[dateStr] || ''
 
     let cls = avail ? 'avail' : 'blocked'
     if (isToday) cls += (cls ? ' ' : '') + 'today'
     if (hasAppts) cls += ' has-appts'
     if (blockedReason) cls = (isToday ? 'today date-blocked' : 'date-blocked') + (hasAppts ? ' has-appts' : '')
-    else if (isHoliday) cls = (isToday ? 'today cal-holiday' : 'cal-holiday') + (hasAppts ? ' has-appts' : '')
+    else if (isHoliday) cls = (isToday ? 'today cal-holiday' : 'cal-holiday') + (closedReason ? ' cal-closed' : '') + (hasAppts ? ' has-appts' : '')
     const fadeStyle = isPast && !isToday ? 'opacity:0.5;' : ''
     const titleAttr = blockedReason ? `title="Blocked: ${blockedReason.replace(/"/g,'&quot;')}"` :
-                      isHoliday ? `title="PH Holiday: ${holidayName.replace(/"/g,'&quot;')}"` : ''
+                      isHoliday ? `title="${closedReason ? 'Clinic closed' : 'PH Holiday'}: ${holidayName.replace(/"/g,'&quot;')}"` : ''
     const inner = isHoliday ? `${d}<span class="cal-holiday-lbl">${holidayName}</span>` : String(d)
     const hoverEvt = hasAppts
       ? `onmouseenter="window.showCalTip(this,'${JSON.stringify(dayAppts).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}')" onmouseleave="window.hideCalTip()"`
@@ -13738,17 +13904,21 @@ function schedCalSelectDate(docId, dateStr) {
       <button class="modal-close" onclick="window.schedCalCloseBanner('${docId}')">&times;</button>
       <div style="font-size:.72rem;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Selected Date</div>
       <div style="font-size:.88rem;font-weight:700;color:#1C1C1C;margin-bottom:2px;padding-right:26px">${dayFull}</div>
-      <div style="font-size:.78rem;color:#B91C1C;margin-bottom:14px">Blocked${blocked.reason ? ': ' + esc(blocked.reason) : ''}</div>
+      <div style="font-size:.78rem;color:#B91C1C;margin-bottom:14px">${blocked.clinicClosure ? esc(blocked.reason || 'Clinic closed') : 'Blocked' + (blocked.reason ? ': ' + esc(blocked.reason) : '')}</div>
+      ${blocked.clinicClosure ? `
+      <button class="btn-secondary" style="width:100%;justify-content:center" onclick="window.openClinicClosureModal()">
+        Manage Clinic Closures
+      </button>` : `
       <button id="sched-cal-unblock-btn-${docId}" class="btn-secondary" style="width:100%;justify-content:center"
               onclick="window.schedCalUnblockDate('${docId}','${dateStr}')">
         Unblock This Date
-      </button>` : `
+      </button>`}` : `
       <button class="modal-close" onclick="window.schedCalCloseBanner('${docId}')">&times;</button>
       <div style="font-size:.72rem;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Selected Date</div>
       <div style="font-size:.88rem;font-weight:700;color:#1C1C1C;margin-bottom:2px;padding-right:26px">${dayFull}</div>
       <div style="font-size:.78rem;color:#6B7280;margin-bottom:10px">${esc(doc.name)}</div>
       <label class="form-label" for="sched-cal-reason-${docId}">Reason <span class="req">*</span></label>
-      <input id="sched-cal-reason-${docId}" type="text" class="form-input" placeholder="e.g. Leave, Conference, Holiday…" style="margin-bottom:10px">
+      <div style="margin-bottom:10px">${reasonFieldHtml('sched-cal-reason-' + docId, 'blockDate')}</div>
       <button id="sched-cal-block-btn-${docId}" class="btn-primary" style="width:100%;justify-content:center"
               onclick="window.schedCalBlockDate('${docId}','${dateStr}')">
         Block This Date
@@ -13904,10 +14074,12 @@ function _blockedListHtml(doctorId) {
         <div style="font-size:.8rem;font-weight:600;color:#1C1C1C">${label}</div>
         ${b.reason ? `<div style="font-size:.74rem;color:#9CA3AF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.reason)}</div>` : ''}
       </div>
-      <button class="btn-icon" title="Unblock this date" style="color:#DC2626;flex-shrink:0"
+      ${b.clinicClosure
+        ? `<span title="The whole clinic is closed this day. Reopen it from Clinic Closures." style="flex-shrink:0;font-size:.66rem;font-weight:700;color:#9A3412;background:#FFEDD5;border-radius:999px;padding:2px 8px;white-space:nowrap">Clinic closed</span>`
+        : `<button class="btn-icon" title="Unblock this date" style="color:#DC2626;flex-shrink:0"
               onclick="window.doUnblockDate('${doctorId}','${b.date}')">
         ${ic('x', 'icon-sm')}
-      </button>
+      </button>`}
     </div>`
   }).join('')
 }
@@ -13925,8 +14097,7 @@ function openBlockDateModal(doctorId, doctorName) {
       </div>
       <div class="form-group">
         <label class="form-label">Reason <span class="req">*</span></label>
-        <input id="block-date-reason" type="text" class="form-input"
-               placeholder="e.g. Leave, Conference, Holiday…">
+        ${reasonFieldHtml('block-date-reason', 'blockDate')}
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">Currently Blocked Dates</label>
@@ -13995,6 +14166,150 @@ async function doBlockDate(doctorId, doctorName) {
   }
 }
 window.doBlockDate = doBlockDate
+
+// ════════════════════════════════════════════════════════════════
+//  CLINIC CLOSURES — close the whole clinic on a date (every doctor) in
+//  one step, for a sudden holiday, outing, emergency, etc. Same rule as
+//  blocking a doctor's date: refused while pending/approved appointments
+//  are still on that date (listed so staff can move them first).
+//  api/clinic/closures.php; closed dates then show as blocked for every
+//  doctor in all calendars, and every booking path refuses them.
+// ════════════════════════════════════════════════════════════════
+window._clinicClosures = []
+// The reason the whole clinic is closed on a date ('' = open), read from
+// the closures merged into every doctor's blockedDates (api/doctors/*).
+// Used by every calendar to show a "Clinic Closed" day with its reason.
+function clinicClosedReason(dateStr) {
+  for (const doc of (typeof doctors !== 'undefined' ? doctors : [])) {
+    const b = (doc.blockedDates || []).find(x => x.date === dateStr && x.clinicClosure)
+    if (b) return b.closureReason || 'Clinic closed'
+  }
+  return ''
+}
+window.clinicClosedReason = clinicClosedReason
+async function _loadClinicClosures() {
+  try {
+    const d = await (await fetch('api/clinic/closures.php')).json()
+    window._clinicClosures = d.success ? (d.closures || []) : []
+  } catch (_) { window._clinicClosures = [] }
+  const el = document.getElementById('cl-list')
+  if (el) el.innerHTML = _clinicClosureListHtml()
+}
+function _clinicClosureListHtml() {
+  const list = window._clinicClosures || []
+  if (!list.length) return `<div style="font-size:.8rem;color:#9CA3AF;text-align:center;padding:12px 0">No upcoming closures. The clinic is open on its regular days.</div>`
+  return list.map(c => {
+    const label = new Date(c.date + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+    return `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;border:1px solid #FED7AA;background:#FFF7ED;border-radius:8px;margin-bottom:6px">
+      <div style="min-width:0">
+        <div style="font-size:.8rem;font-weight:600;color:#1C1C1C">${label}</div>
+        <div style="font-size:.74rem;color:#9A3412;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.reason || 'Clinic closed')}${c.createdBy ? ` <span style="color:#9CA3AF">· by ${esc(c.createdBy)}</span>` : ''}</div>
+      </div>
+      <button class="btn-icon" title="Reopen the clinic on this date" style="color:#DC2626;flex-shrink:0" onclick="window.doReopenClinic(${c.id},'${c.date}')">${icon('x', 'icon-sm')}</button>
+    </div>`
+  }).join('')
+}
+
+function openClinicClosureModal() {
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Clinic Closures</div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:8px;align-items:flex-start;background:#F9FAFB;border:1px solid #F0F0F2;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.8rem;color:#4B5563;line-height:1.5">
+        <span style="flex-shrink:0;display:flex;margin-top:2px;color:#E8760A">${icon('info','icon-sm')}</span>
+        <span>Closes the clinic for <strong>every doctor</strong> on that date, so no one can book it. Pending or approved appointments on the date must be rescheduled or cancelled first.</span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date to Close <span class="req">*</span></label>
+        ${window.dateFieldHtml('cl-date', { min: localDateStr(), max: localDateStr(new Date(new Date().setFullYear(new Date().getFullYear() + 1))) })}
+      </div>
+      <div class="form-group">
+        <label class="form-label">Reason <span class="req">*</span></label>
+        ${reasonFieldHtml('cl-reason', 'clinicClosure')}
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Upcoming Closures</label>
+        <div id="cl-list" style="margin-top:6px;max-height:220px;overflow-y:auto">
+          <div style="font-size:.8rem;color:#9CA3AF;text-align:center;padding:12px 0">Loading…</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Done</button>
+      <button class="btn-primary" id="cl-save-btn" onclick="window.doCloseClinic()">${icon('lock','icon-sm')} Close Clinic</button>
+    </div>`)
+  _loadClinicClosures()
+}
+window.openClinicClosureModal = openClinicClosureModal
+
+function _showClosureConflicts(conflicts) {
+  const n = conflicts.length
+  const intro = `<strong>This date has ${n} pending or approved appointment${n === 1 ? '' : 's'}.</strong> Reschedule or cancel ${n === 1 ? 'it' : 'them'} first, then close the clinic.`
+  toast(`This date has ${n} appointment${n === 1 ? '' : 's'} to move first.`, 'error')
+  document.getElementById('cl-conflicts')?.remove()
+  document.getElementById('cl-list')?.closest('.form-group')?.insertAdjacentHTML('beforebegin', `<div id="cl-conflicts">${affectedApptsHtml(conflicts, intro)}</div>`)
+}
+
+async function doCloseClinic() {
+  const date   = document.getElementById('cl-date')?.value || ''
+  const reason = (document.getElementById('cl-reason')?.value || '').trim()
+  if (!date)   { toast('Please select a date.', 'error'); return }
+  if (!reason) { toast('Please choose a reason for closing the clinic.', 'error'); return }
+  document.getElementById('cl-conflicts')?.remove()
+
+  // Quick local check first (any doctor); the server enforces it too.
+  const onDate = appointments.filter(a => a.date === date && ['pending', 'approved'].includes(a.status))
+  if (onDate.length) {
+    _showClosureConflicts(onDate.map(a => ({ id: a.id, patientName: a.patientName, date: a.date, time: a.time, status: a.status, why: 'Booked on this date' + (a.doctorName ? ' · ' + a.doctorName : '') })))
+    return
+  }
+  const btn = document.getElementById('cl-save-btn')
+  if (_btnBusy(btn, 'primary', 'Closing…')) return
+  try {
+    const d = await (await fetch('api/clinic/closures.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'add', date, reason, createdBy: state.user?.name || '' }),
+    })).json()
+    if (!d.success) {
+      if (d.conflicts) _showClosureConflicts(d.conflicts)
+      else toast(d.message || 'Could not close the clinic on that date.', 'error')
+      return
+    }
+    addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
+      action: `Closed the clinic on ${date}: ${reason}`, timestamp: nowTimestamp(), type: 'settings' })
+    toast(`Clinic closed on ${new Date(date + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })} for all doctors.`)
+    window.setDateFieldValue('cl-date', '')
+    window.setSelectFieldValue('cl-reason-preset', ''); window._rsnCompose('cl-reason')
+    await _loadClinicClosures()
+    if (window._syncDoctors) await window._syncDoctors()
+  } catch (_) {
+    toast('Network error — the clinic was not closed.', 'error')
+  } finally { _btnIdle(btn) }
+}
+window.doCloseClinic = doCloseClinic
+
+async function doReopenClinic(id, date) {
+  const btn = document.querySelector(`#cl-list button[onclick*="(${id},"]`)
+  if (btn) { if (btn.disabled) return; btn.disabled = true; btn.style.opacity = '.5' }
+  try {
+    const d = await (await fetch('api/clinic/closures.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', id }),
+    })).json()
+    if (!d.success) { toast(d.message || 'Could not reopen that date.', 'error'); if (btn) { btn.disabled = false; btn.style.opacity = '' }; return }
+    addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
+      action: `Reopened the clinic on ${date}`, timestamp: nowTimestamp(), type: 'settings' })
+    toast('The clinic is open on that date again.')
+    await _loadClinicClosures()
+    if (window._syncDoctors) await window._syncDoctors()
+  } catch (_) {
+    toast('Network error — please try again.', 'error')
+    if (btn) { btn.disabled = false; btn.style.opacity = '' }
+  }
+}
+window.doReopenClinic = doReopenClinic
 
 async function doUnblockDate(doctorId, date) {
   // Icon-only row button — no label to swap, but still needs to be

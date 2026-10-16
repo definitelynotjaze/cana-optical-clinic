@@ -66,6 +66,8 @@ try {
         }
     } catch (PDOException) { /* table not yet migrated — skip */ }
 
+    $dayHoursMap = doctorDayHoursMap($pdo);
+
     $seen    = [];
     $doctors = [];
     foreach ($rows as $r) {
@@ -86,6 +88,7 @@ try {
             'hours'          => $r['work_hours'] ?: '',
             'days'           => $r['days'] ? explode(',', $r['days']) : [],
             'availableDays'  => $r['days'] ? explode(',', $r['days']) : [],
+            'dayHours'       => (object)($dayHoursMap[$r['id']] ?? []),
             'available'      => (bool)$r['available'],
             'status'         => $r['status'],
             'photoUrl'       => $photoMap[(int)$r['user_id']] ?? null,

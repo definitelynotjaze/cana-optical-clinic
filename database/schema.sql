@@ -91,24 +91,6 @@
 --    ALTER TABLE `appointments` ADD COLUMN `confirmed_at` DATETIME NULL DEFAULT NULL AFTER `reminder_sent_at`;
 --    ALTER TABLE `appointments` ADD COLUMN `rescheduled_at` DATETIME NULL DEFAULT NULL AFTER `confirmed_at`;
 --    ALTER TABLE `notifications` ADD COLUMN `related_id` VARCHAR(10) NULL DEFAULT NULL AFTER `body`;
---    CREATE TABLE IF NOT EXISTS `appointment_waitlist` (
---      `id`               INT UNSIGNED NOT NULL AUTO_INCREMENT,
---      `patient_id`       VARCHAR(10)  NOT NULL,
---      `patient_name`     VARCHAR(200) DEFAULT NULL,
---      `doctor_id`        VARCHAR(10)  NOT NULL,
---      `doctor_name`      VARCHAR(200) DEFAULT NULL,
---      `date`             DATE         NOT NULL,
---      `time`             VARCHAR(20)  NOT NULL,
---      `type`             VARCHAR(100) DEFAULT NULL,
---      `terms_agreed`     TINYINT(1)   NOT NULL DEFAULT 0,
---      `status`           ENUM('waiting','offered','claimed','expired','declined','cancelled') NOT NULL DEFAULT 'waiting',
---      `offered_at`       DATETIME     NULL DEFAULT NULL,
---      `offer_expires_at` DATETIME     NULL DEFAULT NULL,
---      `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
---      PRIMARY KEY (`id`),
---      INDEX `idx_slot` (`doctor_id`, `date`, `time`, `status`),
---      FOREIGN KEY (`patient_id`) REFERENCES `patients`(`id`) ON DELETE CASCADE
---    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 -- ================================================================
 
 SET NAMES utf8mb4;
@@ -117,6 +99,16 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- ── Users (central authentication table) ─────────────────────────
 CREATE TABLE IF NOT EXISTS `users` (
   `id`            INT UNSIGNED     NOT NULL AUTO_INCREMENT,
+  -- Which signup this account came from, if it came from the self-
+  -- registration OTP flow at all (staff/admin/doctor accounts and any
+  -- patient created directly via Add Patient never go through
+  -- pending_registrations, so this stays NULL for those). Nullable and
+  -- ON DELETE SET NULL on purpose: pending_registrations rows are the
+  -- disposable side of this relationship (deleted once verified or
+  -- expired — see api/auth/verify-email-otp.php), and this `users` row
+  -- must never be at risk of anything happening to that side. The FK
+  -- lives here, not the reverse, for exactly that reason.
+  `pending_registration_id` INT UNSIGNED NULL DEFAULT NULL,
   `email`         VARCHAR(255)     NOT NULL,
   `password_hash` VARCHAR(255)     NOT NULL,
   -- Role of whoever last actually changed this account's password (not
@@ -135,7 +127,9 @@ CREATE TABLE IF NOT EXISTS `users` (
   `email_verified`   TINYINT(1)       NOT NULL DEFAULT 1,
   `created_at`       TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_email` (`email`)
+  UNIQUE KEY `uq_email` (`email`),
+  INDEX `idx_users_pending_reg` (`pending_registration_id`),
+  FOREIGN KEY (`pending_registration_id`) REFERENCES `pending_registrations`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── Admins ───────────────────────────────────────────────────────
@@ -197,9 +191,15 @@ CREATE TABLE IF NOT EXISTS `doctors` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── Doctor schedule days ──────────────────────────────────────────
+-- start_time/end_time: that day's own hours (e.g. Mon 9:00 AM – 12:00 PM,
+-- Thu 1:00 PM – 5:00 PM). NULL = the clinic's full hours that day, so it
+-- follows Consultation Settings if the clinic hours change. doctors.work_hours
+-- is only a display summary of these.
 CREATE TABLE IF NOT EXISTS `doctor_days` (
   `doctor_id`   VARCHAR(10)  NOT NULL,
   `day_of_week` ENUM('Mon','Tue','Wed','Thu','Fri','Sat','Sun') NOT NULL,
+  `start_time`  VARCHAR(20)  DEFAULT NULL,
+  `end_time`    VARCHAR(20)  DEFAULT NULL,
   PRIMARY KEY (`doctor_id`, `day_of_week`),
   FOREIGN KEY (`doctor_id`) REFERENCES `doctors`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -225,7 +225,7 @@ CREATE TABLE IF NOT EXISTS `patients` (
   `first_name`      VARCHAR(100) NOT NULL,
   `middle_name`     VARCHAR(100) NULL DEFAULT NULL,
   `last_name`       VARCHAR(100) NOT NULL,
-  `gender`          ENUM('Male','Female','Other') NOT NULL,
+  `gender`          ENUM('Male','Female','Prefer not to say') NOT NULL,
   `dob`             DATE         NOT NULL,
   `age`             TINYINT UNSIGNED NOT NULL DEFAULT 0,
   `contact`         VARCHAR(20)  DEFAULT NULL,
@@ -236,10 +236,17 @@ CREATE TABLE IF NOT EXISTS `patients` (
   -- the exam wizard's Patient Info step so the doctor has it in view while
   -- examining, regardless of the visit's service type.
   `medical_history` TEXT         DEFAULT NULL,
+  `medical_history_by_patient` TINYINT(1) NOT NULL DEFAULT 0,   -- 1 = current text was self-reported by the patient (not yet edited by the clinic)
+  `medical_history_patient_at` DATETIME NULL DEFAULT NULL,       -- when the patient used their one-time self-report (locks further patient edits)
   `qr_data`         VARCHAR(150) DEFAULT NULL,
   `registered_date` DATE         DEFAULT NULL,
   `last_visit`      DATE         DEFAULT NULL,
   `status`          ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  -- How the patient came to the clinic (badge on Patient Records):
+  -- online | walk-in | transferred | referral. source_note = previous
+  -- clinic or who referred them. Existing DB: database/patient_source.sql
+  `source`          VARCHAR(20)  NULL DEFAULT NULL,
+  `source_note`     VARCHAR(150) NULL DEFAULT NULL,
   `no_show_count`      INT UNSIGNED NOT NULL DEFAULT 0,
   `booking_restricted` TINYINT(1)   NOT NULL DEFAULT 0,
   -- Self-service "Request Account Deletion" (Settings > My Profile,
@@ -269,7 +276,7 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   `type`                 VARCHAR(100) DEFAULT NULL,
   `status`               ENUM('pending','approved','cancelled','disapproved','completed','no-show') NOT NULL DEFAULT 'pending',
   -- How this appointment came to exist — the patient booked it themselves
-  -- (self-service, or claiming a waitlist offer) vs. admin/staff created it
+  -- (self-service) vs. admin/staff created it
   -- directly (walk-in, phone call, etc.). Set once at creation, never
   -- changed afterward — this is a record of how the visit was originally
   -- scheduled, not a live status.
@@ -279,37 +286,20 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   `disapproval_reason`   TEXT         DEFAULT NULL,
   `reschedule_note`      TEXT         DEFAULT NULL,
   `reschedule_request`   TEXT         DEFAULT NULL,   -- JSON: {reason,preferredDate,requestedAt}
+  `reschedule_proposal`  TEXT         DEFAULT NULL,   -- JSON: clinic-proposed new slot awaiting the PATIENT's approval {date,time,note,by,at}
   `terms_agreed`         TINYINT(1)   NOT NULL DEFAULT 0, -- patient accepted the booking policy at request time
   `reminder_sent_at`     DATETIME     NULL DEFAULT NULL, -- day-before-noon reminder was sent
+  `followup_reminder_sent_at` DATETIME NULL DEFAULT NULL, -- second same-day reminder (still unconfirmed at the follow-up time)
   `confirmed_at`         DATETIME     NULL DEFAULT NULL, -- patient confirmed attendance after the reminder
   `rescheduled_at`       DATETIME     NULL DEFAULT NULL, -- staff/admin last moved this appointment's date/time
+  -- Admin reverted an (auto) no-show — the patient did attend but the exam
+  -- wasn't saved in time. Set = exempt from the automatic no-show again,
+  -- so the exam can still be recorded against it after its date.
+  `no_show_reverted_at`  DATETIME     NULL DEFAULT NULL,
+  `no_show_revert_reason` TEXT        NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   FOREIGN KEY (`patient_id`) REFERENCES `patients`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`doctor_id`)  REFERENCES `doctors`(`id`)  ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ── Appointment Waitlist ─────────────────────────────────────────
--- One row per patient waiting for a specific doctor+date+time slot that
--- was full at request time. When that exact slot frees up, the oldest
--- 'waiting' row is offered it for a limited window before moving on to
--- the next patient in line.
-CREATE TABLE IF NOT EXISTS `appointment_waitlist` (
-  `id`               INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `patient_id`       VARCHAR(10)  NOT NULL,
-  `patient_name`     VARCHAR(200) DEFAULT NULL,
-  `doctor_id`        VARCHAR(10)  NOT NULL,
-  `doctor_name`      VARCHAR(200) DEFAULT NULL,
-  `date`             DATE         NOT NULL,
-  `time`             VARCHAR(20)  NOT NULL,
-  `type`             VARCHAR(100) DEFAULT NULL,
-  `terms_agreed`     TINYINT(1)   NOT NULL DEFAULT 0,
-  `status`           ENUM('waiting','offered','claimed','expired','declined','cancelled') NOT NULL DEFAULT 'waiting',
-  `offered_at`       DATETIME     NULL DEFAULT NULL,
-  `offer_expires_at` DATETIME     NULL DEFAULT NULL,
-  `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  INDEX `idx_slot` (`doctor_id`, `date`, `time`, `status`),
-  FOREIGN KEY (`patient_id`) REFERENCES `patients`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── Consultations — the narrative of the visit ─────────────────────
@@ -347,6 +337,26 @@ CREATE TABLE IF NOT EXISTS `consultations` (
 -- prescription-details narrative — those belong to the issued
 -- prescription document (see `prescriptions` below), not the exam that
 -- produced it.
+-- ── Examination drafts (auto-saved, unsaved exam wizard entries) ───
+-- The New Examination wizard auto-saves here as the doctor types, one row
+-- per patient + appointment (appt_id '' = an exam not started from an
+-- appointment). Restored when that exam is reopened — on any device, by
+-- the doctor or an admin (e.g. after reverting a no-show the exam was
+-- never saved for). Deleted once the exam is actually saved
+-- (api/examinations/create.php). data = JSON of the wizard's fields.
+CREATE TABLE IF NOT EXISTS `exam_drafts` (
+  `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `patient_id`    VARCHAR(10)  NOT NULL,
+  `appt_id`       VARCHAR(10)  NOT NULL DEFAULT '',
+  `data`          MEDIUMTEXT   NOT NULL,
+  `saved_by`      VARCHAR(150) DEFAULT NULL,
+  `saved_by_user` INT UNSIGNED DEFAULT NULL,
+  `reminded_at`   DATETIME     DEFAULT NULL,   -- "unsaved exam" reminder sent (processExamDrafts(), helpers.php)
+  `updated_at`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_exam_draft` (`patient_id`, `appt_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `examinations` (
   `id`                   VARCHAR(10)  NOT NULL,
   `patient_id`           VARCHAR(10)  DEFAULT NULL,
@@ -392,7 +402,7 @@ CREATE TABLE IF NOT EXISTS `prescriptions` (
   `exam_id`      VARCHAR(10)  DEFAULT NULL,  -- the exam this prescription was issued from
   `date`         DATE         NOT NULL,      -- issue date
   `expiry_date`  DATE         DEFAULT NULL,  -- issue date + 1 year
-  `status`       ENUM('valid','expired','superseded') NOT NULL DEFAULT 'valid',
+  `status`       ENUM('valid','expired') NOT NULL DEFAULT 'valid',
   `prc_license`  VARCHAR(50)  DEFAULT NULL,  -- snapshot of the issuing doctor's PRC license at issue time
   `od_sph`     VARCHAR(10), `od_cyl` VARCHAR(10), `od_axis` VARCHAR(10), `od_add` VARCHAR(10),
   `os_sph`     VARCHAR(10), `os_cyl` VARCHAR(10), `os_axis` VARCHAR(10), `os_add` VARCHAR(10),
@@ -521,6 +531,7 @@ CREATE TABLE IF NOT EXISTS `clinic_settings` (
   `max_advance_booking`           VARCHAR(20)  NOT NULL DEFAULT '3 months',
   `min_advance_booking`           VARCHAR(20)  NOT NULL DEFAULT '1 day',
   `max_appts_per_doctor_per_day`  SMALLINT UNSIGNED NOT NULL DEFAULT 12,
+  `max_appts_per_patient_per_day` SMALLINT UNSIGNED NOT NULL DEFAULT 1, -- now "Max Upcoming Appointments Per Patient": open self-booked appointments (pending/approved, not past) one patient may hold at once. Name kept from the old per-day limit to avoid a migration.
   `morning_start`                 VARCHAR(20)  NOT NULL DEFAULT '8:00 AM',
   `morning_end`                   VARCHAR(20)  NOT NULL DEFAULT '12:00 PM',
   `afternoon_start`               VARCHAR(20)  NOT NULL DEFAULT '1:00 PM',
@@ -536,9 +547,8 @@ CREATE TABLE IF NOT EXISTS `clinic_settings` (
   -- separate consent checkbox on registration (see auth.js's DEFAULT_PRIVACY_MD).
   `privacy_content`               MEDIUMTEXT        NULL     DEFAULT NULL,
   `appointment_policy_content`    MEDIUMTEXT        NULL     DEFAULT NULL,
-  `reminder_time`                 VARCHAR(20)  NOT NULL DEFAULT '12:00 PM', -- day-before reminder send time
-  `confirm_deadline_time`         VARCHAR(20)  NOT NULL DEFAULT '9:00 PM',  -- same-day confirm-or-auto-cancel deadline
-  `waitlist_offer_hours`          TINYINT UNSIGNED NOT NULL DEFAULT 3,      -- how long a freed slot stays claimable, and the lead-time cutoff below which a "waiting" entry is removed as no longer fulfillable
+  `reminder_time`                 VARCHAR(20)  NOT NULL DEFAULT '12:00 AM', -- day-before reminder send time
+  `followup_reminder_time`        VARCHAR(20)  NOT NULL DEFAULT '12:00 PM', -- second reminder, only if still unconfirmed
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -573,8 +583,12 @@ CREATE TABLE IF NOT EXISTS `sessions` (
   `last_access` INT UNSIGNED  NOT NULL DEFAULT 0,
   `user_id`     INT UNSIGNED  NULL     DEFAULT NULL,
   `user_agent`  VARCHAR(255)  NULL     DEFAULT NULL,
+  `device_model` VARCHAR(100)  NULL     DEFAULT NULL,  -- phone/tablet model reported by the browser (User-Agent Client Hints)
+  `platform_version` VARCHAR(20) NULL   DEFAULT NULL,  -- e.g. Windows 13.0.0+ = Windows 11
   `ip_address`  VARCHAR(45)   NULL     DEFAULT NULL,
+  `device_token` CHAR(64)     NULL     DEFAULT NULL,  -- which trusted device (cana_dev cookie) this session is on
   `created_at`  DATETIME      NULL     DEFAULT NULL,
+  `signed_out_at`     DATETIME    NULL DEFAULT NULL,  -- when the session ended (row kept as a record)
   PRIMARY KEY (`id`),
   INDEX `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -638,14 +652,13 @@ CREATE TABLE IF NOT EXISTS `pending_registrations` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ── Email Changes (OTP-verified email address changes) ────────────
--- A logged-in patient changing their email must prove they own the new
--- address first — mirrors the password_resets OTP+lockout pattern, but
--- scoped to a users_id (the requester must already be authenticated)
--- rather than a bare email, and the code is sent to the NEW address
--- instead of an existing one. users.email is only updated once verify-
--- email-change.php confirms the OTP. Currently patient-only (see
--- api/patients/request-email-change.php) — other roles still change
--- email straight through their existing profile-save endpoints.
+-- Any logged-in user (patient, doctor, staff or admin) changing their OWN
+-- email must prove they own the new address first — mirrors the
+-- password_resets OTP+lockout pattern, but scoped to a users_id (the
+-- requester must already be authenticated) rather than a bare email, and
+-- the code is sent to the NEW address instead of an existing one.
+-- users.email is only updated once verify-email-change.php confirms the
+-- OTP (see api/patients/request-email-change.php).
 CREATE TABLE IF NOT EXISTS `email_changes` (
   `id`             INT UNSIGNED     NOT NULL AUTO_INCREMENT,
   `users_id`       INT UNSIGNED     NOT NULL,
@@ -659,6 +672,60 @@ CREATE TABLE IF NOT EXISTS `email_changes` (
   `created_at`     TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   INDEX `idx_ec_user` (`users_id`),
+  FOREIGN KEY (`users_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Login Device Verification (new/untrusted device 2nd factor) ───
+-- login.php no longer completes a login outright once the password
+-- checks out — first it checks whether THIS device (User-Agent,
+-- reusing the exact same "known device" signal Active Sessions/the
+-- 'New Sign-in Detected' notification already relied on — see
+-- checkKnownDevice(), api/helpers.php) has ever signed in on this
+-- account before. If not, it issues one of these instead of logging
+-- in, and only api/auth/verify-login-device.php actually completes
+-- the login, after the code is confirmed. Same OTP+lockout shape as
+-- password_resets/email_changes above. `remember` carries the
+-- original login request's "keep me signed in" choice across to the
+-- verify step, which is a separate HTTP request and so can't rely on
+-- request-local state to remember it.
+CREATE TABLE IF NOT EXISTS `login_device_otps` (
+  `id`             INT UNSIGNED     NOT NULL AUTO_INCREMENT,
+  `users_id`       INT UNSIGNED     NOT NULL,
+  `otp`            VARCHAR(6)       NOT NULL,
+  `remember`       TINYINT(1)       NOT NULL DEFAULT 0,
+  `attempts`       TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `total_attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `expires_at`     DATETIME         NOT NULL,
+  `created_at`     TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  INDEX `idx_ldo_user` (`users_id`),
+  FOREIGN KEY (`users_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Known Devices (durable, survives logout) ─────────────────────
+-- What login.php's "new device" OTP gate actually checks against
+-- (checkKnownDevice(), api/helpers.php) — deliberately separate from
+-- `sessions`, which is ephemeral and cleared on logout. A device that's
+-- proven itself once (known-device login, or a completed OTP challenge)
+-- stays trusted even after the user signs out, so logging back in from
+-- the same browser never re-triggers the OTP just because no active
+-- session happens to exist for it right now.
+CREATE TABLE IF NOT EXISTS `known_devices` (
+  `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `users_id`      INT UNSIGNED NOT NULL,
+  `user_agent`    VARCHAR(255) NOT NULL,
+  `device_model`  VARCHAR(100) NULL DEFAULT NULL,   -- friendly device name source (see deviceDisplayName(), helpers.php)
+  `platform_version` VARCHAR(20) NULL DEFAULT NULL,
+  `device_token`  CHAR(64)     NULL DEFAULT NULL,   -- random per-browser cookie (cana_dev); the device's real identity
+  `ip_address`    VARCHAR(45)  NULL DEFAULT NULL,
+  `last_session_id` VARCHAR(128) NULL DEFAULT NULL,
+  `first_seen_at` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `last_seen_at`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `last_login_at`  DATETIME    NULL DEFAULT NULL,
+  `last_logout_at` DATETIME    NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_known_device_user` (`users_id`),
+  UNIQUE KEY `uq_known_device_token` (`users_id`, `device_token`),
   FOREIGN KEY (`users_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -695,8 +762,6 @@ CREATE TABLE IF NOT EXISTS `about_gallery` (
 --    ALTER TABLE `appointments` MODIFY COLUMN `status` ENUM('pending','approved','cancelled','disapproved','completed','no-show') NOT NULL DEFAULT 'pending';
 --    ALTER TABLE `clinic_settings` ADD COLUMN IF NOT EXISTS `video_url` VARCHAR(500) NULL DEFAULT NULL AFTER `map_embed_url`;
 --    ALTER TABLE `clinic_settings` ADD COLUMN IF NOT EXISTS `reminder_time` VARCHAR(20) NOT NULL DEFAULT '12:00 PM' AFTER `appointment_policy_content`;
---    ALTER TABLE `clinic_settings` ADD COLUMN IF NOT EXISTS `confirm_deadline_time` VARCHAR(20) NOT NULL DEFAULT '9:00 PM' AFTER `reminder_time`;
---    ALTER TABLE `clinic_settings` ADD COLUMN IF NOT EXISTS `waitlist_offer_hours` TINYINT UNSIGNED NOT NULL DEFAULT 3 AFTER `confirm_deadline_time`;
 --    ALTER TABLE `patients` DROP COLUMN `blood_type`;
 --    ALTER TABLE `pending_registrations` DROP COLUMN `blood_type`;
 --    ALTER TABLE `patients` DROP COLUMN `medical_history`;
@@ -731,11 +796,11 @@ CREATE TABLE IF NOT EXISTS `about_gallery` (
 --    ALTER TABLE `doctors` ADD COLUMN `secondary_credential` VARCHAR(100) DEFAULT NULL AFTER `prc_license`;
 --    ALTER TABLE `doctors` ADD COLUMN `secondary_prc` VARCHAR(50) DEFAULT NULL AFTER `secondary_credential`;
 --    New clinic-wide rule: max appointments one patient can hold per day
---    (self-service bookings only), separate from the existing per-doctor
---    cap. Existing database:
+--    (patient self-booking only — admin/staff aren't
+--    limited), separate from the existing per-doctor cap. Existing database:
 --    ALTER TABLE `clinic_settings` ADD COLUMN `max_appts_per_patient_per_day` SMALLINT UNSIGNED NOT NULL DEFAULT 1 AFTER `max_appts_per_doctor_per_day`;
 --    Appointments now record how they were booked — 'online' (patient
---    self-service or a claimed waitlist offer) vs 'walk-in' (admin/staff
+--    self-service) vs 'walk-in' (admin/staff
 --    created it directly). Existing database:
 --    ALTER TABLE `appointments` ADD COLUMN `source` ENUM('online','walk-in') NOT NULL DEFAULT 'online' AFTER `status`;
 --    Data Privacy Act notice split out of the Terms & Conditions document —
@@ -872,5 +937,90 @@ CREATE TABLE IF NOT EXISTS `about_gallery` (
 --    ALTER TABLE `clinic_settings` DROP COLUMN `phic_no`;
 --    ALTER TABLE `clinic_settings` DROP COLUMN `map_lat`;
 --    ALTER TABLE `clinic_settings` DROP COLUMN `map_lng`;
+--    `users.pending_registration_id` — traces a self-registered account
+--    back to the pending_registrations row it came from (NULL for every
+--    other account-creation path — Add Patient, Add User — which never
+--    touch pending_registrations at all). Nullable + ON DELETE SET NULL:
+--    pending_registrations rows are deleted once verified or expired, so
+--    the FK lives on `users` (the side that must survive regardless),
+--    not the reverse. Existing database:
+--    ALTER TABLE `users` ADD COLUMN `pending_registration_id` INT UNSIGNED NULL DEFAULT NULL AFTER `id`;
+--    ALTER TABLE `users` ADD INDEX `idx_users_pending_reg` (`pending_registration_id`);
+--    ALTER TABLE `users` ADD CONSTRAINT `fk_users_pending_registration` FOREIGN KEY (`pending_registration_id`) REFERENCES `pending_registrations`(`id`) ON DELETE SET NULL;
+--    New `login_device_otps` table — login.php now requires an emailed
+--    OTP before completing a sign-in from a device this account has
+--    never signed in on before (see api/auth/login.php,
+--    verify-login-device.php). Existing database:
+--    CREATE TABLE IF NOT EXISTS `login_device_otps` (
+--      `id`             INT UNSIGNED     NOT NULL AUTO_INCREMENT,
+--      `users_id`       INT UNSIGNED     NOT NULL,
+--      `otp`            VARCHAR(6)       NOT NULL,
+--      `remember`       TINYINT(1)       NOT NULL DEFAULT 0,
+--      `attempts`       TINYINT UNSIGNED NOT NULL DEFAULT 0,
+--      `total_attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+--      `expires_at`     DATETIME         NOT NULL,
+--      `created_at`     TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+--      PRIMARY KEY (`id`),
+--      INDEX `idx_ldo_user` (`users_id`),
+--      FOREIGN KEY (`users_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+--    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+--    New `known_devices` table — the new-device OTP gate's "have we seen
+--    this device before" check now reads from here instead of `sessions`,
+--    since `sessions` rows are deleted on logout and would otherwise
+--    forget a genuinely trusted device the moment the user signed out.
+--    checkKnownDevice() (api/helpers.php) no longer touches `sessions` at
+--    all. Existing database:
+--    CREATE TABLE IF NOT EXISTS `known_devices` (
+--      `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+--      `users_id`      INT UNSIGNED NOT NULL,
+--      `user_agent`    VARCHAR(255) NOT NULL,
+--      `first_seen_at` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+--      `last_seen_at`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+--      PRIMARY KEY (`id`),
+--      INDEX `idx_known_device_user` (`users_id`),
+  UNIQUE KEY `uq_known_device_token` (`users_id`, `device_token`),
+--      FOREIGN KEY (`users_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+--    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+--    Patients can now self-report their medical history ONCE, and only
+--    while nothing is on file (api/patients/submit-medical-history.php);
+--    after that it's clinic-managed (doctor/admin/staff). Tracks whether the
+--    current text is patient-reported (shown to the clinic as "Reported by
+--    patient" until they edit it) and when the one-time entry was used.
+--    Existing database:
+--    ALTER TABLE `patients` ADD COLUMN `medical_history_by_patient` TINYINT(1) NOT NULL DEFAULT 0 AFTER `medical_history`,
+--                           ADD COLUMN `medical_history_patient_at` DATETIME NULL DEFAULT NULL AFTER `medical_history_by_patient`;
+--    Trusted devices are now identified by a random per-browser cookie
+--    (cana_dev, set by deviceToken() in api/helpers.php) instead of only the
+--    user-agent string. Like a Google account's remembered devices, a device
+--    that has passed the OTP stays trusted after Log Out, a remote sign-out
+--    and a password change/reset — those end its session (password needed
+--    again) but never ask for the OTP again. Existing database: run
+--    database/patch_device_trust.sql (adds known_devices.device_token /
+--    ip_address, swaps the unique key, adds sessions.device_token).
+--    Ended sessions are now KEPT as records (signed_out_at set, data wiped)
+--    instead of deleted; only the expiry cleanup removes old rows.
+--    known_devices also notes last_session_id, last_login_at, last_logout_at.
+--    Existing database: run database/patch_session_history.sql.
+--    The three changes below were applied to the local database directly
+--    and carried to the live site by a full phpMyAdmin export/import, so
+--    there's no separate patch file for them:
+--    - Appointment Policy gained "5. Arrival Time" (arrive 5-10 minutes early).
+--    - Waitlist removed entirely (appointment_waitlist table,
+--      clinic_settings.confirm_deadline_time / waitlist_offer_hours), along
+--      with the confirmation deadline / auto-cancellation. Reminders and the
+--      optional patient "Confirm" stay; nothing is auto-cancelled.
+--    - Bookable services narrowed to Comprehensive Eye Examination and
+--      Follow-up Consultation; old Optical Frame Selection / Eyeglass/Contact
+--      Lens Fitting records remapped to Follow-up Consultation (their exams
+--      got a "no new findings" diagnosis, since both services require one).
+--    Appointment Policy / Terms wording: dropped "based on doctor
+--    availability" (the booking wizard already only offers slots the doctor
+--    is available for) in favor of "review and approval by clinic staff".
+--    The defaults in code are updated; a saved custom copy isn't. Existing
+--    database:
+--    UPDATE `clinic_settings` SET
+--      `appointment_policy_content` = REPLACE(`appointment_policy_content`, 'confirmation by clinic staff based on doctor availability.', 'review and approval by clinic staff.'),
+--      `terms_content`              = REPLACE(`terms_content`,              'confirmation by clinic staff based on doctor availability.', 'review and approval by clinic staff.')
+--    WHERE `id` = 1;
 
 SET FOREIGN_KEY_CHECKS = 1;

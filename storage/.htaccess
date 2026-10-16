@@ -1,0 +1,9 @@
+# Pre-restore safety backups (api/backup/import.php) can contain a full
+# database dump with patient PII — must never be web-servable.
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

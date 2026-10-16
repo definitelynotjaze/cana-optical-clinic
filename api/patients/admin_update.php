@@ -51,8 +51,10 @@ $address = trim($b['address'] ?? '');
 $occupation = isset($b['occupation']) ? trim($b['occupation']) : null;
 $medHx      = isset($b['medicalHistory']) ? trim($b['medicalHistory']) : null;
 $status  = isset($b['status']) ? trim($b['status']) : null;
+$source     = isset($b['source']) ? cleanPatientSource($b['source'], '') : null;
+$sourceNote = isset($b['sourceNote']) ? mb_substr(trim($b['sourceNote']), 0, 150) : null;
 
-if ($gender && !in_array($gender, ['Male', 'Female', 'Other'], true)) {
+if ($gender && !in_array($gender, ['Male', 'Female', 'Prefer not to say'], true)) {
     jsonResponse(['success' => false, 'message' => 'Invalid gender value.']);
 }
 if ($status && !in_array($status, ['active', 'inactive'], true)) {
@@ -90,8 +92,20 @@ try {
     if ($contact !== '') { $sets[] = 'contact = ?'; $values[] = $contact; }
     if ($address !== '') { $sets[] = 'address = ?'; $values[] = $address; }
     if ($occupation !== null) { $sets[] = 'occupation = ?'; $values[] = $occupation; }
-    if ($medHx !== null) { $sets[] = 'medical_history = ?'; $values[] = $medHx ?: null; }
+    if ($medHx !== null) {
+        $sets[] = 'medical_history = ?'; $values[] = $medHx ?: null;
+        // Only an actual change counts as the clinic reviewing it — Edit
+        // Patient always sends this field, even when another field was
+        // the one being edited.
+        $curHx = $pdo->prepare('SELECT medical_history FROM patients WHERE id = ?');
+        $curHx->execute([$id]);
+        if (trim((string)$curHx->fetchColumn()) !== $medHx) { $sets[] = 'medical_history_by_patient = 0'; }
+    }
     if ($status)           { $sets[] = 'status = ?'; $values[] = $status; }
+    if ($source && patientSourceColumns($pdo)) {
+        $sets[] = 'source = ?';      $values[] = $source;
+        $sets[] = 'source_note = ?'; $values[] = in_array($source, ['transferred', 'referral'], true) && $sourceNote ? $sourceNote : null;
+    }
 
     $values[] = $id;
     $pdo->prepare('UPDATE patients SET ' . implode(', ', $sets) . ' WHERE id = ?')->execute($values);
@@ -141,7 +155,7 @@ try {
             // Non-critical — never blocks the response either way.
             try {
                 $fullName = "$first $last";
-                sendEmail(
+                sendEmailLater(
                     $email, $fullName,
                     'Welcome to Cana Optical Clinic',
                     welcomeEmailBody($fullName, 'patient', $email, $tempPassword),
@@ -152,6 +166,9 @@ try {
             }
         }
     }
+
+    // A renamed patient's existing appointments show the new name too.
+    syncPatientNameEverywhere($pdo, (string)$id);
 
     jsonResponse(['success' => true, 'email' => $email ?: null, 'tempPassword' => $tempPassword]);
 

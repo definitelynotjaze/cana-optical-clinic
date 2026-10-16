@@ -80,8 +80,20 @@ try {
     $hash = password_hash($pass, PASSWORD_DEFAULT);
     $otp  = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
-    // Prune expired pending rows (self-maintaining — no cron needed)
-    $pdo->exec('DELETE FROM pending_registrations WHERE expires_at < NOW()');
+    // Prune expired pending rows (self-maintaining — no cron needed).
+    // verify-email-otp.php now keeps a row instead of deleting it once
+    // verification succeeds (so users.pending_registration_id stays
+    // traceable), and that row's own expires_at is never extended past
+    // its original 5-minute OTP window — without the NOT EXISTS guard
+    // here, this would delete every verified row within minutes of
+    // account creation (the very next call to this endpoint, from
+    // anyone), instantly nulling the FK via ON DELETE SET NULL. Only
+    // rows nothing actually references are ever genuinely abandoned.
+    $pdo->exec(
+        'DELETE pr FROM pending_registrations pr
+          WHERE pr.expires_at < NOW()
+            AND NOT EXISTS (SELECT 1 FROM users u WHERE u.pending_registration_id = pr.id)'
+    );
 
     // Upsert into pending_registrations — replaces any previous unverified attempt
     // for the same email so the user gets a fresh OTP on retry.
@@ -206,8 +218,8 @@ function verificationEmailBody(string $otp, string $firstName = ''): string {
                   </svg>
                 </td>
                 <td style="font-size:13px;color:#6b7280;line-height:1.65;">
-                  If you did not create a Cana Optical Clinic account, please ignore this email —
-                  no account will be created. Never share this code with anyone.
+                  If you did not create a Cana Optical Clinic account, please ignore this email.
+                  No account will be created. Never share this code with anyone.
                 </td>
               </tr>
             </table>

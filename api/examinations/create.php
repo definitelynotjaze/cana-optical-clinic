@@ -35,7 +35,9 @@ if (!isset($_SESSION['user_id'])) {
 $role      = $_SESSION['role']       ?? '';
 $profileId = $_SESSION['profile_id'] ?? '';
 
-if (!in_array($role, ['doctor'], true)) {
+// Doctors record their own exams; admins can also start one, but must say
+// which doctor it's under (doctorId) — see the admin branch below.
+if (!in_array($role, ['doctor', 'admin'], true)) {
     jsonResponse(['success' => false, 'message' => 'Unauthorized.'], 403);
 }
 
@@ -68,6 +70,12 @@ try {
         $drRow = $pdo->prepare('SELECT first_name, last_name, prc_license FROM doctors WHERE id = ? LIMIT 1');
         $drRow->execute([$doctorId]);
         $drRow = $drRow->fetch();
+    }
+    // An admin-started exam must be under a real doctor — it's that
+    // doctor's name and PRC license that go on the record and any
+    // prescription issued from it.
+    if ($role === 'admin' && !$drRow) {
+        jsonResponse(['success' => false, 'message' => 'Please select the doctor who performed this examination.']);
     }
     $doctorName = $drRow ? 'Dr. ' . $drRow['first_name'] . ' ' . $drRow['last_name'] : ($b['doctorName'] ?? '');
     $prcLicense = $drRow['prc_license'] ?? null;
@@ -180,6 +188,14 @@ try {
         $pdo->prepare(
             'UPDATE appointments SET status = "completed" WHERE id = ?'
         )->execute([$apptId]);
+        // "To be assigned" appointment completed by an admin-started exam —
+        // record the doctor the admin chose on the appointment too, so it
+        // doesn't stay doctor-less in the appointments list and reports.
+        if ($role === 'admin' && $doctorId) {
+            $pdo->prepare(
+                'UPDATE appointments SET doctor_id = ?, doctor_name = ? WHERE id = ? AND (doctor_id IS NULL OR doctor_id = "")'
+            )->execute([$doctorId, $doctorName, $apptId]);
+        }
     }
 
     // ── Activity log ───────────────────────────────────────────────
@@ -213,6 +229,14 @@ try {
     ]);
 
     $pdo->commit();
+
+    // The exam is saved for real now — drop its auto-saved draft (see
+    // api/examinations/draft.php). Own try/catch: a database without the
+    // exam_drafts table yet must never fail an exam that already saved.
+    try {
+        $pdo->prepare('DELETE FROM exam_drafts WHERE patient_id = ? AND appt_id = ?')
+            ->execute([$patientId, $apptId]);
+    } catch (PDOException) { /* table not migrated yet — nothing to clear */ }
 
     // Doctor flagged this visit as needing a follow-up — nothing else in
     // the app creates that follow-up appointment automatically (deliberately;

@@ -38,15 +38,32 @@ const FIELD_MAP = [
     'maxAdvanceBooking'        => 'max_advance_booking',
     'minAdvanceBooking'        => 'min_advance_booking',
     'maxApptsPerDoctorPerDay'  => 'max_appts_per_doctor_per_day',
+    'maxUpcomingApptsPerPatient' => 'max_appts_per_patient_per_day', // column reused: now max OPEN appointments per patient, not per day
     'morningStart'             => 'morning_start',
     'morningEnd'               => 'morning_end',
     'afternoonStart'           => 'afternoon_start',
     'afternoonEnd'             => 'afternoon_end',
     'lunchBreak'               => 'lunch_break',
     'reminderTime'             => 'reminder_time',
-    'confirmDeadlineTime'      => 'confirm_deadline_time',
-    'waitlistOfferHours'       => 'waitlist_offer_hours',
+    'followupReminderTime'     => 'followup_reminder_time',
 ];
+
+// The Appointment Policy to serve: the saved copy if the admin actually
+// customized it, otherwise the live default (which states the current
+// reminder times and upcoming-appointment limit). A saved copy that is still
+// word-for-word the policy from before the Upcoming Appointment Limit
+// section existed counts as not customized.
+function apptPolicyForRow(array $r): string {
+    $rem     = $r['reminder_time'] ?: '12:00 AM';
+    $fu      = ($r['followup_reminder_time'] ?? '') ?: '12:00 PM';
+    $maxOpen = isset($r['max_appts_per_patient_per_day']) ? max(1, (int)$r['max_appts_per_patient_per_day']) : 1;
+    $saved   = (string)($r['appointment_policy_content'] ?? '');
+    $norm    = fn($s) => trim(str_replace("\r\n", "\n", $s));
+    if ($saved === '' || $norm($saved) === $norm(legacyApptPolicyMd($rem, $fu))) {
+        return defaultApptPolicyMd($rem, $fu, $maxOpen);
+    }
+    return $saved;
+}
 
 function rowToResponse(array $r): array {
     return [
@@ -66,21 +83,20 @@ function rowToResponse(array $r): array {
         'galleryMaxPhotos'         => isset($r['gallery_max_photos']) ? (int)$r['gallery_max_photos'] : null,
         'termsContent'             => $r['terms_content'] ?: DEFAULT_TERMS_MD,
         'privacyContent'           => $r['privacy_content'] ?: DEFAULT_PRIVACY_MD,
-        'appointmentPolicyContent' => $r['appointment_policy_content']
-            ?: defaultApptPolicyMd($r['reminder_time'] ?: '12:00 AM', $r['confirm_deadline_time'] ?: '10:00 PM'),
+        'appointmentPolicyContent' => apptPolicyForRow($r),
         'defaultDuration'          => $r['default_duration'],
         'maxAdvanceBooking'        => $r['max_advance_booking'],
         'minAdvanceBooking'        => $r['min_advance_booking'],
         'maxApptsPerDoctorPerDay'  => (int)$r['max_appts_per_doctor_per_day'],
+        'maxUpcomingApptsPerPatient' => isset($r['max_appts_per_patient_per_day']) && (int)$r['max_appts_per_patient_per_day'] > 0 ? (int)$r['max_appts_per_patient_per_day'] : 1,
         'morningStart'             => $r['morning_start'],
         'morningEnd'               => $r['morning_end'],
         'afternoonStart'           => $r['afternoon_start'],
         'afternoonEnd'             => $r['afternoon_end'],
         'lunchBreak'               => (bool)$r['lunch_break'],
         'clinicDays'               => $r['clinic_days'] ? explode(',', $r['clinic_days']) : [],
-        'reminderTime'             => $r['reminder_time']        ?: '12:00 PM',
-        'confirmDeadlineTime'      => $r['confirm_deadline_time'] ?: '9:00 PM',
-        'waitlistOfferHours'       => isset($r['waitlist_offer_hours']) && (int)$r['waitlist_offer_hours'] > 0 ? (int)$r['waitlist_offer_hours'] : 3,
+        'reminderTime'             => $r['reminder_time']        ?: '12:00 AM',
+        'followupReminderTime'     => ($r['followup_reminder_time'] ?? '') ?: '12:00 PM',
     ];
 }
 
@@ -115,17 +131,19 @@ try {
         }
 
         // Keep the Appointment Policy's Section 4 wording in sync with the
-        // actual reminder/confirm-deadline times, so an admin doesn't have
-        // to remember to also go re-edit Terms & Policies every time they
-        // change Scheduling Rules. Only kicks in when this save touches
-        // reminderTime/confirmDeadlineTime but ISN'T also explicitly
+        // actual reminder times, so an admin doesn't have to remember to
+        // also go re-edit Terms & Policies every time they change
+        // Scheduling Rules. Only kicks in when this save touches
+        // reminderTime/followupReminderTime but ISN'T also explicitly
         // rewriting appointmentPolicyContent in the same request (that
         // save wins outright — never silently overwritten out from under
         // the admin), and only against whatever custom text is already
         // stored — an empty column already falls back to
         // defaultApptPolicyMd(), which reads these settings live on every
         // render, so there's nothing frozen there to fix.
-        if ((array_key_exists('reminderTime', $b) || array_key_exists('confirmDeadlineTime', $b))
+        // Same for the Upcoming Appointment Limit section and the Max
+        // Upcoming Appointments Per Patient number.
+        if ((array_key_exists('reminderTime', $b) || array_key_exists('followupReminderTime', $b) || array_key_exists('maxUpcomingApptsPerPatient', $b))
             && !array_key_exists('appointmentPolicyContent', $b)) {
             $curContent = $pdo->query('SELECT appointment_policy_content FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn();
             if ($curContent) {
@@ -138,11 +156,19 @@ try {
                         $updatedContent, 1
                     );
                 }
-                if (array_key_exists('confirmDeadlineTime', $b)) {
-                    $newDeadline = trim((string)$b['confirmDeadlineTime']);
+                if (array_key_exists('followupReminderTime', $b)) {
+                    $newFollowup = trim((string)$b['followupReminderTime']);
                     $updatedContent = preg_replace_callback(
-                        '/(attending by )\S.*?( that same day)/',
-                        fn($m) => $m[1] . $newDeadline . $m[2],
+                        "/(and another at )\\S.*?( if you haven't confirmed yet)/",
+                        fn($m) => $m[1] . $newFollowup . $m[2],
+                        $updatedContent, 1
+                    );
+                }
+                if (array_key_exists('maxUpcomingApptsPerPatient', $b)) {
+                    $phrase = apptPolicyUpcomingPhrase(max(1, (int)$b['maxUpcomingApptsPerPatient']));
+                    $updatedContent = preg_replace(
+                        '/(only have )(?:one upcoming appointment|\d+ upcoming appointments)( booked online at a time)/',
+                        '${1}' . $phrase . '${2}',
                         $updatedContent, 1
                     );
                 }

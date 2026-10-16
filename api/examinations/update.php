@@ -32,7 +32,10 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $role = $_SESSION['role'] ?? '';
-if (!in_array($role, ['doctor'], true)) {
+// Doctors edit their own exams (enforced in the UI); admins can edit any
+// exam record. The record keeps its original doctor either way — doctor_id
+// is never changed here.
+if (!in_array($role, ['doctor', 'admin'], true)) {
     jsonResponse(['success' => false, 'message' => 'Unauthorized.'], 403);
 }
 
@@ -193,10 +196,19 @@ try {
     $ptRow = $ptRow->fetch();
     $ptName = $ptRow ? $ptRow['first_name'] . ' ' . $ptRow['last_name'] : $patientId;
 
+    // The exam's own doctor (for the follow-up notice) — not whoever is
+    // editing, since an admin can edit any doctor's record.
     $drRow = $pdo->prepare('SELECT first_name, last_name FROM doctors WHERE id = ? LIMIT 1');
-    $drRow->execute([$_SESSION['profile_id'] ?? '']);
+    $drRow->execute([$doctorId]);
     $drRow = $drRow->fetch();
     $doctorName = $drRow ? 'Dr. ' . $drRow['first_name'] . ' ' . $drRow['last_name'] : '';
+
+    // Who made this edit, for the activity log.
+    $editorTable = $role === 'admin' ? 'admins' : 'doctors';
+    $edRow = $pdo->prepare("SELECT first_name, last_name FROM {$editorTable} WHERE id = ? LIMIT 1");
+    $edRow->execute([$_SESSION['profile_id'] ?? '']);
+    $edRow = $edRow->fetch();
+    $editorName = $edRow ? trim(($role === 'doctor' ? 'Dr. ' : '') . $edRow['first_name'] . ' ' . $edRow['last_name']) : $doctorName;
 
     $logId = 'L' . date('YmdHis') . rand(100, 999);
     $pdo->prepare(
@@ -204,7 +216,7 @@ try {
          VALUES (?,?,?,?,NOW(),?)'
     )->execute([
         substr($logId, 0, 20),
-        $doctorName,
+        $editorName,
         ucfirst($role),
         "Updated optical examination {$examId} for {$ptName} ({$patientId})",
         'examination',

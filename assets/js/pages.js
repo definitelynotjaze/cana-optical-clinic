@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 //  CANAOPTICALCLINIC — pages.js
 //  All page renderer functions. Each returns an HTML string.
 //  Uses window.icon(), window.state, window.navigate() etc.
@@ -22,6 +22,14 @@ function emptyState(iconName, title, desc) {
 // label instead of a cramped abbreviation. Stays inside the existing
 // Actions <td> (no new <tr>), so sortable.js/pagination.js are unaffected.
 function rescheduleReqLabel(a) {
+  // Clinic-proposed new schedule awaiting the patient's answer — blue,
+  // worded for whoever is looking (the patient acts on it; the clinic waits).
+  if (a.rescheduleProposal) {
+    const isPat = window.state?.role === 'patient'
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:600;color:#1D4ED8;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:999px;padding:2px 8px;cursor:pointer;white-space:nowrap" onclick="window.viewAppt('${a.id}')" title="${isPat ? 'The clinic proposed a new time — review it' : 'Waiting for the patient to accept the new time'}">
+      <span style="flex-shrink:0;display:flex">${ic('refresh-cw', 'icon-xs')}</span>${isPat ? 'New Time Proposed' : 'Awaiting Patient'}
+    </span>`
+  }
   if (!a.rescheduleRequest) return ''
   // Compact, content-sized pill — matches the same convention as the
   // Confirmed/Rescheduled sub-badges (apptSubBadges) rather than stretching
@@ -30,6 +38,121 @@ function rescheduleReqLabel(a) {
     <span style="flex-shrink:0;display:flex">${ic('refresh-cw', 'icon-xs')}</span>Reschedule Req.
   </span>`
 }
+
+// A field with nothing on file shows muted placeholder text ("No address
+// set", "No visits yet") instead of a blank space or a bare "—", so it reads
+// as intentionally empty rather than broken. orEmpty() escapes real values.
+function emptyVal(text) {
+  return `<span class="empty-val">${text}</span>`
+}
+function orEmpty(v, text) {
+  const s = v == null ? '' : String(v).trim()
+  return s && s !== '—' ? esc(s) : emptyVal(text)
+}
+window.emptyVal = emptyVal
+window.orEmpty  = orEmpty
+
+// ── Record filters (exams, consultations, prescriptions, appointments) ──
+// One shared filter bar — search + Doctor + Year (+ Status/Type where it
+// applies) — used on the Patient Profile tabs and the patient's own record
+// pages. Rows opt in with recRowAttrs(); applyRecFilter() hides what doesn't
+// match, works on .record-row/.hist-row lists and on paginated <tbody>s
+// alike, and shows a "no matches" message instead of an empty list.
+// Numeric part of a record ID (RX071 → 71, E023 → 23, A294 → 294), for
+// the "Number" sort.
+function recIdNum(id) {
+  const m = String(id || '').match(/(\d+)\s*$/)
+  return m ? parseInt(m[1], 10) : 0
+}
+function recRowAttrs({ search = '', doctor = '', date = '', status = '', time = '', id = '' } = {}) {
+  // data-rec-date: sortable "YYYY-MM-DD HH:MM" key; data-rec-num: the ID's number.
+  const t = time && window._clockToMinutes ? String(window._clockToMinutes(time)).padStart(4, '0') : '0000'
+  return `data-rec="1" data-search="${esc(String(search).toLowerCase())}" data-rec-doctor="${esc(doctor || '')}" data-rec-year="${esc(String(date || '').slice(0, 4))}" data-rec-date="${esc(String(date || '').slice(0, 10))} ${t}" data-rec-num="${recIdNum(id)}" data-rec-status="${esc(status || '')}"`
+}
+
+// listId = the element holding the rows (a list container, or a tbody id).
+// opts: items, getDoctor(item), getDate(item), statuses: [[value,label],…]
+// (omit for no Status filter), statusLabel, placeholder.
+function recFilterBar(listId, opts = {}) {
+  // isTable: the list is a .tbl whose column headers already sort (Date, ID)
+  // on desktop — the sort dropdown then only shows on mobile, where those
+  // headers are hidden, and replaces the table's own mobile "Sort by" bar
+  // (sortable.js, #sortbar-<tbodyId>) so there aren't two sort controls.
+  const { items = [], getDoctor = x => x.doctor, getDate = x => x.date, statuses = null, statusLabel = 'All Statuses', placeholder = 'Search…', isTable = false } = opts
+  const doctorsList = [...new Set(items.map(getDoctor).filter(Boolean))].sort()
+  const years       = [...new Set(items.map(x => String(getDate(x) || '').slice(0, 4)).filter(y => /^\d{4}$/.test(y)))].sort().reverse()
+  const onchg = `window.applyRecFilter('${listId}')`
+  const sel = (suffix, all, list) => `<div class="rec-filter-sel">${window.selectFieldHtml(`${listId}-${suffix}`, {
+      value: '', options: [{ value: '', label: all }, ...list], onchange: onchg, minWidth: 150, style: 'height:40px;font-size:.82rem' })}</div>`
+  return `
+    <div class="rec-filter-bar" data-rec-for="${listId}">
+      <div class="search-input-wrap rec-filter-search">
+        ${ic('search','icon-sm')}
+        <input class="search-input" id="${listId}-q" placeholder="${esc(placeholder)}" oninput="${onchg}">
+      </div>
+      ${doctorsList.length > 1 ? sel('doc', 'All Doctors', doctorsList.map(d => ({ value: d, label: d }))) : ''}
+      ${years.length > 1 ? sel('yr', 'All Years', years.map(y => ({ value: y, label: y }))) : ''}
+      ${statuses && statuses.length > 1 ? sel('st', statusLabel, statuses.map(([v, l]) => ({ value: v, label: l }))) : ''}
+      ${isTable ? `<style>@media (max-width:767px){#sortbar-${listId}{display:none!important}}</style>` : ''}
+      <div class="rec-filter-sel${isTable ? ' rec-sort-mobile-only' : ''}">${window.selectFieldHtml(`${listId}-sort`, {
+          value: 'desc', options: [
+            { value: 'desc',     label: 'Date: Newest first' },
+            { value: 'asc',      label: 'Date: Oldest first' },
+            { value: 'num-desc', label: 'Number: High to low' },
+            { value: 'num-asc',  label: 'Number: Low to high' },
+          ],
+          onchange: onchg, minWidth: 180, style: 'height:40px;font-size:.82rem' })}</div>
+    </div>`
+}
+
+function applyRecFilter(listId) {
+  const root = document.getElementById(listId)
+  if (!root) return
+  const val = s => (document.getElementById(`${listId}-${s}`)?.value || '')
+  const q = val('q').trim().toLowerCase(), doc = val('doc'), yr = val('yr'), stv = val('st')
+  const rows = root.querySelectorAll('[data-rec]')
+  let any = false
+  rows.forEach(r => {
+    const ok = (!q   || (r.dataset.search || '').includes(q))
+            && (!doc || r.dataset.recDoctor === doc)
+            && (!yr  || r.dataset.recYear === yr)
+            && (!stv || r.dataset.recStatus === stv)
+    r.style.display = ok ? '' : 'none'
+    if (ok) any = true
+  })
+  // Newest / Oldest first — reorder the rows themselves (lists arrive
+  // newest-first, so "desc" is also the original order).
+  const sortDir = val('sort')
+  if (sortDir && rows.length > 1) {
+    const parent = rows[0].parentElement
+    const byNum = sortDir.startsWith('num-')
+    const asc   = sortDir === 'asc' || sortDir === 'num-asc'
+    const ordered = [...rows].sort((a, b) => {
+      const c = byNum
+        ? (parseInt(a.dataset.recNum || '0', 10) - parseInt(b.dataset.recNum || '0', 10))
+        : (a.dataset.recDate || '').localeCompare(b.dataset.recDate || '')
+      return asc ? c : -c
+    })
+    const anchor = document.getElementById(listId + '-search-empty')
+    ordered.forEach(r => parent.insertBefore(r, anchor && anchor.parentElement === parent ? anchor : null))
+  }
+  const isTable = root.tagName === 'TBODY'
+  if (isTable && window.pgReset) window.pgReset(listId)
+  window._syncSearchEmptyState(listId, rows.length > 0 && !any, isTable ? 'table' : 'div', 'No records match your filters.')
+}
+window.recRowAttrs    = recRowAttrs
+window.recFilterBar   = recFilterBar
+window.applyRecFilter = applyRecFilter
+
+// Prescription status for filtering — the same Valid/Expired rule as the
+// list's own badge: valid for 1 year from issue (or until its expiry date).
+function rxFilterStatus(rx) {
+  const expDate = rx.expiryDate ? new Date(rx.expiryDate.includes('T') ? rx.expiryDate : rx.expiryDate + 'T00:00:00')
+    : (() => { const d = new Date(rx.date.includes('T') ? rx.date : rx.date + 'T00:00:00'); d.setFullYear(d.getFullYear() + 1); return d })()
+  return (rx.status === 'expired' || expDate < new Date()) ? 'expired' : 'valid'
+}
+const RX_STATUS_OPTS   = [['valid', 'Valid'], ['expired', 'Expired']]
+const APPT_STATUS_OPTS = [['pending', 'Pending'], ['approved', 'Approved'], ['completed', 'Completed'], ['cancelled', 'Cancelled'], ['disapproved', 'Disapproved'], ['no-show', 'No-show']]
 
 function initials(name) {
   return name.split(' ').map(p => p[0]).slice(0,2).join('').toUpperCase()
@@ -76,8 +199,8 @@ function profilePhotoEditorHtml(idPrefix, name, photoUrl) {
         </div>
       </label>
       <label for="${inputId}" title="Change photo" style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:#E8760A;border:2px solid #fff;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.2);transition:background .15s,transform .1s"
-             onmouseover="this.style.background='#C4720E'"
-             onmouseout="this.style.background='#E8760A'"
+             onmouseover="this.style.opacity='.88'"
+             onmouseout="this.style.opacity='1'"
              onmousedown="this.style.transform='scale(.9)'"
              onmouseup="this.style.transform='scale(1)'">
         ${ic('camera','icon-sm')}
@@ -100,8 +223,8 @@ function removePhotoBtnHtml(idPrefix, name, photoUrl) {
   // .btn-secondary's (9px 20px, .85rem) — overridden inline so this sits at
   // exactly the same size as the Change Photo button right next to it.
   return `
-  <button type="button" class="btn-ghost" onclick="window.removeProfilePhoto(this,'${idPrefix}-avatar','${safeName}')"
-          style="flex-shrink:0;color:#DC2626;border-color:#FECACA;padding:9px 20px;font-size:.85rem">
+  <button type="button" class="btn-ghost btn-danger-outline" onclick="window.removeProfilePhoto(this,'${idPrefix}-avatar','${safeName}')"
+          style="flex-shrink:0;padding:9px 20px;font-size:.85rem">
     ${ic('trash-2','icon-sm')} Remove Photo
   </button>`
 }
@@ -143,6 +266,155 @@ function _nameVariantsForAccount(u) {
   if (u.name) variants.push(u.name.replace(/^Dr\.\s+/, ''))
   return variants.map(_normalizeNameForMatch)
 }
+
+// Email Address card on the admin/staff/doctor My Profile pages — the same
+// card as the patient Settings page: read-only current email, with Change
+// Email opening the OTP-verified flow (openChangeEmailModal(), main.js) — a
+// code goes to the new address and only a correct code saves it, so a typo
+// can't lock anyone out of login or notifications. Not part of Save Changes
+// (api/users/update_profile.php ignores email now).
+function ownEmailCardHtml(email) {
+  return `
+    <div class="card" style="padding:28px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <div style="color:#E8760A">${ic('mail','icon-sm')}</div>
+        <div style="font-size:1.05rem;font-weight:700;color:#1C1C1C">Email Address</div>
+      </div>
+      <div style="font-size:.82rem;color:#9CA3AF;margin-bottom:20px">Used for login and appointment notifications</div>
+      <div class="form-group">
+        <label class="form-label">Current Email</label>
+        <input type="email" class="form-input" value="${esc(email || '')}" disabled
+               style="background:#F9FAFB;color:#6B7280;cursor:not-allowed">
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px">
+        <button class="btn-secondary" onclick="window.openChangeEmailModal()">
+          ${ic('mail','icon-sm')} Change Email
+        </button>
+      </div>
+    </div>`
+}
+
+// Archive type as shown to people: an archived account says whose it was
+// ("Doctor Account", "Staff Account", "Admin Account") from the role in its
+// snapshot. r.type itself stays 'Account' for the filter tab and restore logic.
+// ── Patient source badge ─────────────────────────────────────────
+// How a patient came to the clinic (api/patients/index.php `source`),
+// shown on Patient Records in place of the old Active/Inactive status.
+// Online / Walk-in reuse the appointment pills' colours.
+const PATIENT_SOURCE_META = {
+  'online':      { label: 'Online',      bg: '#EFF6FF', fg: '#1D4ED8', tip: 'Registered on the website' },
+  'walk-in':     { label: 'Walk-in',     bg: '#FFF7ED', fg: '#C2410C', tip: 'Added by clinic staff' },
+  'transferred': { label: 'Transfer', bg: '#F5F3FF', fg: '#6D28D9', tip: 'Migrated from another optical clinic' },
+  'referral':    { label: 'Referral',    bg: '#ECFDF5', fg: '#047857', tip: 'Referred to the clinic' },
+}
+function patientSourceBadge(p) {
+  const m = PATIENT_SOURCE_META[p?.source] || PATIENT_SOURCE_META['walk-in']
+  const note = p?.sourceNote ? (p.source === 'transferred' ? `From ${p.sourceNote}` : p.source === 'referral' ? `Referred by ${p.sourceNote}` : p.sourceNote) : ''
+  return `<span title="${esc(note || m.tip)}" style="display:inline-flex;align-items:center;font-size:.68rem;font-weight:700;letter-spacing:.02em;padding:3px 10px;border-radius:999px;white-space:nowrap;background:${m.bg};color:${m.fg}">${m.label}</span>`
+}
+window.PATIENT_SOURCE_META = PATIENT_SOURCE_META
+window.patientSourceBadge  = patientSourceBadge
+
+// ── New vs established patient ───────────────────────────────────
+// Not a separate user role: anyone with a patient record is a Patient (they
+// need a Patient ID, QR check-in and booking to get their first visit). The
+// stage only says whether the clinic has records for them yet:
+//   New Patient         — no examination recorded at the clinic, and not a
+//                         Transfer bringing records from another clinic;
+//   Established Patient — at least one examination on file, or a Transfer.
+// Switches on its own the moment their first examination is saved.
+function isNewPatient(p) {
+  if (!p || p.source === 'transferred') return false
+  return !(p.examinations || []).length
+}
+// ── Stage label (.np-tag, global.css) ──
+// New Patient: the clinic's orange with a small sparkle, the one warm,
+// filled tag among the light tinted badges (registration type, status), so
+// a first-time patient stands out. Established Patient: quiet warm outline
+// with a check. Sizes: sm (tables, appointment rows, calendar), md (cards),
+// lg (profile header).
+const NP_ICON_NEW = '<svg class="np-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5c.7 5.6 4.9 9.8 10.5 10.5-5.6.7-9.8 4.9-10.5 10.5-.7-5.6-4.9-9.8-10.5-10.5C7.1 11.3 11.3 7.1 12 1.5z"/></svg>'
+const NP_ICON_EST = '<svg class="np-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
+
+// Their first visit: the earliest pending/approved appointment from today on.
+function patientFirstVisit(p) {
+  if (!p) return null
+  const today = localDateStr()
+  return appointments
+    .filter(a => a.patientId === p.id && ['pending', 'approved'].includes(a.status) && a.date >= today)
+    .sort((x, y) => x.date.localeCompare(y.date) || (window._clockToMinutes?.(x.time) || 0) - (window._clockToMinutes?.(y.time) || 0))[0] || null
+}
+// "Jun 2026" — month of their first examination at the clinic.
+function patientSince(p) {
+  const first = (p?.examinations || []).map(e => e.date).filter(Boolean).sort()[0]
+  return first ? new Date(first + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''
+}
+// One line of context next to the stage, e.g. "First visit: Oct 23, 2026",
+// "No visit booked yet", "Patient since Jun 2026", "Records from another clinic".
+function patientStageNote(p) {
+  if (!p) return ''
+  if (isNewPatient(p)) {
+    const fv = patientFirstVisit(p)
+    return fv ? `First visit: ${fmtDate(fv.date)} at ${fv.time}` : 'No visit booked yet'
+  }
+  const since = patientSince(p)
+  return since ? `Patient since ${since}` : (p.source === 'transferred' ? 'Records from another clinic' : '')
+}
+// The note as a small chip with a calendar icon (.np-chip, global.css):
+// booked first visit → cream/orange; no visit booked yet → dashed and quiet,
+// reading as "not yet"; established → neutral.
+function patientStageChip(p) {
+  const note = patientStageNote(p)
+  if (!note) return ''
+  const kind = !isNewPatient(p) ? '' : (patientFirstVisit(p) ? ' np-chip--booked' : ' np-chip--none')
+  return `<span class="np-chip${kind}">${ic(isNewPatient(p) ? 'calendar' : 'check-circle', 'icon-xs')}${esc(note)}</span>`
+}
+
+function newPatientTag(p, size = 'sm') {
+  if (!isNewPatient(p)) return ''
+  const tip = `New Patient: no examination on file at the clinic yet. ${patientStageNote(p)}.`
+  // A <b>, not a <span>, so table cells' span styles (e.g. the grey ID line
+  // under a name) can't restyle it.
+  return `<b class="np-tag np-tag--new np-tag--${size}" title="${esc(tip)}">${NP_ICON_NEW}New Patient</b>`
+}
+function patientStageTag(p, size = 'lg') {
+  if (isNewPatient(p)) return newPatientTag(p, size)
+  const note = patientStageNote(p)
+  return `<b class="np-tag np-tag--est np-tag--${size}" title="${esc('Established Patient' + (note ? ': ' + note : ''))}">${NP_ICON_EST}Established Patient</b>`
+}
+// Kept for existing callers.
+const newPatientPill    = p => newPatientTag(p, 'sm')
+const patientStageBadge = p => patientStageTag(p, 'lg')
+window.isNewPatient      = isNewPatient
+window.newPatientTag     = newPatientTag
+window.patientStageTag   = patientStageTag
+window.patientStageNote  = patientStageNote
+window.patientStageChip  = patientStageChip
+window.newPatientPill    = newPatientPill
+window.patientStageBadge = patientStageBadge
+
+function archiveTypeLabel(r) {
+  if (r?.type === 'Account' && r.data?.role) return `${r.data.role} Account`
+  return r?.type || ''
+}
+window.archiveTypeLabel = archiveTypeLabel
+
+// Resolves a doctor record from the name string saved on an exam/Rx. Saved
+// names can spell the middle name out ("Dr. Julianne Rosche Cana") while the
+// doctors list uses the initial ("Dr. Julianne R. Cana"), so an exact compare
+// missed and the real profile photo never showed — match by name variants.
+function findDoctorByName(name, doctorId = '') {
+  if (doctorId) {
+    const byId = doctors.find(d => d.id === doctorId)
+    if (byId) return byId
+  }
+  if (!name) return null
+  const exact = doctors.find(d => d.name === name)
+  if (exact) return exact
+  const n = _normalizeNameForMatch(name)
+  return doctors.find(d => _nameVariantsForAccount(d).includes(n)) || null
+}
+window.findDoctorByName = findDoctorByName
 
 // Looks up a real account (patient/doctor/staff/admin) by email — used for
 // contact-form submissions, which are freeform and not tied to a login.
@@ -250,8 +522,68 @@ function apptReschedulable(a) {
 // app: Confirmed reuses the same green as the "Approved" badge (confirming
 // reinforces the approval, it doesn't change it), Rescheduled reuses the
 // same blue already used for the "Appointment Rescheduled" notification.
+// A reverted no-show whose date has passed: approved again only so the
+// doctor can record the exam the patient already had. It can't be
+// rescheduled or marked a no-show again — it's waiting on that exam.
+function apptAwaitingExam(a) {
+  return !!(a && a.status === 'approved' && a.noShowRevertedAt && a.date < new Date().toLocaleDateString('en-CA'))
+}
+window.apptAwaitingExam = apptAwaitingExam
+
+// Doctor's "Awaiting Examination" card — reverted no-shows from past dates,
+// kept out of Today (which means today's date only). Rendered above the
+// Today list and the dashboard's Today's Patients; nothing when empty.
+// Admins get the same card (they can start and edit exams too), with a
+// Doctor column since theirs spans every doctor.
+function awaitingExamCardHtml() {
+  const list = appointments.filter(apptAwaitingExam)
+    .sort((a, b) => a.date.localeCompare(b.date) || ((window._clockToMinutes?.(a.time) || 0) - (window._clockToMinutes?.(b.time) || 0)))
+  if (!list.length) return ''
+  const showDoc = st().role === 'admin'
+  return `
+    <div class="card" style="margin-bottom:20px;border-color:#BFDBFE">
+      <div class="card-header" style="flex-wrap:wrap;gap:4px 12px">
+        <div>
+          <div class="card-title">${ic('file-text','icon-sm')} Awaiting Examination <span class="badge" style="background:#EFF6FF;color:#1D4ED8;margin-left:4px">${list.length}</span></div>
+          <div style="font-size:.74rem;color:#6B7280;margin-top:2px">Reverted no-shows from past dates. Record the exam to complete them.</div>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+      <table class="tbl">
+        <colgroup>${showDoc
+          ? '<col style="width:24%"><col style="width:16%"><col style="width:18%"><col style="width:20%"><col style="width:22%">'
+          : '<col style="width:30%"><col style="width:22%"><col style="width:24%"><col style="width:24%">'}</colgroup>
+        <thead><tr><th>Patient</th><th>Original Date</th>${showDoc ? '<th>Doctor</th>' : ''}<th>Type</th><th>Action</th></tr></thead>
+        <tbody>
+          ${list.map(a => `<tr>
+            <td data-label="Patient"><div class="patient-name-cell">
+              ${avatar(a.patientName, 'patient-avatar', patients.find(p => p.id === a.patientId)?.photoUrl || null)}
+              <div class="patient-name-info"><strong>${esc(a.patientName)}</strong><span>${a.patientId}</span></div>
+            </div></td>
+            <td data-label="Original Date" style="font-size:.82rem;white-space:nowrap">${fmtDate(a.date)}<div style="font-size:.72rem;color:#9CA3AF">${esc(a.time)}</div></td>
+            ${showDoc ? `<td data-label="Doctor" style="font-size:.82rem">${esc(a.doctorName || '—')}</td>` : ''}
+            <td data-label="Type" style="font-size:.82rem">${apptTypeCell(a)}</td>
+            <td data-label="Action"><div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+              <button class="btn-icon" title="View Details" onclick="window.viewAppt('${a.id}')">${ic('eye','icon-sm')}</button>
+              <button class="btn-primary btn-sm" onclick="window.startExamFromAppt('${a.id}','${a.patientId}')">${ic('file-text','icon-sm')} Start Examination</button>
+            </div></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>`
+}
+
 function apptSubBadges(a) {
   let out = ''
+  // Clinic side only: the patient has no records yet, so this is their first visit.
+  if (window.state?.role !== 'patient' && ['pending', 'approved'].includes(a.status) && isNewPatient(patients.find(p => p.id === a.patientId))) {
+    out += newPatientTag(patients.find(p => p.id === a.patientId), 'sm')
+  }
+  if (apptAwaitingExam(a)) {
+    out += `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:600;
+      background:#EFF6FF;color:#1D4ED8;border-radius:999px;padding:2px 8px;white-space:nowrap" title="No-show reverted — the examination still needs to be recorded">${ic('file-text','icon-xs')} Awaiting Exam</span>`
+  }
   if (a.status === 'approved' && a.confirmedAt) {
     out += `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:600;
       background:#E8F5E9;color:#2E7D32;border-radius:999px;padding:2px 8px;white-space:nowrap">${ic('check','icon-xs')} Confirmed</span>`
@@ -260,6 +592,12 @@ function apptSubBadges(a) {
     out += `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:600;
       background:#EFF6FF;color:#3B82F6;border-radius:999px;padding:2px 8px;white-space:nowrap">${ic('refresh-cw','icon-xs')} Rescheduled</span>`
   }
+  // The exam was started (auto-saved draft) but never saved — this keeps
+  // a past appointment from being auto-marked a no-show until it is.
+  if (a.examDraftAt && a.status === 'approved') {
+    out += `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:600;
+      background:#FEF3C7;color:#B45309;border-radius:999px;padding:2px 8px;white-space:nowrap" title="An examination was started for this visit but not saved yet">${ic('file-text','icon-xs')} Unsaved Exam</span>`
+  }
   return out
 }
 
@@ -267,6 +605,24 @@ function apptSubBadges(a) {
 // (see apptSubBadges above), always shown together everywhere.
 function apptStatusCell(a) {
   return `<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">${badge(a.status)}${apptSubBadges(a)}</div>`
+}
+
+// The Type column's content — the service name plus a Walk-in / Online pill
+// saying how it was booked. Wrapped in one element so the mobile card layout
+// (.tbl td is a space-between flex row) keeps the two together, right-aligned,
+// instead of spreading them to opposite ends of the row.
+// Stacked: service name on top (one line, "…" when the column is too
+// narrow, full name in the tooltip), pill underneath. On mobile cards the
+// name wraps instead and both align right — see .appt-type-cell in
+// global.css.
+function apptTypeCell(a) {
+  const walkIn = a.source === 'walk-in'
+  const safeType = String(a.type || '').replace(/"/g, '&quot;')
+  return `<span class="appt-type-cell">
+    <span class="appt-type-name" title="${safeType}">${a.type || '—'}</span>
+    <span title="${walkIn ? 'Booked directly by clinic staff' : 'Booked by the patient online'}"
+          style="display:inline-block;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:20px;white-space:nowrap;${walkIn ? 'background:#FFF7ED;color:#C2410C' : 'background:#EFF6FF;color:#1D4ED8'}">${walkIn ? 'Walk-in' : 'Online'}</span>
+  </span>`
 }
 
 // hidePatient means every row already belongs to the one patient whose own
@@ -295,12 +651,29 @@ function apptActions(a, role, hidePatient = false) {
                in viewAppt() (main.js): completion happens automatically
                once the doctor saves an exam against this appointment, not
                by admin/staff flipping the status by hand. -->
+          ${role === 'admin' ? `<button class="btn-icon" title="Start Examination" style="color:#E8760A" onclick="window.startExamFromAppt('${a.id}')">${ic('file-text','icon-sm')}</button>` : ''}
+          ${apptAwaitingExam(a) ? '' : `
           <button class="btn-icon" title="Mark No-Show" style="color:#6D28D9" onclick="window.confirmMarkNoShow('${a.id}')">${ic('user-x','icon-sm')}</button>
-          <button class="btn-icon" title="Reschedule" style="color:#D97706" onclick="window.rescheduleAppt('${a.id}')">${ic('refresh-cw','icon-sm')}</button>
+          <button class="btn-icon" title="Reschedule" style="color:#D97706" onclick="window.rescheduleAppt('${a.id}')">${ic('refresh-cw','icon-sm')}</button>`}
           <button class="btn-icon" title="Cancel" style="color:#DC2626" onclick="window.confirmCancelAppt('${a.id}')">${ic('x','icon-sm')}</button>` : ''}
+        ${a.status === 'no-show' && (role === 'admin' || role === 'staff') ? `
+          <button class="btn-icon" title="Revert No-Show" style="color:#2563EB" onclick="window.confirmRevertNoShow('${a.id}')">${ic('rotate-ccw','icon-sm')}</button>` : ''}
       </div>
       ${rescheduleReqLabel(a)}
+      ${outsideScheduleLabel(a)}
     </div>`
+}
+
+// Staff-side flag: a booking kept after the doctor's schedule changed
+// ("Save & Keep These Bookings") — still valid, but no longer inside the
+// doctor's weekly days/hours. Hidden while a reschedule is already underway.
+function outsideScheduleLabel(a) {
+  if (window.state?.role === 'patient' || a.rescheduleProposal || a.rescheduleRequest) return ''
+  const why = window.apptOutsideSchedule ? window.apptOutsideSchedule(a) : ''
+  if (!why) return ''
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:600;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:999px;padding:2px 8px;white-space:nowrap" title="${esc(why)}. Kept as booked — the doctor still sees this patient.">
+    <span style="flex-shrink:0;display:flex">${ic('alert-triangle', 'icon-xs')}</span>Outside Schedule
+  </span>`
 }
 
 function appointmentsTable(list, role, tbodyId = 'appt-tbody', hidePatient = false, activeFilter = null) {
@@ -323,7 +696,7 @@ function appointmentsTable(list, role, tbodyId = 'appt-tbody', hidePatient = fal
         ${hasActions ? '<col style="width:14%">' : ''}
       </colgroup>
       <thead><tr>
-        <th>ID</th>
+        <th data-sort-key="num" data-sort-type="number">ID</th>
         ${hidePatient ? '' : '<th data-sort-key="patient" data-sort-type="text">Patient</th>'}
         <th>Doctor</th>
         <th data-sort-key="date" data-sort-type="date">Date</th>
@@ -331,7 +704,7 @@ function appointmentsTable(list, role, tbodyId = 'appt-tbody', hidePatient = fal
         ${hasActions ? '<th>Actions</th>' : ''}
       </tr></thead>
       <tbody id="${tbodyId}">
-        ${list.map(a => `<tr data-search="${(a.patientName||'').toLowerCase()} ${String(a.patientId||'').toLowerCase()} ${(a.doctorName||'').toLowerCase()} ${(a.type||'').toLowerCase()}" data-appt-status="${a.status}" data-sort-patient="${(a.patientName||'').toLowerCase()}" data-sort-date="${a.date}">
+        ${list.map(a => `<tr data-rec="1" data-rec-num="${recIdNum(a.id)}" data-sort-num="${recIdNum(a.id)}" data-rec-doctor="${esc(a.doctorName||'')}" data-rec-year="${String(a.date||'').slice(0,4)}" data-rec-date="${String(a.date||'').slice(0,10)} ${String(_clockToMinutes(a.time)||0).padStart(4,"0")}" data-rec-status="${a.status}" data-search="${String(a.id||'').toLowerCase()} ${(a.patientName||'').toLowerCase()} ${String(a.patientId||'').toLowerCase()} ${(a.doctorName||'').toLowerCase()} ${(a.type||'').toLowerCase()}" data-appt-status="${a.status}" data-sort-patient="${(a.patientName||'').toLowerCase()}" data-sort-date="${a.date}">
           <td data-label="ID"><code style="font-size:.75rem;color:#9CA3AF">${a.id}</code></td>
           ${hidePatient ? '' : `<td data-label="Patient"><div class="patient-name-cell">
             ${avatar(a.patientName, 'patient-avatar', patients.find(p=>p.id===a.patientId)?.photoUrl || null)}
@@ -340,11 +713,7 @@ function appointmentsTable(list, role, tbodyId = 'appt-tbody', hidePatient = fal
           <td data-label="Doctor" style="font-size:.82rem">${a.doctorName || '<span style="color:#9CA3AF;font-style:italic">Not yet assigned</span>'}</td>
           <td data-label="Date" style="font-size:.82rem">${fmtDate(a.date)}</td>
           <td data-label="Time" style="font-size:.82rem;white-space:nowrap">${a.time}</td>
-          <td data-label="Type" style="font-size:.82rem">
-            ${a.type}
-            <span title="${a.source === 'walk-in' ? 'Booked directly by clinic staff' : 'Booked by the patient online'}"
-                  style="display:inline-block;margin-left:6px;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:20px;white-space:nowrap;${a.source === 'walk-in' ? 'background:#FFF7ED;color:#C2410C' : 'background:#EFF6FF;color:#1D4ED8'}">${a.source === 'walk-in' ? 'Walk-in' : 'Online'}</span>
-          </td>
+          <td data-label="Type" style="font-size:.82rem">${apptTypeCell(a)}</td>
           <td data-label="Status" style="align-items:center">${apptStatusCell(a)}</td>
           ${hasActions ? `<td data-label="Actions">${apptActions(a, role, hidePatient)}</td>` : ''}
         </tr>`).join('')}
@@ -370,7 +739,7 @@ function _dashboardOverviewBody(showActivity) {
   const _todayShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()]
   const _availDocs  = doctors.filter(d => d.status === 'active' && d.available && (d.days || []).includes(_todayShort)).length
   const STATS = {
-    patients:    { value: String(patients.length),       delta: `${patients.filter(p=>p.status==='active').length} active`,  deltaColor: '#10B981' },
+    patients:    { value: String(patients.length),       delta: `${patients.filter(p => (p.registeredDate || '').slice(0, 7) === localDateStr().slice(0, 7)).length} registered this month`,  deltaColor: '#10B981' },
     appointments:{ value: String(appointments.length),   delta: `${appointments.filter(a=>a.status==='pending').length} pending`, deltaColor: '#10B981' },
     doctors:     { value: `${_availDocs}/${_totalDocs}`, delta: 'Available today',        deltaColor: '#9CA3AF' },
     today:       { value: String(_todayCnt),             delta: 'Scheduled for today',      deltaColor: '#9CA3AF' },
@@ -614,10 +983,6 @@ function pageAdminDashboard() {
         <button class="btn-secondary" title="Download this dashboard as a PDF" onclick="window.downloadDashboardReportPDF(this)">
           ${ic('download','icon-sm')} Download PDF
         </button>
-        <button class="btn-secondary" onclick="window.navigate('waitlist')">
-          ${ic('clock','icon-sm')} Waitlist
-          ${window._waitlistCount > 0 ? `<span class="nav-badge">${window._waitlistCount > 99 ? '99+' : window._waitlistCount}</span>` : ''}
-        </button>
         <button class="btn-primary" onclick="window.navigate('create-appointment')">${ic('plus','icon-sm')} New Appointment</button>
       </div>
       <span style="font-size:.78rem;color:#9CA3AF">${new Date().toLocaleDateString('en-PH',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</span>
@@ -630,8 +995,13 @@ function pageAdminDashboard() {
 //  ADMIN — USER MANAGEMENT
 // ════════════════════════════════════════════════════════════════
 function pageAdminUsers() {
-  const allUsers = getAllUsers()
+  // Clinic accounts only (Admin / Staff / Doctor) — the ones whose Active /
+  // Inactive status an admin actually manages. Patient accounts have no
+  // status anymore (no auto-deactivation, no status control) and are managed
+  // from Patients (patient-list), so an old 'patient' link goes there.
+  const allUsers = getAllUsers().filter(u => u.role !== 'Patient')
   const filter   = st().filter || 'all'
+  if (filter === 'patient') { setTimeout(() => window.navigate('patient-list'), 0); return '' }
 
   const filtered = filter === 'all' ? allUsers : allUsers.filter(u => u.role.toLowerCase() === filter)
 
@@ -642,7 +1012,7 @@ function pageAdminUsers() {
     doctor: 'Doctor Users', patient: 'Patient Users'
   }
   const subtitleMap = {
-    all: 'Manage system accounts and access roles',
+    all: 'Clinic accounts: admins, staff and doctors. Patient accounts are under Patients.',
     admin: 'Manage administrator accounts',
     staff: 'Manage staff accounts',
     doctor: 'Manage doctor accounts',
@@ -773,14 +1143,11 @@ function pageAppointments() {
     </div>
     ${role !== 'doctor' ? `
     <div class="page-header-btn-group" style="display:flex;gap:10px">
-      <button class="btn-secondary" onclick="window.navigate('waitlist')">
-        ${ic('clock','icon-sm')} Waitlist
-        ${window._waitlistCount > 0 ? `<span class="nav-badge">${window._waitlistCount > 99 ? '99+' : window._waitlistCount}</span>` : ''}
-      </button>
       <button class="btn-primary" onclick="window.navigate('create-appointment')">${ic('plus','icon-sm')} New Appointment</button>
     </div>` : ''}
   </div>
   <div class="page-body">
+    ${role === 'admin' && activeFilter === 'all' ? awaitingExamCardHtml() : ''}
     <div class="table-wrap">
       <div class="table-toolbar">
         <span class="table-title">${list.length} record${list.length!==1?'s':''}</span>
@@ -804,19 +1171,24 @@ function pagePatientList() {
   const { role, filter } = st()
   const canEdit    = role === 'admin' || role === 'staff'
   const canArchive = role === 'admin'
-  const statusFilter = (filter && ['active','inactive'].includes(filter)) ? filter : 'all'
+  // Tabs by how the patient came to the clinic (patientSourceBadge()).
+  const statusFilter = (filter && PATIENT_SOURCE_META[filter]) ? filter : 'all'
 
   let list = [...patients]
-  if (statusFilter === 'active')   list = list.filter(p => (p.status || 'active') === 'active')
-  if (statusFilter === 'inactive') list = list.filter(p => (p.status || 'active') === 'inactive')
+  if (statusFilter !== 'all') list = list.filter(p => (p.source || 'walk-in') === statusFilter)
+  // New / Established filter (isNewPatient()), alongside the tabs.
+  const stage = ['new', 'established'].includes(window.state.ptStage) ? window.state.ptStage : ''
+  const stageCount = s => list.filter(p => s === 'new' ? isNewPatient(p) : !isNewPatient(p)).length
+  const stageSeg = [['', 'All', list.length], ['new', 'New', stageCount('new')], ['established', 'Established', stageCount('established')]]
+  if (stage) list = list.filter(p => stage === 'new' ? isNewPatient(p) : !isNewPatient(p))
 
   window.state.afterRender = () => { window.initPagination('patients-tbody'); window.initSortable('patients-tbody') }
 
   return `
   <div class="page-header">
     <div class="page-header-left">
-      <h1 class="page-title">Patient Records</h1>
-      <p class="page-subtitle">Browse and manage patient profiles</p>
+      <h1 class="page-title">Patients</h1>
+      <p class="page-subtitle">Patient profiles, records and accounts</p>
     </div>
     <div style="display:flex;gap:8px">
       ${role !== 'doctor' ? `<button class="btn-primary" onclick="window.openAddPatientModal()">
@@ -829,46 +1201,52 @@ function pagePatientList() {
   <div class="page-body">
     <div class="table-wrap">
       <div class="filter-tabs">
-        ${[['all','All'],['active','Active'],['inactive','Inactive']].map(([key,lbl]) => `
+        ${[['all','All'], ...Object.entries(PATIENT_SOURCE_META).map(([k, m]) => [k, m.label])].map(([key,lbl]) => `
           <button class="filter-tab${statusFilter===key?' active':''}"
                   onclick="window.navigate('patient-list',{filter:'${key}'})">${lbl}</button>`).join('')}
       </div>
       <div class="table-toolbar">
         <span class="table-title">${list.length} patient${list.length!==1?'s':''}</span>
         <div class="table-actions">
+          <div class="np-seg" role="group" aria-label="Filter by patient stage">
+            ${stageSeg.map(([v, l, n]) => `<button type="button" class="np-seg-btn${v === 'new' ? ' np-seg-btn--new' : ''}${stage === v ? ' is-active' : ''}" aria-pressed="${stage === v}"
+              title="${v === 'new' ? 'No examination on file yet' : v === 'established' ? 'Has examination records, or transferred records' : 'Every patient'}"
+              onclick="window.state.ptStage='${v}';window.renderPage()">${v === 'new' ? NP_ICON_NEW : ''}${l}<span class="np-seg-count">${n}</span></button>`).join('')}
+          </div>
           <div class="search-input-wrap">
             ${ic('search','icon-sm')}
-            <input class="search-input" placeholder="Search by name, ID…"
+            <input class="search-input" placeholder="Search by name, ID, email…"
                    oninput="window.filterTable(this,'patients-tbody')">
           </div>
         </div>
       </div>
       ${list.length ? `<table class="tbl">
         <colgroup>
-          <col style="width:22%"><col style="width:7%"><col style="width:9%">
-          <col style="width:14%"><col style="width:14%"><col style="width:10%"><col style="width:24%">
+          <col style="width:22%"><col style="width:6%"><col style="width:10%">
+          <col style="width:13%"><col style="width:12%"><col style="width:15%"><col style="width:22%">
         </colgroup>
         <thead><tr>
           <th data-sort-key="name" data-sort-type="text">Patient</th>
           <th>Age</th><th>Gender</th><th>Contact</th>
           <th data-sort-key="visit" data-sort-type="date">Last visit</th>
-          <th>Status</th><th>Actions</th>
+          <th>Registration Type</th><th>Actions</th>
         </tr></thead>
         <tbody id="patients-tbody">
-          ${list.map(p => `<tr data-search="${(p.name||'').toLowerCase()} ${String(p.id||'').toLowerCase()} ${(p.contact||'').toLowerCase()}" data-sort-name="${(p.name||'').toLowerCase()}" data-sort-visit="${p.lastVisit && p.lastVisit !== '—' ? p.lastVisit : ''}">
+          ${list.map(p => `<tr data-search="${(p.name||'').toLowerCase()} ${String(p.id||'').toLowerCase()} ${(p.contact||'').toLowerCase()} ${esc((p.email||'').toLowerCase())}" data-sort-name="${(p.name||'').toLowerCase()}" data-sort-visit="${p.lastVisit && p.lastVisit !== '—' ? p.lastVisit : ''}">
             <td data-label="Patient"><div class="patient-name-cell">
               ${avatar(p.name, 'patient-avatar', p.photoUrl || null)}
               <div class="patient-name-info">
                 <strong>${p.name}</strong>
+                ${newPatientPill(p)}
                 ${p.deletionRequestedAt ? `<span title="Account deletion requested ${fmtDate(p.deletionRequestedAt?.replace(' ','T'))}" style="display:inline-flex;align-items:center;gap:3px;background:#FEE2E2;color:#991B1B;font-weight:700;font-size:.62rem;padding:2px 7px;border-radius:999px;margin-top:2px">${ic('user-x','icon-xs')} Deletion Requested</span>` : ''}
                 <span>${p.id}</span>
               </div>
             </div></td>
             <td data-label="Age" style="font-size:.82rem">${p.age}</td>
             <td data-label="Gender" style="font-size:.82rem">${p.gender}</td>
-            <td data-label="Contact" style="font-size:.82rem">${p.contact}</td>
-            <td data-label="Last Visit" style="font-size:.82rem">${fmtDate(p.lastVisit)}</td>
-            <td data-label="Status">${badge(p.status || 'active')}</td>
+            <td data-label="Contact" style="font-size:.82rem"><div style="min-width:0">${orEmpty(p.contact, 'No contact number')}${p.email ? `<div style="font-size:.72rem;color:#9CA3AF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.email)}">${esc(p.email)}</div>` : ''}</div></td>
+            <td data-label="Last Visit" style="font-size:.82rem">${p.lastVisit && p.lastVisit !== '—' ? fmtDate(p.lastVisit) : emptyVal('No visits yet')}</td>
+            <td data-label="Registration Type">${patientSourceBadge(p)}</td>
             <td data-label="Actions"><div style="display:flex;gap:4px;align-items:center;flex-wrap:nowrap">
               <button class="btn-icon" title="View Profile"
                       onclick="window.navigate('patient-view',{patientId:'${p.id}',patientName:'${p.name}'})">
@@ -921,9 +1299,10 @@ function pagePatientView() {
   // ── Consultation History panel ────────────────────────────────
   const sortedCons = [...p.consultations].sort((a,b)=>b.date.localeCompare(a.date))
   const consultationsPanel = sortedCons.length ? `
-    <div class="table-wrap" style="box-shadow:none;border:1px solid #f3f4f6">
+    ${recFilterBar('pv-con-list', { items: sortedCons, placeholder: 'Search complaint, doctor or type…', statuses: [...new Set(sortedCons.map(c => c.type).filter(Boolean))].map(t => [t, t]), statusLabel: 'All Types' })}
+    <div class="table-wrap" id="pv-con-list" style="box-shadow:none;border:1px solid #f3f4f6">
       ${sortedCons.map((c,i) => `
-      <div class="record-row" style="${i!==sortedCons.length-1?'border-bottom:1px solid #F3F4F6;':''}${i===0?'background:#FAFAF8;':''}">
+      <div class="record-row" ${recRowAttrs({ search: `${c.chiefComplaint || ''} ${c.doctor || ''} ${c.type || ''}`, doctor: c.doctor, date: c.date, status: c.type, id: c.id })} style="${i!==sortedCons.length-1?'border-bottom:1px solid #F3F4F6;':''}${i===0?'background:#FAFAF8;':''}">
         <div style="text-align:center;min-width:38px;flex-shrink:0">
           <div style="font-size:1.05rem;font-weight:800;color:#1C1C1C;line-height:1">${new Date(c.date+'T00:00:00').getDate()}</div>
           <div style="font-size:.58rem;text-transform:uppercase;font-weight:600;color:#9CA3AF;margin-top:1px">${new Date(c.date+'T00:00:00').toLocaleString('en',{month:'short'})}</div>
@@ -947,13 +1326,14 @@ function pagePatientView() {
   const latestRx = sortedRx[0] || null
   const prescriptionsPanel = sortedRx.length ? `
     ${window.renderRxDocumentCard(latestRx, p, true)}
-    <div class="table-wrap" style="box-shadow:none;border:1px solid #f3f4f6">
+    ${recFilterBar('pv-rx-list', { items: sortedRx, placeholder: 'Search Rx no., doctor or lens type…', statuses: RX_STATUS_OPTS })}
+    <div class="table-wrap" id="pv-rx-list" style="box-shadow:none;border:1px solid #f3f4f6">
       ${sortedRx.map((rx,i) => {
         const expDate = rx.expiryDate ? new Date(rx.expiryDate.includes('T') ? rx.expiryDate : rx.expiryDate+'T00:00:00')
           : (() => { const d = new Date(rx.date.includes('T') ? rx.date : rx.date+'T00:00:00'); d.setFullYear(d.getFullYear()+1); return d })()
-        const isExpired = rx.status === 'expired' || (rx.status !== 'superseded' && expDate < new Date())
+        const isExpired = rx.status === 'expired' || expDate < new Date()
         return `
-      <div class="record-row" style="${i!==sortedRx.length-1?'border-bottom:1px solid #F3F4F6;':''}${i===0?'background:#FAFAF8;':''}">
+      <div class="record-row" ${recRowAttrs({ search: `${rx.id} ${rx.doctor || ''} ${rx.lensType || ''}`, doctor: rx.doctor, date: rx.date, status: rxFilterStatus(rx), id: rx.id })} style="${i!==sortedRx.length-1?'border-bottom:1px solid #F3F4F6;':''}${i===0?'background:#FAFAF8;':''}">
         <div style="text-align:center;min-width:38px;flex-shrink:0">
           <div style="font-size:1.05rem;font-weight:800;color:#1C1C1C;line-height:1">${new Date(rx.date+'T00:00:00').getDate()}</div>
           <div style="font-size:.58rem;text-transform:uppercase;font-weight:600;color:#9CA3AF;margin-top:1px">${new Date(rx.date+'T00:00:00').toLocaleString('en',{month:'short'})}</div>
@@ -977,9 +1357,10 @@ function pagePatientView() {
   // ── Examinations nested in consultations ───────────────────────
   const sortedExams = [...p.examinations].sort((a,b)=>b.date.localeCompare(a.date))
   const examsContent = sortedExams.length ? `
-    <div class="table-wrap" style="box-shadow:none;border:1px solid #f3f4f6">
+    ${recFilterBar('pv-exam-list', { items: sortedExams, placeholder: 'Search diagnosis or doctor…' })}
+    <div class="table-wrap" id="pv-exam-list" style="box-shadow:none;border:1px solid #f3f4f6">
       ${sortedExams.map((e,i) => `
-      <div class="record-row" style="${i!==sortedExams.length-1?'border-bottom:1px solid #F3F4F6;':''}${i===0?'background:#FAFAF8;':''}">
+      <div class="record-row" ${recRowAttrs({ search: `${e.diagnosis || ''} ${e.doctor || ''}`, doctor: e.doctor, date: e.date, id: e.id })} style="${i!==sortedExams.length-1?'border-bottom:1px solid #F3F4F6;':''}${i===0?'background:#FAFAF8;':''}">
         <div style="text-align:center;min-width:38px;flex-shrink:0">
           <div style="font-size:1.05rem;font-weight:800;color:#1C1C1C;line-height:1">${new Date(e.date+'T00:00:00').getDate()}</div>
           <div style="font-size:.58rem;text-transform:uppercase;font-weight:600;color:#9CA3AF;margin-top:1px">${new Date(e.date+'T00:00:00').toLocaleString('en',{month:'short'})}</div>
@@ -993,15 +1374,13 @@ function pagePatientView() {
         <div class="record-row-actions">
           ${i===0 ? `<span style="background:#FFF7ED;color:#E8760A;font-size:.63rem;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #FDE68A;flex-shrink:0;white-space:nowrap">Latest</span>` : ''}
           <button class="btn-icon" title="View Results" onclick="window.viewExamDetail('${p.id}','${e.id}')">${ic('eye','icon-sm')}</button>
-          ${(role === 'doctor' && e.doctor === user?.name) ? `
+          ${(role === 'admin' || (role === 'doctor' && e.doctor === user?.name)) ? `
           <button class="btn-ghost" onclick="window.navigate('edit-examination',{patientId:'${p.id}',examId:'${e.id}'})"
             style="font-size:.72rem;padding:4px 10px;flex-shrink:0;white-space:nowrap">${ic('edit','icon-sm')} Edit</button>`
           : (role !== 'patient' ? `
           <button class="btn-ghost" title="${role === 'doctor' ? `Only ${e.doctor} can edit this record` : 'Only the assigned doctor can edit this record'}" onclick="window.navigate('examination',{patientId:'${p.id}',examId:'${e.id}'})"
             style="font-size:.72rem;padding:4px 10px;flex-shrink:0;white-space:nowrap;color:#9CA3AF">${ic('lock','icon-sm')} View Only</button>` : '')}
-          ${(role === 'admin' || role === 'staff' || (role === 'doctor' && e.doctor === user?.name)) ? `
-          <button class="btn-icon" title="Archive" style="color:#d97706;border-color:#fef3c7"
-                  onclick="window.confirmDeleteExam('${e.id}','${p.id}','${p.name.replace(/'/g,"\\'")}')">${ic('archive','icon-sm')}</button>` : ''}
+          <!-- No Archive/Delete: examination records are permanent medical records. -->
         </div>
       </div>`).join('')}
     </div>` : emptyState('eye', 'No examination records', 'No examination records on file.')
@@ -1089,7 +1468,8 @@ function pagePatientView() {
         <div class="patient-info-col">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
             <div style="font-size:1.4rem;font-weight:800;color:#1C1C1C;letter-spacing:-.02em">${p.name}</div>
-            ${badge(pStatus)}
+            ${patientStageTag(p, 'lg')}
+            ${patientSourceBadge(p)}
             <!-- Right up top next to the name/status, not buried in the
                  Personal Info tab — this is the one thing on the whole
                  page a doctor genuinely can't afford to miss walking in. -->
@@ -1100,16 +1480,17 @@ function pagePatientView() {
               <span style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">${ic('alert-circle','icon-xs')}</span><span>Medical History</span>
             </button>` : ''}
           </div>
-          <div style="font-size:.82rem;color:#6B7280;margin-bottom:14px">
-            Patient ID: <strong style="color:#1C1C1C;font-family:monospace">${p.id}</strong>
+          <div class="np-idrow">
+            <span>Patient ID: <strong style="color:#1C1C1C;font-family:monospace">${p.id}</strong></span>
+            ${patientStageChip(p)}
           </div>
           <div class="patient-info-chips">
             ${[
-              [ic('user','icon-sm'), 'Age / Gender',  `${p.age} yrs, ${p.gender}`],
-              [ic('phone','icon-sm'),'Contact',        p.contact],
-              [ic('mail','icon-sm'), 'Email',          p.email],
-              [ic('calendar','icon-sm'),'Last Visit',  fmtDate(p.lastVisit)],
-              [ic('map-pin','icon-sm'),'Address',      p.address],
+              [ic('user','icon-sm'), 'Age / Gender',  [p.dob || p.age ? `${p.age} yrs` : '', p.gender || ''].filter(Boolean).join(', ') || emptyVal('Not set')],
+              [ic('phone','icon-sm'),'Contact',        orEmpty(p.contact, 'No contact number')],
+              [ic('mail','icon-sm'), 'Email',          orEmpty(p.email, 'No email address')],
+              [ic('calendar','icon-sm'),'Last Visit',  p.lastVisit && p.lastVisit !== '—' ? fmtDate(p.lastVisit) : emptyVal('No visits yet')],
+              [ic('map-pin','icon-sm'),'Address',      orEmpty(p.address, 'No address set')],
             ].map(([icn,lbl,val]) => `
               <div style="background:#F9FAFB;border-radius:8px;padding:10px 12px">
                 <div style="display:flex;align-items:center;gap:5px;font-size:.65rem;color:#9CA3AF;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap">
@@ -1158,15 +1539,15 @@ function pagePatientView() {
           <div class="profile-two-col" style="gap:0 32px">
             ${[
               ['Full Name',       [p.firstName, p.middleName, p.lastName].filter(Boolean).join(' ') || p.name],
-              ['Date of Birth',   fmtDate(p.dob)],
-              ['Age',             `${p.age} years old`],
-              ['Gender',          p.gender],
-              ['Contact Number',  p.contact],
-              ['Email Address',   p.email],
-              ['Address',         p.address],
-              ['Occupation',      p.occupation || '—'],
-              ['Registered',      fmtDate(p.registeredDate)],
-              ['Last Visit',      fmtDate(p.lastVisit)],
+              ['Date of Birth',   p.dob ? fmtDate(p.dob) : emptyVal('Not set')],
+              ['Age',             p.dob || p.age ? `${p.age} years old` : emptyVal('Not set')],
+              ['Gender',          orEmpty(p.gender, 'Not set')],
+              ['Contact Number',  orEmpty(p.contact, 'No contact number')],
+              ['Email Address',   orEmpty(p.email, 'No email address')],
+              ['Address',         orEmpty(p.address, 'No address set')],
+              ['Occupation',      orEmpty(p.occupation, 'Not specified')],
+              ['Registered',      p.registeredDate ? fmtDate(p.registeredDate) : emptyVal('Not recorded')],
+              ['Last Visit',      p.lastVisit ? fmtDate(p.lastVisit) : emptyVal('No visits yet')],
               ['No-Shows', (() => {
                 const n = p.noShowCount || 0
                 if (n === 0) return '<span style="color:#059669;font-weight:600">0</span>'
@@ -1192,9 +1573,15 @@ function pagePatientView() {
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
               <span style="flex-shrink:0;display:flex;color:#D97706">${ic('alert-circle','icon-lg')}</span>
               <span style="display:inline-flex;align-items:center;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 10px;border-radius:999px;background:#FEF3C7;color:#92400E">Medical History</span>
+              ${medHxReportedTag(p)}
+              ${['doctor','admin','staff'].includes(role) ? `<button type="button" class="btn-ghost" style="margin-left:auto;font-size:.72rem;padding:4px 10px" onclick="window.editMedicalHistory('${p.id}')">${ic('edit','icon-sm')} Edit</button>` : ''}
             </div>
             <div style="font-size:.85rem;color:#78350F;line-height:1.55;white-space:pre-wrap">${esc(p.medicalHistory)}</div>
-          </div>` : ''}
+          </div>` : (['doctor','admin','staff'].includes(role) ? `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:#F9FAFB;border:1.5px dashed #E5E7EB;border-radius:10px;padding:10px 14px;margin-bottom:16px">
+            <span style="font-size:.8rem;color:#9CA3AF">${medHxEmptyText(p, false)}</span>
+            <button type="button" class="btn-ghost" style="font-size:.72rem;padding:4px 10px" onclick="window.editMedicalHistory('${p.id}')">${ic('plus','icon-sm')} Add Medical History</button>
+          </div>` : '')}
           <div class="patient-section-label muted">Optical Examination Records (${p.examinations.length})</div>
           ${examsContent}`)}
 
@@ -1213,6 +1600,7 @@ function pagePatientView() {
               ${ic('plus','icon-sm')} New Appointment
             </button>` : ''}
           </div>
+          ${patientAppts.length ? recFilterBar('pv-appt-tbody', { isTable: true, items: patientAppts, getDoctor: a => a.doctorName, placeholder: 'Search doctor, type or ID…', statuses: APPT_STATUS_OPTS.filter(([v]) => patientAppts.some(a => a.status === v)) }) : ''}
           <div class="table-wrap" style="box-shadow:none;border:1px solid #f3f4f6">${appointmentsTable(patientAppts, role, 'pv-appt-tbody', true)}</div>`)}
 
       </div>
@@ -1316,142 +1704,6 @@ function pageContactMessages() {
               </td>
             </tr>`
           }).join('') : emptyRow(5, 'mail', 'No messages', 'Contact messages will appear here.')}
-        </tbody>
-      </table>
-      `}
-    </div>
-  </div>`
-}
-
-// ════════════════════════════════════════════════════════════════
-//  WAITLIST PAGE (Admin + Staff visibility)
-// ════════════════════════════════════════════════════════════════
-function pageWaitlist() {
-  const list = [...waitlistEntries]
-
-  // entry.time is already a formatted string ("9:00 AM") — it's stored
-  // verbatim from the booking wizard's slot label, not a raw SQL TIME.
-  const fmtD = d => { const dt = new Date(d + 'T00:00:00'); return isNaN(dt) ? d : dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) }
-  const fmtExpiry = dtStr => { const dt = new Date((dtStr || '').replace(' ', 'T')); return isNaN(dt) ? '' : dt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' }) }
-  // "9:00 AM" → "09:00", so date+time can be combined into one sortable value.
-  const to24h = t => {
-    const m = /^(\d{1,2}):(\d{2})\s*([AP]M)$/i.exec((t || '').trim())
-    if (!m) return '00:00'
-    let h = parseInt(m[1], 10)
-    if (/PM/i.test(m[3]) && h !== 12) h += 12
-    if (/AM/i.test(m[3]) && h === 12) h = 0
-    return String(h).padStart(2, '0') + ':' + m[2]
-  }
-
-  // ── Group entries into slots: same doctor + date + time = one slot that
-  // patients queue up for. The API already returns rows ordered by
-  // date → time → created_at, so numbering slots in that discovery order
-  // gives a naturally chronological "Slot 1, Slot 2, …" sequence.
-  const slots = new Map()
-  list.forEach(e => {
-    const key = `${e.doctorId || e.doctorName}|${e.date}|${e.time}`
-    if (!slots.has(key)) slots.set(key, { no: slots.size + 1, entries: [] })
-    slots.get(key).entries.push(e)
-  })
-  slots.forEach(g => {
-    // Queue position only applies to patients still 'waiting' — an
-    // 'offered' entry has already reached the front of the line and is
-    // shown as such rather than with a number.
-    let pos = 0
-    g.entries.forEach(e => { e._pos = e.status === 'waiting' ? ++pos : 0 })
-    g.waitingCount = pos
-  })
-  const totalSlots = slots.size
-
-  window.state.afterRender = () => {
-    window.initPagination('waitlist-tbody')
-    window.initSortable('waitlist-tbody', { key: 'slot', type: 'date', dir: 1 })
-  }
-
-  return `
-  <div class="page-header">
-    <div class="page-header-left" style="display:flex;align-items:center;gap:12px">
-      <button class="btn-icon" onclick="window.goBack('${st().role === 'admin' ? 'admin-dashboard' : 'staff-dashboard'}')" title="Back">
-        ${ic('chevron-left','icon')}
-      </button>
-      <div>
-        <h1 class="page-title">Waitlist</h1>
-        <p class="page-subtitle">Patients waiting for a fully-booked slot to open up${totalSlots ? ` · ${totalSlots} slot${totalSlots !== 1 ? 's' : ''} with a queue` : ''}</p>
-      </div>
-    </div>
-  </div>
-  <div class="page-body">
-    <div class="table-wrap">
-      <div class="table-toolbar">
-        <span class="table-title">${list.length} ${list.length !== 1 ? 'entries' : 'entry'}</span>
-        <div class="table-actions">
-          <div class="search-input-wrap">
-            ${ic('search', 'icon-sm')}
-            <input class="search-input" placeholder="Search by patient or doctor…"
-                   oninput="window.filterTable(this,'waitlist-tbody')">
-          </div>
-        </div>
-      </div>
-      ${list.length === 0 ? emptyState('clock', 'No waitlist entries', 'No one is currently waitlisted.') : `
-      <table class="tbl">
-        <colgroup>
-          <col style="width:16%"><col style="width:22%"><col style="width:16%"><col style="width:16%"><col style="width:12%"><col style="width:10%"><col style="width:8%">
-        </colgroup>
-        <thead><tr>
-          <th data-sort-key="slot" data-sort-type="date" title="Sort by which slot comes up soonest">Slot</th>
-          <th data-sort-key="patient" data-sort-type="text">Patient</th>
-          <th data-sort-key="doctor" data-sort-type="text">Doctor</th>
-          <th data-sort-key="position" data-sort-type="number" title="Sort by place in line — who gets offered the slot next">Queue Position</th>
-          <th>Status</th>
-          <th data-sort-key="joined" data-sort-type="date">Joined</th>
-          <th></th>
-        </tr></thead>
-        <tbody id="waitlist-tbody">
-          ${list.map(e => {
-            const key = `${e.doctorId || e.doctorName}|${e.date}|${e.time}`
-            const g = slots.get(key)
-            const isOffered = e.status === 'offered'
-            const statusPill = isOffered
-              ? `<span style="display:inline-flex;flex-direction:column;gap:1px">
-                   <span style="display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:.72rem;font-weight:600;background:#FFF7ED;color:#C2410C;width:fit-content">Offered</span>
-                   <span style="font-size:.68rem;color:#9CA3AF">Expires ${fmtExpiry(e.offerExpiresAt)}</span>
-                 </span>`
-              : `<span style="display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:.72rem;font-weight:600;background:#F3F4F6;color:#6B7280">Waiting</span>`
-            const posBadge = isOffered
-              ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.76rem;font-weight:700;color:#C2410C;white-space:nowrap">${ic('alert-circle', 'icon-xs')} Front of line</span>`
-              : `<span style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap">
-                   <span style="display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;font-size:.75rem;font-weight:700;background:${e._pos === 1 ? '#FFF0DC' : '#F3F4F6'};color:${e._pos === 1 ? '#C2410C' : '#6B7280'}">#${e._pos}</span>
-                   <span style="font-size:.72rem;color:#9CA3AF">of ${g.waitingCount}</span>
-                 </span>`
-            return `<tr data-search="${(e.patientName || '').toLowerCase()} ${(e.doctorName || '').toLowerCase()}"
-                        data-sort-slot="${e.date}T${to24h(e.time)}"
-                        data-sort-patient="${(e.patientName || '').toLowerCase()}"
-                        data-sort-doctor="${(e.doctorName || '').toLowerCase()}"
-                        data-sort-position="${isOffered ? 0 : e._pos}"
-                        data-sort-joined="${e.createdAt}">
-              <td data-label="Slot" style="align-items:center">
-                <div>
-                  <span style="display:inline-flex;align-items:center;padding:2px 9px;border-radius:6px;font-size:.71rem;font-weight:700;background:#EFF6FF;color:#2563EB">Slot ${g.no}</span>
-                  <div style="font-size:.78rem;color:#374151;margin-top:4px">${fmtD(e.date)}</div>
-                  <div style="font-size:.76rem;color:#6B7280">${e.time}</div>
-                </div>
-              </td>
-              <td data-label="Patient"><div class="patient-name-cell">
-                ${avatar(e.patientName, 'patient-avatar')}
-                <div class="patient-name-info"><strong>${e.patientName}</strong><span>${e.patientId}</span></div>
-              </div></td>
-              <td data-label="Doctor" style="font-size:.82rem">${e.doctorName || '—'}</td>
-              <td data-label="Queue Position">${posBadge}</td>
-              <td data-label="Status" style="align-items:center">${statusPill}</td>
-              <td data-label="Joined" style="font-size:.78rem;color:#9ca3af;white-space:nowrap">${window._notifTimeAgo(e.createdAt)}</td>
-              <td data-label="Actions">
-                <button class="btn-icon" title="Remove from waitlist" style="color:#DC2626"
-                        onclick="window.confirmRemoveWaitlistEntry(${e.id})">
-                  ${ic('trash-2', 'icon-sm')}
-                </button>
-              </td>
-            </tr>`
-          }).join('')}
         </tbody>
       </table>
       `}
@@ -1775,7 +2027,7 @@ function pageSchedule() {
                   ${docAppts.map(a=>`<tr>
                     <td data-label="Patient" style="font-size:.82rem;font-weight:600">${a.patientName}</td>
                     <td data-label="Time" style="font-size:.78rem;white-space:nowrap">${a.time}</td>
-                    <td data-label="Type" style="font-size:.78rem;color:#6B7280">${a.type}</td>
+                    <td data-label="Type" style="font-size:.78rem;color:#6B7280">${apptTypeCell(a)}</td>
                   </tr>`).join('')}
                 </tbody></table>`
               : `<div class="table-empty">No appointments today for this doctor.</div>`}
@@ -1813,6 +2065,9 @@ function pageSchedule() {
             <div>
               <div class="doc-card-name">${d.name.replace('Dr. ','')}</div>
               <div class="doc-card-spec">${d.specialization}</div>
+              <!-- Working days right on the card, same as the patient's
+                   Doctor Availability page — no clicking through each doctor. -->
+              ${d.availableDays?.length ? dayPills(d.availableDays, 'sm') : `<div style="font-size:.68rem;color:#9CA3AF;margin-top:4px">No days set</div>`}
             </div>
           </button>`).join('')}
         </div>
@@ -1919,6 +2174,9 @@ function pageAdminReports() {
       // Clone table \u2014 all rows, remove pagination visibility class
       const tClone = table.cloneNode(true)
       tClone.querySelectorAll('.pg-hidden').forEach(r => r.classList.remove('pg-hidden'))
+      // Column sort chevrons (sortable.js) are on-screen controls — on paper
+      // they can't be clicked and all just point up, so they're left out.
+      tClone.querySelectorAll('.sort-icon').forEach(s => s.remove())
       const rowCount = tClone.querySelectorAll('tbody tr').length
 
       // The on-screen charts are real Chart.js canvases (renderReportCharts(),
@@ -2016,11 +2274,13 @@ function pageAdminReports() {
      table already filled page 1. tr{page-break-inside:avoid} above still
      protects individual table rows either way, and .chart-box below
      keeps each box's title+table together as one unit. */
-  .charts-section { margin-top: 20px; }
+  /* break-inside:avoid on the section keeps its title with both boxes
+     (same as the downloaded PDF); one taller than a page still flows. */
+  .charts-section { margin-top: 20px; break-inside: avoid; page-break-inside: avoid; }
   .section-header { border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-bottom: 14px; }
   .section-title  { font-size: 11pt; font-weight: 700; }
   .section-sub    { font-size: 7.5pt; color: #666; margin-top: 2px; }
-  .chart-grid   { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chart-grid   { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
   .chart-box    { border: 1px solid #e5e7eb; border-radius: 4px; padding: 12px; page-break-inside: avoid; }
   .chart-label  { font-size: 8.5pt; font-weight: 700; margin-bottom: 8px; }
 
@@ -2106,7 +2366,7 @@ function pageAdminReports() {
       // downloadExamRecordPDF(), main.js).
       const bodyMatch = built.html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
       if (!bodyMatch) { window.toast('Could not generate the PDF.', 'error'); return }
-      window._downloadLiveContentAsPdf(bodyMatch[1], 'pdf-report-doc', built.filename, document.getElementById('rpt-download-btn'))
+      window._downloadLiveContentAsPdf(bodyMatch[1], 'pdf-report-doc', built.filename, document.getElementById('rpt-download-btn'), undefined, built.html)
     }
 
   }
@@ -2193,7 +2453,7 @@ function pageAdminReports() {
         <div style="font-size:.72rem;color:#9ca3af;margin-top:2px">Graphical breakdown of the report data above.</div>
       </div>
 
-      <div class="grid-2" style="margin-bottom:16px">
+      <div class="grid-2" style="margin-bottom:16px;align-items:start">
         <div class="card" style="overflow:hidden">
           <div style="padding:4px 0 0 0;border-left:4px solid #E8760A">
             <div class="card-header" style="padding-left:20px"><div><div class="card-title" id="rpt-chart-left-title">&nbsp;</div></div></div>
@@ -2220,7 +2480,7 @@ function pageAdminReports() {
 //  ADMIN — SETTINGS
 // ════════════════════════════════════════════════════════════════
 function pageAdminSettings() {
-  const validSections = ['profile', 'clinic', 'services', 'consultation', 'terms', 'archives']
+  const validSections = ['profile', 'clinic', 'services', 'consultation', 'terms', 'archives', 'backup']
   const sec = validSections.includes(st().filter) ? st().filter : 'profile'
 
   // ── Section: My Profile ──────────────────────────────────────
@@ -2292,15 +2552,9 @@ function pageAdminSettings() {
               <label class="form-label">Last Name</label>
               <input class="form-input" id="ad-lname" value="${adm.lastName || ''}">
             </div>
-            <div class="form-row-2">
-              <div class="form-group">
-                <label class="form-label">Email Address</label>
-                <input class="form-input" type="email" id="ad-email" value="${adm.email || ''}">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Phone Number</label>
-                <input class="form-input" id="ad-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${adm.contact || ''}">
-              </div>
+            <div class="form-group">
+              <label class="form-label">Phone Number</label>
+              <input class="form-input" id="ad-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${adm.contact || ''}">
             </div>
             <div style="display:flex;justify-content:flex-end;margin-top:4px">
               <button class="btn-primary" onclick="window.saveUserProfile(this)">
@@ -2310,6 +2564,9 @@ function pageAdminSettings() {
           </div>
         </div>
 
+        <!-- RIGHT: Email + Security, same layout as the patient Settings page -->
+        <div style="display:flex;flex-direction:column;gap:20px">
+        ${ownEmailCardHtml(adm.email)}
         <!-- RIGHT: Security -->
         <div class="card" style="padding:28px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
@@ -2318,6 +2575,7 @@ function pageAdminSettings() {
           </div>
           <div style="font-size:.82rem;color:#9CA3AF;margin-bottom:20px">Change your account password</div>
           <div style="display:flex;flex-direction:column;gap:14px">
+            <form onsubmit="return false" style="display:contents" autocomplete="off"><input type="text" name="username" autocomplete="username" value="${(window.state?.user?.email || '').replace(/"/g, '&quot;')}" tabindex="-1" aria-hidden="true" style="display:none">
             <div class="form-group">
               <label class="form-label">Current Password</label>
               ${pwField('ad-curpw','Enter current password', `oninput="window.updateSettingsPwGate('ad')"`)}
@@ -2332,6 +2590,7 @@ function pageAdminSettings() {
               ${pwField('ad-confpw','Repeat new password', `oninput="window.updateSettingsPwGate('ad')"`)}
               <div id="ad-pw-err" class="field-error">Passwords do not match.</div>
             </div>
+            </form>
             <div style="display:flex;align-items:flex-start;gap:6px;font-size:.78rem;color:#9CA3AF">
               ${ic('info','icon-sm')} Can't reuse a previous password.
             </div>
@@ -2342,6 +2601,7 @@ function pageAdminSettings() {
               </button>
             </div>
           </div>
+        </div>
         </div>
 
       </div>
@@ -2365,7 +2625,7 @@ function pageAdminSettings() {
         <div style="display:flex;flex-direction:column;gap:16px">
           <div class="form-group" style="margin-bottom:0">
             <label class="form-label">Clinic Logo</label>
-            <div style="display:flex;align-items:center;gap:16px">
+            <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
               <div style="width:60px;height:60px;border-radius:50%;background:#FFF0DC;border:1.5px solid #FFD9A8;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
                 <img id="ci-logo-preview" src="${window._clinicLogoUrl || clinicInfo.logoUrl || 'assets/images/logo/clinic-logo.png'}" style="width:50px;height:50px;object-fit:contain">
               </div>
@@ -2418,7 +2678,25 @@ function pageAdminSettings() {
           </div>
           <div class="form-group" style="margin-bottom:0">
             <label class="form-label">Footer Preview</label>
-            <div id="ci-footer-preview" style="border-radius:10px;overflow:hidden"></div>
+            <!-- Loads the REAL footer markup + the real shared css/public.css
+                 (assets/footer-preview.html) inside an iframe, instead of a
+                 hand-reconstructed inline-styled copy — that copy kept
+                 drifting out of sync with the real footer's actual CSS
+                 (breakpoints in particular), and an iframe is the only way
+                 to load the real stylesheet at all without its own global
+                 reset leaking into and breaking this admin app's own UI
+                 around it. pointer-events:none since this is a read-only
+                 preview, not a mini working site — see the file's own
+                 header comment for the full reasoning. Height is kept in
+                 sync with the footer's actual rendered height by
+                 _ciUpdateFooterPreview() (main.js), since how many lines
+                 the tagline wraps to changes it. -->
+            <div style="border-radius:10px;overflow:hidden;border:1px solid #E5E7EB">
+              <iframe id="ci-footer-preview-frame" src="assets/footer-preview.html"
+                      onload="window._ciFooterFrameLoaded()"
+                      style="width:100%;height:400px;border:0;display:block;pointer-events:none"
+                      title="Footer preview"></iframe>
+            </div>
           </div>
           <div class="form-row-2">
             <div class="form-group">
@@ -2436,7 +2714,7 @@ function pageAdminSettings() {
 
         <div style="border-top:1px solid #F3F4F6;margin:20px 0 16px"></div>
         <div style="font-size:.85rem;font-weight:600;color:#374151;margin-bottom:12px">Clinic Video</div>
-        <div style="display:flex;align-items:center;gap:16px">
+        <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
           <div style="width:96px;height:54px;border-radius:8px;overflow:hidden;flex-shrink:0;background:#111;border:1.5px solid #E5E7EB;display:flex;align-items:center;justify-content:center;color:#6B7280">
             ${clinicInfo.videoUrl ? `<video src="${clinicInfo.videoUrl}" style="width:100%;height:100%;object-fit:cover" muted></video>` : ic('camera','icon-sm')}
           </div>
@@ -2449,7 +2727,7 @@ function pageAdminSettings() {
               </label>
               ${clinicInfo.videoUrl ? `<button class="btn-ghost" style="font-size:.8rem;padding:7px 10px;color:#DC2626" onclick="window.removeClinicVideo()">${ic('trash-2','icon-sm')} Remove</button>` : ''}
             </div>
-            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">MP4 or WebM, up to 2GB. Shown as a video player on the public homepage — leave unset to hide the section.</div>
+            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">MP4 or WebM, up to 2GB. Shown as a video player on the public homepage; leave unset to hide the section.</div>
             <input type="file" id="ci-video-input" accept="video/mp4,video/webm" style="display:none"
                    onchange="window.handleVideoUpload(this)">
           </div>
@@ -2457,7 +2735,7 @@ function pageAdminSettings() {
 
         <div style="border-top:1px solid #F3F4F6;margin:20px 0 16px"></div>
         <div style="font-size:.85rem;font-weight:600;color:#374151;margin-bottom:12px">Hero Background</div>
-        <div style="display:flex;align-items:center;gap:16px">
+        <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
           <div style="width:96px;height:54px;border-radius:8px;overflow:hidden;flex-shrink:0;background:#F3F4F6;border:1.5px solid #E5E7EB">
             <img id="ci-hero-preview" src="${clinicInfo.heroUrl || ''}" style="width:100%;height:100%;object-fit:cover;${clinicInfo.heroUrl ? '' : 'display:none'}">
           </div>
@@ -2467,7 +2745,7 @@ function pageAdminSettings() {
                 ${ic('upload','icon-sm')} Upload Hero Image
               </div>
             </label>
-            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">PNG, JPG, WebP — recommended 1920×1080</div>
+            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">PNG, JPG, WebP. Recommended size: 1920×1080</div>
             <input type="file" id="ci-hero-input" accept="image/png,image/jpeg,image/webp" style="display:none"
                    onchange="window.handleHeroUpload(this)">
           </div>
@@ -2516,7 +2794,7 @@ function pageAdminSettings() {
               </div>
             </label>
             <span id="gallery-type-hint" style="font-size:.72rem;color:#9CA3AF">PNG or JPG</span>
-            <span id="gallery-limit-msg" style="font-size:.72rem;color:#EF4444;display:none">Limit reached — remove a photo first.</span>
+            <span id="gallery-limit-msg" style="font-size:.72rem;color:#EF4444;display:none">Limit reached. Remove a photo first.</span>
             <input type="file" id="gallery-upload-input" accept=".png,.jpg,.jpeg" style="display:none"
                    onchange="window.galleryUploadPhoto(this)">
             <button id="gallery-sel-btn" onclick="window.galleryToggleSelMode()"
@@ -2557,7 +2835,7 @@ function pageAdminSettings() {
           </div>
         </div>
         <div style="font-size:.72rem;color:#9CA3AF;margin-bottom:14px">
-          Bookable services appear as an appointment type on Book Appointment. Patient Visible also controls the public Services page: turn it off for an internal, staff-only type (like Follow-up Consultation), or turn Bookable off instead for a service you only want to list publicly, not offer online.
+          Bookable services appear as an appointment type on Book Appointment. Patient Visible also controls the public Services page: turn it off for an internal, staff/admin-only type (like Follow-up Consultation), or turn Bookable off instead for a service you only want to list publicly, not offer online.
         </div>
         <div class="form-row-3" style="margin-bottom:16px;grid-template-columns:110px minmax(0,1.15fr) minmax(0,1fr)">
           <div class="form-group" style="margin-bottom:0">
@@ -2621,13 +2899,14 @@ function pageAdminSettings() {
     // timeOpts() above (deliberately capped to a plausible 7 AM–9:30 PM
     // business-hours window for the open/close pickers), this covers the
     // full day so any time, including noon, is selectable.
+    // Reminder send-time options, every 15 minutes across the whole day.
     function fullTimeOpts() {
       const slots = []
       for (let h = 0; h <= 23; h++) {
-        for (const m of [0, 30]) {
+        for (const m of [0, 15, 30, 45]) {
           const hh   = h % 12 === 0 ? 12 : h % 12
           const ampm = h < 12 ? 'AM' : 'PM'
-          slots.push(`${hh}:${m === 0 ? '00' : '30'} ${ampm}`)
+          slots.push(`${hh}:${String(m).padStart(2, '0')} ${ampm}`)
         }
       }
       return slots
@@ -2671,19 +2950,19 @@ function pageAdminSettings() {
             <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">Limits the number of appointments a doctor can receive per day.</div>
           </div>
           <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Max Upcoming Appointments Per Patient</label>
+            <input class="form-input" type="number" id="cs-max-patient-appt" value="${cs.maxUpcomingApptsPerPatient || 1}" min="1" max="10">
+            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">How many open appointments a patient can book for themselves at once (pending or approved, not yet past). They can book again once it's completed, cancelled, disapproved, marked a no-show, or its date has passed. Appointments booked by admin or staff don't count, and admin and staff aren't limited.</div>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
             <label class="form-label">Reminder Send Time</label>
-            ${window.timeFieldHtml('cs-reminder-time', { value: cs.reminderTime || '12:00 PM', options: fullTimeOpts() })}
-            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">When the day-before reminder is sent for approved appointments.</div>
+            ${window.timeFieldHtml('cs-reminder-time', { value: cs.reminderTime || '12:00 AM', options: fullTimeOpts() })}
+            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">Sent the day before each approved appointment, asking the patient to confirm.</div>
           </div>
           <div class="form-group" style="margin-bottom:0">
-            <label class="form-label">Confirmation Deadline</label>
-            ${window.timeFieldHtml('cs-confirm-deadline', { value: cs.confirmDeadlineTime || '9:00 PM', options: fullTimeOpts() })}
-            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">Same-day cutoff to confirm attendance before auto-cancellation.</div>
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label">Waitlist Claim Window (hours)</label>
-            <input class="form-input" type="number" id="cs-waitlist-hours" value="${cs.waitlistOfferHours || 3}" min="1" max="24">
-            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">How long a freed slot stays claimable, and how close to the appointment a waitlist entry can still be offered one.</div>
+            <label class="form-label">Second Reminder Time</label>
+            ${window.timeFieldHtml('cs-followup-time', { value: cs.followupReminderTime || '12:00 PM', options: fullTimeOpts() })}
+            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">Also the day before, later than the first, and only to patients who haven't confirmed yet. Must be later than the Reminder Send Time.</div>
           </div>
         </div>
         <div style="display:flex;justify-content:flex-end;margin-top:16px">
@@ -2758,7 +3037,7 @@ function pageAdminSettings() {
   // Shared builder for a markdown-editor document card + its preview card —
   // Terms & Conditions and Appointment Policy are structurally identical,
   // just different ids/labels/content/save-handler.
-  function mdDocEditor({ docTitle, docHint, taId, previewId, content, saveFn, saveLabel }) {
+  function mdDocEditor({ docTitle, docHint, taId, previewId, content, saveFn, saveLabel, defaultKey }) {
     const escTa = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
     return `
       <div class="card" style="padding:20px 24px">
@@ -2773,7 +3052,10 @@ function pageAdminSettings() {
         <textarea class="form-input" id="${taId}" rows="16"
                    style="font-family:'SFMono-Regular',Consolas,monospace;font-size:.82rem;line-height:1.6;resize:vertical"
                    oninput="window._mdPreviewUpdate('${taId}','${previewId}')">${escTa(content)}</textarea>
-        <div style="display:flex;justify-content:flex-end;margin-top:16px">
+        <div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px">
+          <button class="btn-secondary" onclick="window.resetMdDocToDefault('${defaultKey}','${taId}','${previewId}','${docTitle.replace(/&/g, '&amp;')}')">
+            ${ic('rotate-ccw','icon-sm')} Reset to Default
+          </button>
           <button class="btn-primary" onclick="window.${saveFn}()">
             ${ic('check','icon-sm')} ${saveLabel}
           </button>
@@ -2806,21 +3088,21 @@ function pageAdminSettings() {
         docHint: 'Shown in the registration page’s Terms &amp; Conditions modal.',
         taId: 'terms-md-input', previewId: 'terms-md-preview',
         content: clinicInfo.termsContent || '',
-        saveFn: 'saveTermsContent', saveLabel: 'Save Terms &amp; Conditions'
+        saveFn: 'saveTermsContent', saveLabel: 'Save Terms &amp; Conditions', defaultKey: 'terms'
       })}
       ${mdDocEditor({
         docTitle: 'Data Privacy Act Notice',
         docHint: 'Shown in the registration page’s Data Privacy Act modal — its own document and its own consent checkbox, separate from Terms &amp; Conditions.',
         taId: 'privacy-md-input', previewId: 'privacy-md-preview',
         content: clinicInfo.privacyContent || '',
-        saveFn: 'savePrivacyContent', saveLabel: 'Save Data Privacy Act Notice'
+        saveFn: 'savePrivacyContent', saveLabel: 'Save Data Privacy Act Notice', defaultKey: 'privacy'
       })}
       ${mdDocEditor({
         docTitle: 'Appointment Policy',
         docHint: 'Shown in the booking wizard’s Appointment Policy modal.',
         taId: 'policy-md-input', previewId: 'policy-md-preview',
         content: clinicInfo.appointmentPolicyContent || '',
-        saveFn: 'saveAppointmentPolicyContent', saveLabel: 'Save Appointment Policy'
+        saveFn: 'saveAppointmentPolicyContent', saveLabel: 'Save Appointment Policy', defaultKey: 'policy'
       })}
     </div>`
   }
@@ -2831,12 +3113,20 @@ function pageAdminSettings() {
     // No 'Appointment' tab — nothing archives an appointment (checked: no
     // frontend or backend path ever creates an archived_records row with
     // that type), so it was a permanently-empty dead tab.
-    const tabs = ['all','Patient','Account','Examination','Service']
-    const list = arcFilter === 'all' ? archivedRecords : archivedRecords.filter(r => r.type === arcFilter)
-    const typeBadge = t => {
+    // No 'Examination' tab: exam records can't be archived (permanent
+    // medical records), and older archived ones were restored
+    // (database/restore_archived_examinations.sql).
+    const tabs = ['all','Patient','Account','Service']
+    // Accounts tab: a role filter (All roles / Admin / Staff / Doctor), so a
+    // long list of archived accounts stays easy to narrow down.
+    const arcRole = arcFilter === 'Account' ? (st().archivesRole || '') : ''
+    const list = (arcFilter === 'all' ? archivedRecords : archivedRecords.filter(r => r.type === arcFilter))
+      .filter(r => !arcRole || (r.data?.role || '') === arcRole)
+    const roleCount = role => archivedRecords.filter(r => r.type === 'Account' && (!role || (r.data?.role || '') === role)).length
+    const typeBadge = r => {
       const map = { Patient:'#DBEAFE:#1D4ED8', Account:'#EDE9FE:#5B21B6', Examination:'#D1FAE5:#065F46', Service:'#FCE7F3:#9D174D' }
-      const [bg, col] = (map[t] || '#F3F4F6:#374151').split(':')
-      return `<span style="background:${bg};color:${col};font-size:.68rem;font-weight:700;padding:2px 10px;border-radius:20px;letter-spacing:.04em">${t}</span>`
+      const [bg, col] = (map[r.type] || '#F3F4F6:#374151').split(':')
+      return `<span style="background:${bg};color:${col};font-size:.68rem;font-weight:700;padding:2px 10px;border-radius:20px;letter-spacing:.04em">${archiveTypeLabel(r)}</span>`
     }
     return `
     <div class="page-header">
@@ -2849,11 +3139,14 @@ function pageAdminSettings() {
       <div class="table-wrap">
         <div class="filter-tabs" style="padding:12px 20px 0;border-bottom:1px solid #f3f4f6">
           ${tabs.map(t => `<button class="filter-tab${arcFilter===t||(t==='all'&&arcFilter==='all')?' active':''}"
-            onclick="window.state.archivesFilter='${t}';window.renderPage()">${t==='all'?'All':t+'s'}</button>`).join('')}
+            onclick="window.state.archivesFilter='${t}';window.state.archivesRole='';window.renderPage()">${t==='all'?'All':t+'s'}</button>`).join('')}
         </div>
         <div class="table-toolbar" style="padding:12px 20px">
           <span class="table-title">${list.length} archived record${list.length!==1?'s':''}</span>
           <div class="table-actions">
+            ${arcFilter === 'Account' ? `<div style="width:190px">${window.selectFieldHtml('arc-role', { value: arcRole, minWidth: 190,
+              options: [['', 'All roles'], ['Admin', 'Admin'], ['Staff', 'Staff'], ['Doctor', 'Doctor']].map(([v, l]) => ({ value: v, label: `${l} (${roleCount(v)})` })),
+              onchange: 'window.state.archivesRole=this.value;window.renderPage()' })}</div>` : ''}
             <div class="search-input-wrap">
               ${ic('search','icon-sm')}
               <input class="search-input" placeholder="Search by name…" oninput="window.filterTable(this,'archives-tbody')">
@@ -2863,7 +3156,7 @@ function pageAdminSettings() {
         ${list.length ? `
         <table class="tbl archives-tbl">
           <colgroup>
-            <col style="width:10%"><col style="width:26%"><col style="width:13%"><col style="width:27%"><col style="width:12%"><col style="width:12%">
+            <col style="width:13%"><col style="width:24%"><col style="width:13%"><col style="width:26%"><col style="width:12%"><col style="width:12%">
           </colgroup>
           <thead><tr>
             <th>Type</th>
@@ -2874,7 +3167,7 @@ function pageAdminSettings() {
           </tr></thead>
           <tbody id="archives-tbody">
             ${list.map(r => `<tr data-search="${r.name.toLowerCase()} ${r.refId.toLowerCase()} ${r.archivedBy.toLowerCase()}" data-sort-name="${r.name.toLowerCase()}" data-sort-date="${r.date}">
-              <td data-label="Type" style="white-space:nowrap">${typeBadge(r.type)}</td>
+              <td data-label="Type" style="white-space:nowrap">${typeBadge(r)}</td>
               <td data-label="Name / ID" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0">
                 <span style="font-size:.82rem;font-weight:600;color:#1f2937">${r.name}</span>
                 <span style="font-size:.72rem;color:#9ca3af;margin-left:5px">${r.refId}</span>
@@ -2886,7 +3179,7 @@ function pageAdminSettings() {
                 <div style="display:flex;gap:4px;align-items:center;flex-wrap:nowrap">
                   <button class="btn-icon" title="View" onclick="window.viewArchivedRecord('${r.id}')">${ic('eye','icon-sm')}</button>
                   <button class="btn-icon" title="Restore" style="color:#16a34a;border-color:#d1fae5" onclick="window.confirmRestore('${r.id}','${r.name.replace(/'/g,"\\'")}')">${ic('rotate-ccw','icon-sm')}</button>
-                  <button class="btn-icon" title="Delete Forever" style="color:#dc2626;border-color:#fee2e2" onclick="window.confirmPermDelete('${r.id}','${r.name.replace(/'/g,"\\'")}')">${ic('trash','icon-sm')}</button>
+                  ${r.type === 'Examination' ? '' : `<button class="btn-icon" title="Delete Forever" style="color:#dc2626;border-color:#fee2e2" onclick="window.confirmPermDelete('${r.id}','${r.name.replace(/'/g,"\\'")}')">${ic('trash','icon-sm')}</button>`}
                 </div>
               </td>
             </tr>`).join('')}
@@ -2897,10 +3190,114 @@ function pageAdminSettings() {
     </div>`
   }
 
+  // ── Section: Backup & Restore ────────────────────────────────
+  function sectionBackup() {
+    // Small green-check row used for the "what's included" list — same
+    // visual language as a completed checklist item, not a generic bullet.
+    const includedItem = (label) => `
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:18px;height:18px;border-radius:50%;background:#ECFDF5;color:#16A34A;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('check', 'icon-xs')}</span>
+        <span style="font-size:.8rem;color:#374151">${label}</span>
+      </div>`
+
+    return `
+    <style>
+      /* Side by side once there's room for both cards to breathe (~420px
+         each); stacked below that, same as every other responsive
+         settings grid in this app (sectionProfile's .ad-sett-col). */
+      @media (min-width: 900px) {
+        .bk-grid { display: grid !important; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+      }
+    </style>
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1 class="page-title">Backup &amp; Restore</h1>
+        <p class="page-subtitle">Export a full backup of the system, or restore one onto this system.</p>
+      </div>
+    </div>
+    <div class="page-body bk-grid" style="display:flex;flex-direction:column;gap:20px">
+
+      <!-- Create Backup -->
+      <div class="card" style="padding:28px;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px">
+          <div style="width:36px;height:36px;border-radius:50%;background:#E8760A;color:white;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('download', 'icon-sm')}</div>
+          <div>
+            <div style="font-size:.95rem;font-weight:700;color:#1C1C1C">Create Backup</div>
+            <div style="font-size:.75rem;color:#6B7280;margin-top:1px">Everything needed to restore the system elsewhere, or recover it if it ever goes down</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px 18px;background:#F9FAFB;border:1px solid #F3F4F6;border-radius:10px;padding:16px 18px;margin-bottom:16px">
+          ${includedItem('Patients &amp; medical records')}
+          ${includedItem('Appointments &amp; consultations')}
+          ${includedItem('Accounts')}
+          ${includedItem('Clinic settings &amp; services')}
+          ${includedItem('Logo, gallery, &amp; profile photos')}
+          ${includedItem('Portable SQL dump, any MySQL tool')}
+        </div>
+        <p style="font-size:.76rem;color:#9CA3AF;line-height:1.6;margin:0 0 18px">
+          Active sign-in sessions and one-time verification codes are left out on purpose.
+          They're short-lived and meaningless to restore later.
+        </p>
+
+        <label for="bk-include-video" style="display:flex;align-items:flex-start;gap:10px;font-size:.8rem;color:#6B7280;line-height:1.55;padding:12px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;margin-bottom:20px;cursor:pointer">
+          <input type="checkbox" id="bk-include-video" class="chk" style="margin-top:1px">
+          <span><strong style="color:#92400E">Include the clinic hero video.</strong> This adds a large amount of size, so leave it unchecked unless you specifically need it backed up (it can always be re-uploaded separately from Clinic Information).</span>
+        </label>
+
+        <button class="btn-primary" style="width:100%;justify-content:center;margin-top:auto" onclick="window.downloadSystemBackup(this)">
+          ${ic('download', 'icon-sm')} Download Backup
+        </button>
+      </div>
+
+      <!-- Restore -->
+      <div class="card" style="padding:28px;border:1.5px solid #FECACA;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:50%;background:#DC2626;color:white;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('alert-triangle', 'icon-sm')}</div>
+          <div>
+            <div style="font-size:.95rem;font-weight:700;color:#1C1C1C">Restore from Backup</div>
+            <div style="font-size:.75rem;color:#6B7280;margin-top:1px">Replaces all current data to recover after data loss, or to move everything to a new installation</div>
+          </div>
+        </div>
+        <p style="font-size:.8rem;color:#6B7280;line-height:1.6;margin:0 0 18px">
+          You'll see exactly what's in the file and have to confirm before anything is changed.
+          Nothing is touched by choosing one below.
+        </p>
+
+        <input type="file" accept=".zip" id="bk-restore-file" style="display:none" onchange="window._bkFileChosen(this)">
+        <div id="bk-restore-dropzone"
+             style="border:2px dashed #E5E7EB;border-radius:10px;padding:26px 16px;text-align:center;
+                    cursor:pointer;transition:border-color .15s,background .15s;background:#FAFAFA;margin-bottom:18px"
+             onclick="document.getElementById('bk-restore-file').click()"
+             ondragover="event.preventDefault();this.style.borderColor='#DC2626';this.style.background='#FEF2F2'"
+             ondragleave="this.style.borderColor='#E5E7EB';this.style.background='#FAFAFA'"
+             ondrop="event.preventDefault();this.style.borderColor='#E5E7EB';this.style.background='#FAFAFA';window._bkFileDropped(event.dataTransfer.files[0])">
+          <div id="bk-restore-idle">
+            <div style="color:#9CA3AF;margin-bottom:8px">${ic('upload', 'icon-lg')}</div>
+            <div style="font-size:.85rem;font-weight:600;color:#374151;margin-bottom:3px">Click to choose or drag &amp; drop a backup file</div>
+            <div style="font-size:.74rem;color:#9CA3AF">A .zip file created by Download Backup, above</div>
+          </div>
+          <div id="bk-restore-chosen" style="display:none;align-items:center;justify-content:center;gap:10px">
+            <div style="width:38px;height:38px;border-radius:8px;background:#FEE2E2;color:#DC2626;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('file-text', 'icon-sm')}</div>
+            <div style="text-align:left;min-width:0">
+              <div id="bk-restore-filename" style="font-size:.84rem;font-weight:600;color:#1C1C1C;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px"></div>
+              <div id="bk-restore-filesize" style="font-size:.72rem;color:#9CA3AF"></div>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn-danger" id="bk-restore-review-btn" disabled style="width:100%;justify-content:center;padding:9px 20px;border-radius:8px;font-size:.85rem;opacity:.5;cursor:not-allowed;margin-top:auto" onclick="window.inspectBackupFile(this)">
+          ${ic('upload', 'icon-sm')} Choose &amp; Review Backup
+        </button>
+      </div>
+
+    </div>`
+  }
+
+  const sections = { profile: sectionProfile, clinic: sectionClinic, services: sectionServices, consultation: sectionConsultation, terms: sectionTerms, archives: sectionArchives, backup: sectionBackup }
   if (sec === 'archives') window.state.afterRender = () => { window.initPagination('archives-tbody'); window.initSortable('archives-tbody', { key: 'date', type: 'date', dir: -1 }) }
   // services section uses a card grid — no table pagination needed
 
-  const sections = { profile: sectionProfile, clinic: sectionClinic, services: sectionServices, consultation: sectionConsultation, terms: sectionTerms, archives: sectionArchives }
   return (sections[sec] || sections.clinic)()
 }
 
@@ -3076,17 +3473,8 @@ function pageStaffDashboard() {
       <p class="page-subtitle">Welcome, ${st().user?.firstName}. Manage today's clinic operations.</p>
     </div>
     <div class="page-header-right">
+      <!-- No Print Report / Download PDF for staff: report generation is admin-only. -->
       <div class="page-header-btn-group" style="display:flex;gap:10px">
-        <button class="btn-secondary" title="Print a table-only version of this dashboard" onclick="window.printDashboardReport()">
-          ${ic('printer','icon-sm')} Print Report
-        </button>
-        <button class="btn-secondary" title="Download this dashboard as a PDF" onclick="window.downloadDashboardReportPDF(this)">
-          ${ic('download','icon-sm')} Download PDF
-        </button>
-        <button class="btn-secondary" onclick="window.navigate('waitlist')">
-          ${ic('clock','icon-sm')} Waitlist
-          ${window._waitlistCount > 0 ? `<span class="nav-badge">${window._waitlistCount > 99 ? '99+' : window._waitlistCount}</span>` : ''}
-        </button>
         <button class="btn-primary" onclick="window.navigate('create-appointment')">${ic('plus','icon-sm')} New Appointment</button>
       </div>
       <span style="font-size:.78rem;color:#9CA3AF">${new Date().toLocaleDateString('en-PH',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</span>
@@ -3128,14 +3516,7 @@ function pageDoctorDashboard() {
       <p class="page-subtitle">Here's your clinic overview for today.</p>
     </div>
     <div class="page-header-right">
-      <div class="page-header-btn-group" style="display:flex;gap:10px">
-        <button class="btn-secondary" title="Print a table-only version of this dashboard" onclick="window.printDashboardReport()">
-          ${ic('printer','icon-sm')} Print Report
-        </button>
-        <button class="btn-secondary" title="Download this dashboard as a PDF" onclick="window.downloadDashboardReportPDF(this)">
-          ${ic('download','icon-sm')} Download PDF
-        </button>
-      </div>
+      <!-- No Print Report / Download PDF for doctors: report generation is admin-only. -->
       <span style="font-size:.78rem;color:#9CA3AF">${dateStr}</span>
     </div>
   </div>
@@ -3177,6 +3558,8 @@ function pageDoctorDashboard() {
       </div>
     </div>
 
+    ${awaitingExamCardHtml()}
+
     <!-- Today's Patients -->
     <div class="card" style="margin-bottom:20px">
       <div class="card-header">
@@ -3196,15 +3579,15 @@ function pageDoctorDashboard() {
           ${todayList.map(a => `<tr>
             <td data-label="Patient"><div class="patient-name-cell">
               ${avatar(a.patientName, 'patient-avatar', patients.find(p=>p.id===a.patientId)?.photoUrl || null)}
-              <div class="patient-name-info"><strong>${a.patientName}</strong><span>${a.patientId}</span></div>
+              <div class="patient-name-info"><strong>${a.patientName}</strong>${newPatientTag(patients.find(p => p.id === a.patientId), 'sm')}<span>${a.patientId}</span></div>
             </div></td>
             <td data-label="Time" style="font-size:.82rem;font-weight:600;white-space:nowrap">${a.time}</td>
-            <td data-label="Type" style="font-size:.82rem">${a.type}</td>
+            <td data-label="Type" style="font-size:.82rem">${apptTypeCell(a)}</td>
             <td data-label="Status">${badge(a.status)}</td>
             <td data-label="Action">${a.status === 'completed'
               ? `<button class="btn-ghost" style="font-size:.75rem;padding:4px 10px" onclick="window.navigate('patient-view',{patientId:'${a.patientId}',patientName:'${a.patientName}'})">${ic('eye','icon-sm')} View Record</button>`
               : a.status === 'approved'
-              ? `<button class="btn-primary btn-sm" onclick="window.startExamFromAppt('${a.id}','${a.patientId}')">${ic('check','icon-sm')} Start Consultation</button>`
+              ? `<button class="btn-primary btn-sm" onclick="window.startExamFromAppt('${a.id}','${a.patientId}')">${ic('file-text','icon-sm')} Start Examination</button>`
               : `<button class="btn-ghost btn-sm" disabled title="Awaiting staff/admin approval" style="opacity:.45;cursor:not-allowed">${ic('clock','icon-sm')} Pending Approval</button>`
             }</td>
           </tr>`).join('')}
@@ -3234,7 +3617,7 @@ function pageDoctorDashboard() {
               <div class="patient-name-info"><strong>${a.patientName}</strong></div>
             </div></td>
             <td data-label="Date" style="font-size:.78rem;color:#6B7280;white-space:nowrap">${fmtDate(a.date)}</td>
-            <td data-label="Type" style="font-size:.78rem">${a.type}</td>
+            <td data-label="Type" style="font-size:.78rem">${apptTypeCell(a)}</td>
             <td data-label="Status">${badge(a.status)}</td>
             <td data-label="Actions"><button class="btn-icon" title="View" onclick="window.navigate('patient-view',{patientId:'${a.patientId}',patientName:'${a.patientName}'})">${ic('eye','icon-sm')}</button></td>
           </tr>`).join('')}
@@ -3252,7 +3635,9 @@ function pageDoctorDashboard() {
 // ════════════════════════════════════════════════════════════════
 function pageDoctorAppointments() {
   const { filter } = st()
-  const activeFilter = (filter && ['all','today','upcoming','completed'].includes(filter)) ? filter : 'today'
+  // Approved / Pending split what used to be one Upcoming list (still
+  // reachable as 'upcoming', e.g. from the dashboard's stat card).
+  const activeFilter = (filter && ['all','today','approved','pending','upcoming','completed'].includes(filter)) ? filter : 'today'
   if (activeFilter !== filter) window.state.filter = activeFilter
 
   const todayStr = localDateStr()
@@ -3260,30 +3645,46 @@ function pageDoctorAppointments() {
 
   const todayList    = appointments.filter(a => a.date === todayStr && !['cancelled','disapproved'].includes(a.status))
                          .sort((a,b) => timeVal(a.time) - timeVal(b.time))
+  // Soonest first; within a day, approved visits (the ones that will
+  // actually happen) ahead of requests still awaiting approval.
+  const _upRank      = a => a.status === 'approved' ? 0 : 1
   const upcomingList = appointments.filter(a => a.date > todayStr && ['approved','pending'].includes(a.status))
+                         .sort((a,b) => a.date.localeCompare(b.date) || _upRank(a) - _upRank(b) || timeVal(a.time) - timeVal(b.time))
+  // Today onward, soonest first.
+  const approvedList = appointments.filter(a => a.status === 'approved' && a.date >= todayStr)
+                         .sort((a,b) => a.date.localeCompare(b.date) || timeVal(a.time) - timeVal(b.time))
+  const pendingList  = appointments.filter(a => a.status === 'pending' && a.date >= todayStr)
                          .sort((a,b) => a.date.localeCompare(b.date) || timeVal(a.time) - timeVal(b.time))
   const completedList = appointments.filter(a => a.status === 'completed')
                          .sort((a,b) => b.date.localeCompare(a.date))
   const allList       = [...appointments].sort((a,b) => b.date.localeCompare(a.date) || timeVal(b.time) - timeVal(a.time))
 
-  window.state.afterRender = () => { window.initPagination('doc-appt-tbody'); window.initSortable('doc-appt-tbody', { key: 'date', type: 'date', dir: activeFilter === 'today' ? 1 : -1, context: activeFilter }) }
+  // Today/Upcoming read soonest-first (ascending); history lists newest-first.
+  // The date sort is stable, so each list's own same-day order is kept.
+  window.state.afterRender = () => { window.initPagination('doc-appt-tbody'); window.initSortable('doc-appt-tbody', { key: 'date', type: 'date', dir: ['today','approved','pending','upcoming'].includes(activeFilter) ? 1 : -1, context: activeFilter }) }
 
   let list
   if (activeFilter === 'all')           list = allList
   else if (activeFilter === 'today')    list = todayList
+  else if (activeFilter === 'approved') list = approvedList
+  else if (activeFilter === 'pending')  list = pendingList
   else if (activeFilter === 'upcoming') list = upcomingList
   else                                  list = completedList
 
   const titleMap = {
     all:       'All Appointments',
     today:     "Today's Appointments",
+    approved:  'Approved Appointments',
+    pending:   'Pending Appointments',
     upcoming:  'Upcoming Appointments',
     completed: 'Completed Appointments'
   }
   const subMap = {
     all:       'All appointments across every status and date.',
     today:     'Your consultation schedule for today.',
-    upcoming:  'Confirmed appointments on your schedule.',
+    approved:  'Confirmed visits from today onward. You can start their examinations.',
+    pending:   'Requests from today onward still waiting for clinic approval.',
+    upcoming:  'Upcoming appointments on your schedule, including requests awaiting approval.',
     completed: 'Past completed consultations.'
   }
 
@@ -3292,8 +3693,8 @@ function pageDoctorAppointments() {
     const recBtn   = `<button class="btn-icon" title="Patient Record" onclick="window.navigate('patient-view',{patientId:'${a.patientId}',patientName:'${a.patientName}'})">${ic('user','icon-sm')}</button>`
     if (a.status === 'completed') return `<div style="display:flex;gap:4px">${viewBtn}${recBtn}</div>`
     if (a.status === 'approved') {
-      const startBtn = `<button class="btn-icon" title="Start Consultation" style="color:#E8760A"
-        onclick="window.startExamFromAppt('${a.id}','${a.patientId}')">${ic('check','icon-sm')}</button>`
+      const startBtn = `<button class="btn-icon" title="Start Examination" style="color:#E8760A"
+        onclick="window.startExamFromAppt('${a.id}','${a.patientId}')">${ic('file-text','icon-sm')}</button>`
       return `<div style="display:flex;gap:4px">${viewBtn}${recBtn}${startBtn}</div>`
     }
     return `<div style="display:flex;gap:4px">${viewBtn}${recBtn}</div>`
@@ -3307,6 +3708,7 @@ function pageDoctorAppointments() {
     </div>
   </div>
   <div class="page-body">
+    ${activeFilter === 'today' || activeFilter === 'all' ? awaitingExamCardHtml() : ''}
     <div class="table-wrap">
       <div class="table-toolbar">
         <span class="table-title">${list.length} record${list.length !== 1 ? 's' : ''}</span>
@@ -3324,13 +3726,13 @@ function pageDoctorAppointments() {
           <col style="width:10%"><col style="width:20%"><col style="width:13%"><col style="width:16%">
         </colgroup>
         <thead><tr>
-          <th>ID</th>
+          <th data-sort-key="num" data-sort-type="number">ID</th>
           <th data-sort-key="patient" data-sort-type="text">Patient</th>
           <th data-sort-key="date" data-sort-type="date">Date</th>
           <th>Time</th><th>Type</th><th>Status</th><th>Actions</th>
         </tr></thead>
         <tbody id="doc-appt-tbody">
-          ${list.map(a => `<tr data-search="${(a.patientName||'').toLowerCase()} ${(a.type||'').toLowerCase()}" data-sort-patient="${(a.patientName||'').toLowerCase()}" data-sort-date="${a.date}">
+          ${list.map(a => `<tr data-sort-num="${recIdNum(a.id)}" data-search="${(a.patientName||'').toLowerCase()} ${(a.type||'').toLowerCase()}" data-sort-patient="${(a.patientName||'').toLowerCase()}" data-sort-date="${a.date}">
             <td data-label="ID"><code style="font-size:.73rem;color:#9CA3AF">${a.id}</code></td>
             <td data-label="Patient"><div class="patient-name-cell">
               ${avatar(a.patientName, 'patient-avatar', patients.find(p=>p.id===a.patientId)?.photoUrl || null)}
@@ -3338,12 +3740,8 @@ function pageDoctorAppointments() {
             </div></td>
             <td data-label="Date" style="font-size:.82rem;white-space:nowrap">${fmtDate(a.date)}</td>
             <td data-label="Time" style="font-size:.82rem;white-space:nowrap">${a.time}</td>
-            <td data-label="Type" style="font-size:.82rem">
-              ${a.type}
-              <span title="${a.source === 'walk-in' ? 'Booked directly by clinic staff' : 'Booked by the patient online'}"
-                    style="display:inline-block;margin-left:6px;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:20px;white-space:nowrap;${a.source === 'walk-in' ? 'background:#FFF7ED;color:#C2410C' : 'background:#EFF6FF;color:#1D4ED8'}">${a.source === 'walk-in' ? 'Walk-in' : 'Online'}</span>
-            </td>
-            <td data-label="Status">${badge(a.status)}</td>
+            <td data-label="Type" style="font-size:.82rem">${apptTypeCell(a)}</td>
+            <td data-label="Status">${apptStatusCell(a)}</td>
             <td data-label="Actions">${docActions(a)}</td>
           </tr>`).join('')}
         </tbody>
@@ -3394,7 +3792,9 @@ function pageDoctorSchedule() {
           ${dayPills(doc.days)}
           <div style="display:flex;flex-wrap:wrap;gap:28px;margin-top:14px">
             ${[
-              [ic('clock','icon-sm'), 'Consultation Hours', doc.hours],
+              // Per-day hours, fitted to the clinic's own; one line per
+              // group of days when they differ (doctorHoursSummary(), main.js).
+              [ic('clock','icon-sm'), 'Consultation Hours', esc(window.doctorHoursSummary(doc)).split(' · ').join('<br>')],
               [ic('mail','icon-sm'),  'Email',               doc.email],
             ].map(([iconHtml, label, val]) => `
             <div style="display:flex;align-items:center;gap:10px">
@@ -3543,34 +3943,35 @@ function pageDoctorSettings() {
             <label class="form-label">Last Name</label>
             <input class="form-input" id="doc-lname" value="${doc.lastName || ''}">
           </div>
-          <div class="form-row-2">
-            <div class="form-group">
-              <label class="form-label">Email Address</label>
-              <input class="form-input" type="email" id="doc-email" value="${doc.email || ''}">
-            </div>
             <div class="form-group">
               <label class="form-label">Phone Number</label>
               <input class="form-input" id="doc-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${doc.contact || ''}">
             </div>
-          </div>
+          <!-- Same credential fields as the admin's Edit User form (minus
+               Display Order, a website-layout setting). Read-only here: these
+               print on prescriptions and clearances, so changes go through
+               the admin, who verifies them against the PRC ID. -->
+          ${(() => {
+            const locked = (label, value, placeholder) => `
+            <div class="form-group">
+              <label class="form-label" style="display:flex;align-items:center;gap:4px;color:#9CA3AF">
+                ${ic('lock','icon-sm')} ${label}
+              </label>
+              <input class="form-input" value="${esc(value || '')}" placeholder="${placeholder}" disabled
+                     style="background:#F9FAFB;color:#9CA3AF;cursor:not-allowed">
+            </div>`
+            return `
           <div class="form-row-2">
-            <div class="form-group">
-              <label class="form-label" style="display:flex;align-items:center;gap:4px;color:#9CA3AF">
-                ${ic('lock','icon-sm')} Specialization
-              </label>
-              <input class="form-input" value="${doc.specialization || 'Optometrist'}" disabled
-                     style="background:#F9FAFB;color:#9CA3AF;cursor:not-allowed">
-              <span style="font-size:.7rem;color:#9CA3AF;margin-top:3px;display:block">Contact admin to update.</span>
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="display:flex;align-items:center;gap:4px;color:#9CA3AF">
-                ${ic('lock','icon-sm')} PRC License No.
-              </label>
-              <input class="form-input" value="${doc.prcLicense || 'Not on file'}" disabled
-                     style="background:#F9FAFB;color:#9CA3AF;cursor:not-allowed">
-              <span style="font-size:.7rem;color:#9CA3AF;margin-top:3px;display:block">Contact admin to update.</span>
-            </div>
+            ${locked('Specialization', doc.specialization || 'Optometrist', '')}
+            ${locked('Degree', doc.degree || 'OD', '')}
           </div>
+          ${locked('PRC License No.', doc.prcLicense, 'Not on file')}
+          <div class="form-row-2">
+            ${locked('Secondary Credential', doc.secondaryCredential, 'None')}
+            ${locked('Secondary PRC No.', doc.secondaryPrc, 'None')}
+          </div>
+          <div style="font-size:.7rem;color:#9CA3AF;margin:-4px 0 12px">These appear on your prescriptions and clearance certificates, so only the clinic admin can change them. Contact the admin to update.</div>`
+          })()}
           <div style="display:flex;justify-content:flex-end;margin-top:4px">
             <button class="btn-primary" onclick="window.saveUserProfile(this)">
               ${ic('check','icon-sm')} Save Changes
@@ -3579,6 +3980,9 @@ function pageDoctorSettings() {
         </div>
       </div>
 
+      <!-- RIGHT: Email + Security, same layout as the patient Settings page -->
+      <div style="display:flex;flex-direction:column;gap:20px">
+      ${ownEmailCardHtml(doc.email)}
       <!-- RIGHT: Security -->
       <div class="card" style="padding:28px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
@@ -3587,6 +3991,7 @@ function pageDoctorSettings() {
         </div>
         <div style="font-size:.82rem;color:#9CA3AF;margin-bottom:20px">Change your account password</div>
         <div style="display:flex;flex-direction:column;gap:14px">
+          <form onsubmit="return false" style="display:contents" autocomplete="off"><input type="text" name="username" autocomplete="username" value="${(window.state?.user?.email || '').replace(/"/g, '&quot;')}" tabindex="-1" aria-hidden="true" style="display:none">
           <div class="form-group">
             <label class="form-label">Current Password</label>
             ${pwField('doc-curpw','Enter current password', `oninput="window.updateSettingsPwGate('doc')"`)}
@@ -3601,6 +4006,7 @@ function pageDoctorSettings() {
             ${pwField('doc-confpw','Repeat new password', `oninput="window.updateSettingsPwGate('doc')"`)}
             <div id="doc-pw-err" class="field-error">Passwords do not match.</div>
           </div>
+          </form>
           <div style="display:flex;align-items:flex-start;gap:6px;font-size:.78rem;color:#9CA3AF">
             ${ic('info','icon-sm')} Can't reuse a previous password.
           </div>
@@ -3611,6 +4017,7 @@ function pageDoctorSettings() {
             </button>
           </div>
         </div>
+      </div>
       </div>
 
     </div>
@@ -3804,11 +4211,6 @@ function pageExamRecords() {
       <div class="table-toolbar">
         <span class="table-title">${filtered.length} record${filtered.length!==1?'s':''}</span>
         <div class="table-actions">
-          <div class="search-input-wrap">
-            ${ic('search','icon-sm')}
-            <input class="search-input" placeholder="Search patient or diagnosis…"
-                   oninput="window.filterTable(this,'exam-records-tbody')">
-          </div>
           ${role !== 'doctor' ? window.selectFieldHtml('exam-records-doc-filter', {
             value: docFilter,
             options: [{ value: 'all', label: 'All Doctors' }, ...uniqueDoctors.map(d => ({ value: d, label: d }))],
@@ -3817,20 +4219,23 @@ function pageExamRecords() {
           }) : ''}
         </div>
       </div>
-      ${filtered.length ? `<table class="tbl">
+      ${filtered.length ? `
+      <!-- Search + Year (the Doctor filter above reloads the page with it). -->
+      <div class="rec-filter-row">${recFilterBar('exam-records-tbody', { isTable: true, items: filtered, getDoctor: () => '', placeholder: 'Search patient, diagnosis or exam ID…' })}</div>
+      <table class="tbl">
         <colgroup>
           <col style="width:8%"><col style="width:20%"><col style="width:16%"><col style="width:10%">
           <col style="width:22%"><col style="width:10%"><col style="width:14%">
         </colgroup>
         <thead><tr>
-          <th>Exam ID</th>
+          <th data-sort-key="num" data-sort-type="number">Exam ID</th>
           <th data-sort-key="patient" data-sort-type="text">Patient</th>
           <th>Doctor</th>
           <th data-sort-key="date" data-sort-type="date">Date</th>
           <th>Diagnosis</th><th>Status</th><th>Actions</th>
         </tr></thead>
         <tbody id="exam-records-tbody">
-          ${filtered.map(e => `<tr data-search="${e.patientName.toLowerCase()} ${(e.diagnosis||'').toLowerCase()} ${e.doctor.toLowerCase()}" data-sort-patient="${e.patientName.toLowerCase()}" data-sort-date="${e.date}">
+          ${filtered.map(e => `<tr ${recRowAttrs({ search: `${e.id} ${e.patientName} ${e.diagnosis || ''} ${e.doctor}`, doctor: e.doctor, date: e.date, id: e.id })} data-sort-num="${recIdNum(e.id)}" data-sort-patient="${e.patientName.toLowerCase()}" data-sort-date="${e.date}">
             <td data-label="Exam ID"><code style="font-size:.73rem;color:#9CA3AF">${e.id}</code></td>
             <td data-label="Patient"><div class="patient-name-cell">
               ${avatar(e.patientName, 'patient-avatar', patients.find(p=>p.id===e.patientId)?.photoUrl || null)}
@@ -3854,9 +4259,9 @@ function pageExamRecords() {
                         onclick="window.downloadExamRecordPDF('${e.id}',this)">
                   ${ic('download','icon-sm')}
                 </button>
-                <button class="btn-icon" title="${(role === 'doctor' && e.doctor === user?.name) ? 'Edit' : `View only, only ${e.doctor} can edit this record`}"
-                        onclick="window.navigate('${(role === 'doctor' && e.doctor === user?.name) ? 'edit-examination' : 'examination'}',{patientId:'${e.patientId}',examId:'${e.id}'})">
-                  ${ic((role === 'doctor' && e.doctor === user?.name) ? 'edit' : 'lock','icon-sm')}
+                <button class="btn-icon" title="${(role === 'admin' || (role === 'doctor' && e.doctor === user?.name)) ? 'Edit' : `View only, only ${e.doctor} can edit this record`}"
+                        onclick="window.navigate('${(role === 'admin' || (role === 'doctor' && e.doctor === user?.name)) ? 'edit-examination' : 'examination'}',{patientId:'${e.patientId}',examId:'${e.id}'})">
+                  ${ic((role === 'admin' || (role === 'doctor' && e.doctor === user?.name)) ? 'edit' : 'lock','icon-sm')}
                 </button>
                 ${(role === 'admin' || role === 'doctor') ? `
                 <button class="btn-icon" title="Generate Clearance"
@@ -3864,12 +4269,7 @@ function pageExamRecords() {
                         onclick="window.generateClearanceFromRecord('${e.id}')">
                   ${ic('award','icon-sm')}
                 </button>` : ''}
-                ${(role === 'admin' || role === 'staff' || (role === 'doctor' && e.doctor === user?.name)) ? `
-                <button class="btn-icon" title="Archive"
-                        style="color:#d97706;border-color:#fef3c7"
-                        onclick="window.confirmDeleteExam('${e.id}','${e.patientId}','${e.patientName.replace(/'/g,"\\'")}')">
-                  ${ic('archive','icon-sm')}
-                </button>` : ''}
+                <!-- No Archive/Delete: examination records are permanent medical records. -->
               </div>
             </td>
           </tr>`).join('')}
@@ -3882,15 +4282,373 @@ function pageExamRecords() {
 // ════════════════════════════════════════════════════════════════
 //  NEW EXAMINATION FORM  (Doctor)
 // ════════════════════════════════════════════════════════════════
+// Medical History box in the exam form's Step 1 — amber when something's on
+// file, low-key grey when empty. Doctors/admin/staff get an Edit/Add
+// button (window.editMedicalHistory, main.js); after saving, main.js swaps
+// just this box (#ne-medhx-box) so the rest of the exam form keeps its input.
+function examMedHistoryBoxHtml(p) {
+  const has = !!p.medicalHistory
+  const canEdit = ['doctor', 'admin', 'staff'].includes(state.role)
+  return `
+    <div id="ne-medhx-box" style="background:${has ? '#FFFBEB' : '#F9FAFB'};border:2px solid ${has ? '#FDE68A' : '#E5E7EB'};border-radius:10px;padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="flex-shrink:0;display:flex;color:${has ? '#D97706' : '#9CA3AF'}">${ic('alert-circle','icon-lg')}</span>
+        <span style="display:inline-flex;align-items:center;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 10px;border-radius:999px;background:${has ? '#FEF3C7' : '#F3F4F6'};color:${has ? '#92400E' : '#6B7280'}">Medical History</span>
+        ${medHxReportedTag(p)}
+        ${canEdit ? `<button type="button" class="btn-ghost" style="margin-left:auto;font-size:.72rem;padding:4px 10px" onclick="window.editMedicalHistory('${p.id}')">${ic(has ? 'edit' : 'plus','icon-sm')} ${has ? 'Edit' : 'Add'}</button>` : ''}
+      </div>
+      <div style="font-size:.85rem;color:${has ? '#78350F' : '#9CA3AF'};line-height:1.55;white-space:pre-wrap">${has ? esc(p.medicalHistory) : medHxEmptyText(p, false)}</div>
+    </div>`
+}
+window.examMedHistoryBoxHtml = examMedHistoryBoxHtml
+
+// ════════════════════════════════════════════════════════════════
+//  NEW EXAMINATION — APPOINTMENT PICKER (week calendar)
+//  Google Calendar-style: a week strip (today circled, a patient count per
+//  day) over the chosen day's time grid, each approved appointment placed
+//  at its time with its own Start Examination button. Hours with no
+//  appointments are compressed so a quiet day doesn't need scrolling.
+//  Colours come only from the clinic palette (orange, its deep shade, the
+//  brand's dark brown and cream). Doctors see their own appointments;
+//  admins see every doctor's, with a doctor filter. Completed visits live
+//  under My Appointments > Completed; past visits still waiting for their
+//  exam get their own list above the calendar.
+// ════════════════════════════════════════════════════════════════
+const NEX_ACTIVE_H = 100   // px for an hour that has appointments
+const NEX_IDLE_H   = 32    // px for an hour with none
+
+const _nexIso   = d => d.toLocaleDateString('en-CA')
+const _nexDate  = s => new Date(s + 'T00:00:00')
+const _nexMin   = t => (window._clockToMinutes ? window._clockToMinutes(t) : 0) || 0
+const _nexClock = m => (window._minutesToClock ? window._minutesToClock(m) : '')
+function _nexAddDays(iso, n) { const d = _nexDate(iso); d.setDate(d.getDate() + n); return _nexIso(d) }
+function _nexWeekStart(iso) { const d = _nexDate(iso); d.setDate(d.getDate() - d.getDay()); return _nexIso(d) }
+function _nexWeekDays(iso) { const ws = _nexWeekStart(iso); return Array.from({ length: 7 }, (_, i) => _nexAddDays(ws, i)) }
+// A doctor starts the exam on the visit day (or later, for a past visit
+// still waiting); an admin can start any approved one.
+function _nexCanStart(a) { return a.status === 'approved' }
+// "2:30 – 3:15 PM", or "11:15 AM – 12:00 PM" across noon.
+function _nexSpan(s, e) {
+  const a = _nexClock(s), b = _nexClock(e)
+  return a.slice(-2) === b.slice(-2) ? `${a.slice(0, -3)} – ${b}` : `${a} – ${b}`
+}
+// Visit type → colour family: orange for eye examinations, the brand's
+// dark brown for follow-ups, light amber for dispensing visits.
+function _nexKind(type) {
+  if (/follow-up/i.test(type || '')) return 'fu'
+  if ((window.NON_EXAM_SERVICE_TYPES || []).includes(type)) return 'disp'
+  return 'exam'
+}
+const NEX_KIND_LABEL = { exam: 'Eye examination', fu: 'Follow-up', disp: 'Dispensing' }
+
+// Approved appointments, narrowed to the admin's doctor filter.
+function _nexDocFilter() { return st().role === 'admin' ? (window._nexDoc || '') : '' }
+function _nexByDay() {
+  const doc = _nexDocFilter(), map = {}
+  appointments.forEach(a => {
+    // Approved and pending — same set as My Appointments > Upcoming.
+    if (!['approved', 'pending'].includes(a.status) || (doc && a.doctorId !== doc)) return
+    ;(map[a.date] = map[a.date] || []).push(a)
+  })
+  return map
+}
+// The day to open when paging to a week: today if it's in that week, else
+// its first day with appointments, else its first clinic day.
+function _nexBestDay(anyIsoInWeek, byDay) {
+  const days = _nexWeekDays(anyIsoInWeek), today = localDateStr()
+  if (days.includes(today)) return today
+  const busy = days.find(d => (byDay[d] || []).length)
+  if (busy) return busy
+  const open = (consultationSettings.clinicDays || []).map(d => String(d).slice(0, 3))
+  return days.find(d => open.includes(_nexDate(d).toLocaleDateString('en-US', { weekday: 'short' }))) || days[1]
+}
+function _nexRangeLabel(startIso, endIso) {
+  const s = _nexDate(startIso), e = _nexDate(endIso)
+  const mo = d => d.toLocaleDateString('en-US', { month: 'long' })
+  if (s.getFullYear() !== e.getFullYear()) return `${mo(s).slice(0, 3)} ${s.getDate()}, ${s.getFullYear()} – ${mo(e).slice(0, 3)} ${e.getDate()}, ${e.getFullYear()}`
+  if (s.getMonth() !== e.getMonth())        return `${mo(s).slice(0, 3)} ${s.getDate()} – ${mo(e).slice(0, 3)} ${e.getDate()}, ${e.getFullYear()}`
+  return `${mo(s)} ${s.getDate()} – ${e.getDate()}, ${e.getFullYear()}`
+}
+function _nexCompletedNav() {
+  return `window.navigate('${st().role === 'doctor' ? 'doctor-appointments' : 'appointments'}',{filter:'completed'})`
+}
+
+function _nexEventHtml(ev, top, height) {
+  const a = ev.a, kind = _nexKind(a.type)
+  const photo = patients.find(p => p.id === a.patientId)?.photoUrl || null
+  const chips = [
+    a.status === 'pending' ? '<span class="nex-chip nex-chip--pending">Pending approval</span>' : '',
+    ev.now        ? '<span class="nex-chip nex-chip--now"><i></i>Now</span>' : '',
+    ev.next       ? '<span class="nex-chip nex-chip--next">Up next</span>' : '',
+    newPatientTag(patients.find(p => p.id === a.patientId), 'sm'),
+    a.examDraftAt ? '<span class="nex-chip nex-chip--draft">Draft saved</span>' : '',
+    a.confirmedAt ? `<span class="nex-chip nex-chip--ok" title="The patient confirmed they're coming">${ic('check', 'icon-xs')}Confirmed</span>` : '',
+  ].join('')
+  const meta = [a.type, st().role === 'admin' ? (a.doctorName || 'Doctor to be assigned') : ''].filter(Boolean).map(esc).join(' &middot; ')
+  const pending = a.status === 'pending'
+  // Approved → start the exam (any date). Pending → nothing to start yet;
+  // admins get a Review button that opens it for approval.
+  const action = _nexCanStart(a)
+    ? `<button type="button" class="btn-primary nex-start" title="Start Examination" onclick="event.stopPropagation();window.startExamFromAppt('${a.id}')">${ic('file-text', 'icon-sm')}<span>Start Examination</span></button>`
+    : (pending && st().role === 'admin'
+      ? `<button type="button" class="btn-secondary nex-start" title="Review this request" onclick="event.stopPropagation();window.viewAppt('${a.id}')">${ic('eye', 'icon-sm')}<span>Review</span></button>` : '')
+  const left = ev.col / ev.ncol * 100, width = 100 / ev.ncol
+  return `
+    <div class="nex-ev nex-ev--${kind}${ev.now ? ' is-now' : ''}${pending ? ' is-pending' : ''}"
+         style="top:${top + 1}px;height:${height - 3}px;left:calc(${left}% + 3px);width:calc(${width}% - 6px)"
+         onclick="window.viewAppt('${a.id}')">
+      <div class="nex-ev-av">${avatar(a.patientName, 'patient-avatar', photo)}</div>
+      <div class="nex-ev-main">
+        <div class="nex-ev-top"><span class="nex-ev-time">${_nexSpan(ev.s, ev.e)}</span>${chips}</div>
+        <div class="nex-ev-name"><button type="button" title="View appointment details" onclick="event.stopPropagation();window.viewAppt('${a.id}')">${esc(a.patientName)}</button><span>${esc(a.patientId)}</span></div>
+        <div class="nex-ev-meta">${meta}</div>
+      </div>
+      ${action}
+    </div>`
+}
+
+// Renders the calendar card (#nex-cal) for the selected day. Week paging,
+// day picks and the doctor filter only re-render this card, not the page.
+function nexRenderCal() {
+  const box = document.getElementById('nex-cal')
+  if (!box) return
+  const role    = st().role
+  const today   = localDateStr()
+  const sel     = window._nexSel || today
+  const isToday = sel === today
+  const days    = _nexWeekDays(sel)
+  const byDay   = _nexByDay()
+  const docF    = _nexDocFilter()
+  const list    = (byDay[sel] || []).slice().sort((x, y) => _nexMin(x.time) - _nexMin(y.time))
+  const doneCount = appointments.filter(a => a.status === 'completed' && a.date === sel && (!docF || a.doctorId === docF)).length
+
+  const cs  = consultationSettings
+  const dur = window._durationMinutes ? window._durationMinutes(cs.defaultDuration) : 45
+  const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes()
+
+  // Events, with side-by-side columns for visits at the same hour.
+  const evs = list.map(a => ({ a, s: _nexMin(a.time), e: _nexMin(a.time) + dur }))
+  let cluster = [], clusterEnd = -1
+  const flush = () => {
+    const cols = []
+    cluster.forEach(ev => {
+      let c = cols.findIndex(end => end <= ev.s)
+      if (c < 0) { c = cols.length; cols.push(0) }
+      cols[c] = ev.e; ev.col = c
+    })
+    cluster.forEach(ev => { ev.ncol = cols.length })
+    cluster = []; clusterEnd = -1
+  }
+  evs.forEach(ev => { if (cluster.length && ev.s >= clusterEnd) flush(); cluster.push(ev); clusterEnd = Math.max(clusterEnd, ev.e) })
+  flush()
+  // Now / Up next only for approved visits (a pending one may not happen).
+  evs.forEach(ev => { ev.now = isToday && ev.a.status === 'approved' && ev.s <= nowMin && nowMin < ev.e })
+  // "Up next": the first upcoming time slot (every visit starting then).
+  const nextEv = isToday ? evs.find(ev => ev.a.status === 'approved' && ev.s > nowMin) : null
+  if (nextEv) evs.forEach(ev => { if (ev.s === nextEv.s && ev.a.status === 'approved') ev.next = true })
+
+  // Compressed time scale: full height only for hours that hold a visit.
+  let startMin = _nexMin(cs.morningStart) || 480
+  let endMin   = _nexMin(cs.afternoonEnd) || 1020
+  evs.forEach(ev => { startMin = Math.min(startMin, ev.s); endMin = Math.max(endMin, ev.e) })
+  startMin = Math.floor(startMin / 60) * 60
+  endMin   = Math.ceil(endMin / 60) * 60
+  const slots = []
+  let y = 0
+  for (let m = startMin; m < endMin; m += 60) {
+    const active = evs.some(ev => ev.s < m + 60 && ev.e > m)
+    const h = active ? NEX_ACTIVE_H : NEX_IDLE_H
+    slots.push({ m, y, h, active }); y += h
+  }
+  const totalH = y
+  const yAt = min => {
+    if (min <= startMin) return 0
+    if (min >= endMin) return totalH
+    const s = slots[Math.floor((min - startMin) / 60)]
+    return s.y + (min - s.m) / 60 * s.h
+  }
+  // Keeps the current-time line in place while the page stays open.
+  window._nexTick = isToday ? () => {
+    const line = document.querySelector('#nex-cal .nex-now')
+    if (!line) return
+    const n = new Date(), m = n.getHours() * 60 + n.getMinutes()
+    line.style.display = (m >= startMin && m <= endMin) ? '' : 'none'
+    line.style.top = yAt(m) + 'px'
+  } : null
+
+  const hasLunch = cs.lunchBreak && _nexMin(cs.afternoonStart) > _nexMin(cs.morningEnd)
+  const ls = _nexMin(cs.morningEnd), le = _nexMin(cs.afternoonStart)
+  const lunchBand = hasLunch && le > startMin && ls < endMin
+    ? `<div class="nex-lunch" style="top:${yAt(ls)}px;height:${yAt(le) - yAt(ls)}px"><span>Lunch break</span></div>` : ''
+  const nowLine = isToday && nowMin >= startMin && nowMin <= endMin
+    ? `<div class="nex-now" style="top:${yAt(nowMin)}px" title="Now"></div>` : ''
+
+  // In time order; the two dividers only show in the phone list layout.
+  const items = evs.map(ev => ({ k: ev.s, html: _nexEventHtml(ev, yAt(ev.s), yAt(ev.e) - yAt(ev.s)) }))
+  if (hasLunch && evs.some(ev => ev.s < ls) && evs.some(ev => ev.s >= le)) items.push({ k: ls - 0.01, html: `<div class="nex-mdiv nex-mdiv--lunch">Lunch break &middot; ${_nexSpan(ls, le)}</div>` })
+  if (isToday && evs.length) items.push({ k: nowMin - 0.01, html: `<div class="nex-mdiv nex-mdiv--now"><i></i>Now &middot; ${_nexClock(nowMin)}</div>` })
+  items.sort((p, q) => p.k - q.k)
+
+  const kinds    = ['exam', 'fu', 'disp'].filter(k => evs.some(ev => _nexKind(ev.a.type) === k))
+  const selLabel = _nexDate(sel).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  const next     = Object.keys(byDay).filter(d => d > sel).sort()[0]
+  const nApproved = list.filter(a => a.status === 'approved').length, nPending = list.length - nApproved
+  const subBits  = []
+  if (nApproved) subBits.push(`${nApproved} approved`)
+  if (nPending) subBits.push(`${nPending} pending approval`)
+  if (nextEv) subBits.push(`up next at ${esc(nextEv.a.time)}`)
+  const docOpts = [{ value: '', label: 'All doctors' }, ...(typeof doctors !== 'undefined' ? doctors : []).map(d => ({ value: d.id, label: d.name }))]
+
+  box.innerHTML = `
+    <div class="nex-toolbar">
+      <div class="nex-tb-left">
+        <button type="button" class="nex-today-btn${isToday ? ' is-current' : ''}" ${isToday ? 'aria-current="date"' : ''} onclick="window._nexGo(0)">Today</button>
+        <div class="nex-nav">
+          <button type="button" class="nex-icon-btn" title="Previous week" aria-label="Previous week" onclick="window._nexGo(-7)">${ic('chevron-left', 'icon-sm')}</button>
+          <button type="button" class="nex-icon-btn" title="Next week" aria-label="Next week" onclick="window._nexGo(7)">${ic('chevron-right', 'icon-sm')}</button>
+          ${window.dateFieldHtml ? `<div class="nex-jump" title="Jump to a date">${window.dateFieldHtml('nex-jump', { value: sel, max: 'none', cls: 'nex-jump-trigger', onchange: 'window._nexPick(this.value)' })}</div>` : ''}
+        </div>
+        <h2 class="nex-range">${_nexRangeLabel(days[0], days[6])}</h2>
+      </div>
+      <div class="nex-tb-right">
+        ${role === 'admin' && window.selectFieldHtml ? `<div class="nex-doc">${window.selectFieldHtml('nex-doc', { value: docF, options: docOpts, cls: 'nex-doc-trigger', minWidth: 220, onchange: 'window._nexSetDoc(this.value)' })}</div>` : ''}
+        <button type="button" class="nex-done-link" onclick="${_nexCompletedNav()}">${ic('check-circle', 'icon-sm')}<span>Completed<span class="nex-done-word"> examinations</span></span></button>
+      </div>
+    </div>
+
+    <div class="nex-week" role="tablist" aria-label="Days of the week" onkeydown="window._nexWeekKey(event)">
+      ${days.map(iso => {
+        const d = _nexDate(iso), n = (byDay[iso] || []).length
+        return `
+        <button type="button" class="nex-day${iso === sel ? ' is-sel' : ''}${iso === today ? ' is-today' : ''}${iso < today ? ' is-past' : ''}"
+                role="tab" aria-selected="${iso === sel}" tabindex="${iso === sel ? 0 : -1}"
+                aria-label="${d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}, ${n} patient${n === 1 ? '' : 's'}"
+                onclick="window._nexPick('${iso}')">
+          <span class="nex-day-wd">${d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span>
+          <span class="nex-day-num">${d.getDate()}</span>
+          <span class="nex-day-count${n ? '' : ' is-empty'}">${n ? `${n}<span class="nex-cnt-word"> patient${n === 1 ? '' : 's'}</span>` : ''}</span>
+        </button>`
+      }).join('')}
+    </div>
+
+    <div class="nex-dayhead">
+      <div class="nex-dayhead-left">
+        <div class="nex-dayhead-row">
+          ${isToday ? '<span class="nex-today-tag">Today</span>' : ''}
+          <h3 class="nex-dayhead-title">${selLabel}</h3>
+        </div>
+        ${subBits.length ? `<div class="nex-dayhead-sub">${subBits.join(' &middot; ').replace(/^./, c => c.toUpperCase())}</div>` : ''}
+      </div>
+      <div class="nex-dayhead-right">
+        ${kinds.length > 1 ? kinds.map(k => `<span class="nex-legend nex-legend--${k}"><i></i>${NEX_KIND_LABEL[k]}</span>`).join('') : ''}
+        ${doneCount && list.length ? `<button type="button" class="nex-done-chip" onclick="${_nexCompletedNav()}">${ic('check-circle', 'icon-xs')}${doneCount} completed</button>` : ''}
+      </div>
+    </div>
+
+    ${list.length ? `
+    <div class="nex-grid">
+      <div class="nex-hours" style="height:${totalH}px">
+        ${slots.map(s => `<div class="nex-hour-label${s.active ? '' : ' is-idle'}" style="top:${s.y}px">${_nexClock(s.m).replace(':00', '')}</div>`).join('')}
+        <div class="nex-hour-label is-idle" style="top:${totalH}px">${_nexClock(endMin).replace(':00', '')}</div>
+      </div>
+      <div class="nex-lane" style="height:${totalH}px">
+        ${slots.map(s => `<div class="nex-slot${s.active ? '' : ' is-idle'}" style="top:${s.y}px;height:${s.h}px"></div>`).join('')}
+        ${lunchBand}
+        ${items.map(it => it.html).join('')}
+        ${nowLine}
+      </div>
+    </div>` : `
+    <div class="nex-empty">
+      <div class="nex-empty-icon${doneCount ? ' is-done' : ''}">${ic(doneCount ? 'check-circle' : 'calendar', 'icon')}</div>
+      <div class="nex-empty-title">${doneCount ? 'All caught up' : 'No appointments on this day'}</div>
+      <div class="nex-empty-sub">${doneCount
+        ? `${doneCount} examination${doneCount === 1 ? ' was' : 's were'} completed${isToday ? ' today' : ' on this day'}, and none are left to start.`
+        : (role === 'admin' ? 'Approved and pending appointments for ' + (docF ? 'this doctor' : 'any doctor') + ' appear here at their scheduled time.' : 'Your approved and pending appointments appear here at their scheduled time.')}</div>
+      <div class="nex-empty-actions">
+        ${next ? `<button type="button" class="btn-primary" onclick="window._nexPick('${next}')">Next appointment: ${_nexDate(next).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} ${ic('chevron-right', 'icon-sm')}</button>` : ''}
+        ${doneCount ? `<button type="button" class="btn-secondary" onclick="${_nexCompletedNav()}">${ic('check-circle', 'icon-sm')} View completed</button>` : ''}
+      </div>
+    </div>`}`
+}
+window.nexRenderCal = nexRenderCal
+window._nexPick   = iso => { if (!iso) return; window._nexSel = iso; nexRenderCal() }
+window._nexGo     = n => { window._nexSel = n === 0 ? localDateStr() : _nexBestDay(_nexAddDays(window._nexSel || localDateStr(), n), _nexByDay()); nexRenderCal() }
+window._nexSetDoc = id => { window._nexDoc = id || ''; nexRenderCal() }
+// Left/Right arrow keys move between days (across weeks), like a tab list.
+window._nexWeekKey = e => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  e.preventDefault()
+  window._nexSel = _nexAddDays(window._nexSel || localDateStr(), e.key === 'ArrowLeft' ? -1 : 1)
+  nexRenderCal()
+  document.querySelector('#nex-cal .nex-day.is-sel')?.focus()
+}
+
+// Past visits still approved (a reverted no-show, or an exam started and
+// auto-saved but never finished): their exam still has to be recorded.
+function _nexAwaitingHtml() {
+  const today = localDateStr()
+  const list = appointments.filter(a => a.status === 'approved' && a.date < today)
+    .sort((x, y) => x.date.localeCompare(y.date) || _nexMin(x.time) - _nexMin(y.time))
+  if (!list.length) return ''
+  return `
+    <div class="nex-await">
+      <div class="nex-await-head">
+        <div class="nex-await-icon">${ic('file-text', 'icon-sm')}</div>
+        <div style="min-width:0">
+          <div class="nex-await-title">Awaiting Examination <span class="nex-await-count">${list.length}</span></div>
+          <div class="nex-await-sub">Past visits that still need their examination recorded.</div>
+        </div>
+      </div>
+      ${list.map(a => `
+      <div class="nex-await-row">
+        ${avatar(a.patientName, 'patient-avatar', patients.find(p => p.id === a.patientId)?.photoUrl || null)}
+        <div class="nex-await-info">
+          <div class="nex-await-name"><button type="button" onclick="window.viewAppt('${a.id}')" title="View appointment details">${esc(a.patientName)}</button><span>${esc(a.patientId)}</span>${a.examDraftAt ? '<span class="nex-chip nex-chip--draft">Draft saved</span>' : ''}</div>
+          <div class="nex-await-meta">${fmtDate(a.date)} at ${esc(a.time)} &middot; ${esc(a.type || '')}${st().role === 'admin' && a.doctorName ? ' &middot; ' + esc(a.doctorName) : ''}</div>
+        </div>
+        <button type="button" class="btn-primary nex-start" onclick="window.startExamFromAppt('${a.id}')">${ic('file-text', 'icon-sm')}<span>Start Examination</span></button>
+      </div>`).join('')}
+    </div>`
+}
+
+function newExamPickerHtml() {
+  const role = st().role
+  // Always opens on today; week paging and day picks after that stay put.
+  window._nexSel = localDateStr()
+  window.state.afterRender = () => nexRenderCal()
+  if (window._nexTimer) clearInterval(window._nexTimer)
+  window._nexTimer = setInterval(() => {
+    if (!document.getElementById('nex-cal')) { clearInterval(window._nexTimer); window._nexTimer = null; return }
+    if (window._nexTick) window._nexTick()
+  }, 60000)
+  return `
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1 class="page-title">New Examination</h1>
+      <p class="page-subtitle">${role === 'admin'
+        ? 'Pick an approved appointment to start its examination.'
+        : 'Your appointments. Start an examination from any approved appointment.'}</p>
+    </div>
+  </div>
+  <div class="page-body">
+    <div class="nex-wrap">
+      ${_nexAwaitingHtml()}
+      <div class="nex-cal" id="nex-cal"></div>
+    </div>
+  </div>`
+}
+
 function pageNewExamination() {
-  if (state.role !== 'doctor') {
+  // Doctors and admins start and edit exams. An admin-started exam asks
+  // which doctor it's under (see the Examining Doctor field below).
+  if (state.role !== 'doctor' && state.role !== 'admin') {
     return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px;text-align:center">
       <div style="width:64px;height:64px;border-radius:50%;background:#FFF7ED;display:flex;align-items:center;justify-content:center">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#E8891C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       </div>
       <div>
         <div style="font-size:1.15rem;font-weight:700;color:#1f2937;margin-bottom:6px">Access Restricted</div>
-        <div style="font-size:.875rem;color:#6B7280;max-width:320px">Only doctors can start a new consultation. Please contact the assigned doctor to begin the examination.</div>
+        <div style="font-size:.875rem;color:#6B7280;max-width:320px">Only doctors and admins can start an examination. Please contact the assigned doctor to begin it.</div>
       </div>
       <button class="btn-ghost" onclick="window.history.back()" style="margin-top:8px">Go Back</button>
     </div>`
@@ -3899,110 +4657,15 @@ function pageNewExamination() {
   const { params, user } = st()
   const p = getPatientById(params?.patientId)
 
-  if (!p) {
-    const { role, user } = st()
-    const todayStr = localDateStr()
-    const todayLabel = new Date(todayStr + 'T00:00:00').toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' })
-
-    const todayAppts = appointments.filter(a => a.date === todayStr && !['cancelled','disapproved'].includes(a.status))
-    // Sort by time
-    const timeVal = t => { const [h,m] = (t||'0:00').replace(' AM','').replace(' PM','').split(':').map(Number); return (t.includes('PM') && h !== 12 ? h+12 : (t.includes('AM') && h === 12 ? 0 : h)) * 60 + m }
-    todayAppts.sort((a, b) => timeVal(a.time) - timeVal(b.time))
-
-    // Initials helper
-    const initials = name => name.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase()
-    const miniAvatar = (name, photoUrl, size) => photoUrl
-      ? `<div style="width:${size}px;height:${size}px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${photoUrl}" alt="${name}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="var w=this.parentElement;if(w){w.style.cssText='width:${size}px;height:${size}px;border-radius:50%;background:#E8760A;color:white;display:flex;align-items:center;justify-content:center;font-size:${size>=38?'.75rem':'.65rem'};font-weight:700;flex-shrink:0';w.textContent='${initials(name).replace(/'/g,"\\'")}'}"></div>`
-      : `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#E8760A;color:white;display:flex;align-items:center;justify-content:center;font-size:${size>=38?'.75rem':'.65rem'};font-weight:700;flex-shrink:0">${initials(name)}</div>`
-
-    // SVG calendar icon (no emoji, works cross-platform)
-    const calSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`
-
-    const apptCardHTML = todayAppts.length
-      ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-          ${todayAppts.map(a => {
-            const isDone = a.status === 'completed'
-            const statusBadge = isDone
-              ? `<span style="background:#f3f4f6;color:#6b7280;font-size:.65rem;font-weight:700;padding:2px 8px;border-radius:20px;letter-spacing:.03em">Completed</span>`
-              : `<span style="background:#FFF7ED;color:#C2410C;font-size:.65rem;font-weight:700;padding:2px 8px;border-radius:20px;letter-spacing:.03em">Approved</span>`
-            const actionBtn = isDone
-              ? `<button onclick="window.navigate('patient-view',{patientId:'${a.patientId}',patientName:'${a.patientName.replace(/'/g,"\\'")}'})"
-                         style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e5e7eb;background:white;color:#6b7280;font-size:.78rem;font-weight:600;cursor:pointer;transition:background .15s;text-align:center"
-                         onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='white'">
-                   View Record
-                 </button>`
-              : `<button onclick="window.startExamFromAppt('${a.id}')"
-                         style="width:100%;padding:8px;border-radius:8px;border:none;background:#E8760A;color:white;font-size:.78rem;font-weight:600;cursor:pointer;transition:opacity .15s;text-align:center"
-                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-                   Start Examination
-                 </button>`
-            return `
-            <div style="border:1.5px solid #e5e7eb;border-radius:12px;padding:18px;background:white;transition:border-color .15s,box-shadow .15s;display:flex;flex-direction:column;gap:10px"
-                 onmouseover="this.style.borderColor='#E8891C';this.style.boxShadow='0 4px 12px rgba(232,137,28,0.1)'"
-                 onmouseout="this.style.borderColor='#e5e7eb';this.style.boxShadow='none'">
-              <div style="display:flex;align-items:center;gap:10px">
-                ${miniAvatar(a.patientName, patients.find(p=>p.id===a.patientId)?.photoUrl, 38)}
-                <div style="min-width:0">
-                  <div style="font-size:.9rem;font-weight:700;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.patientName}</div>
-                  <div style="font-size:.72rem;color:#6b7280;margin-top:1px">${a.patientId} &nbsp;·&nbsp; ${a.time}</div>
-                </div>
-              </div>
-              <div>
-                <div style="font-size:.75rem;color:#374151;font-weight:500;margin-bottom:5px">${a.type}</div>
-                ${role === 'admin' ? `<div style="font-size:.72rem;color:#9ca3af;margin-bottom:6px">${a.doctorName}</div>` : ''}
-                ${statusBadge}
-              </div>
-              ${actionBtn}
-            </div>`
-          }).join('')}
-        </div>`
-      : `<div style="text-align:center;padding:36px 20px">
-          <div style="width:52px;height:52px;border-radius:50%;background:#FFF7ED;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;color:#E8891C">
-            ${calSVG}
-          </div>
-          <div style="font-size:.9rem;font-weight:600;color:#374151;margin-bottom:6px">No scheduled consultations for today.</div>
-          <div style="font-size:.8rem;color:#9ca3af;margin-bottom:18px;line-height:1.6">Examination records are created from confirmed appointments.</div>
-          <button class="btn-secondary" style="font-size:.82rem" onclick="window.navigate('doctor-schedule')">
-            ${ic('calendar','icon-sm')} View My Schedule
-          </button>
-        </div>`
-
-    return `
-  <div class="page-header">
-    <div class="page-header-left">
-      <h1 class="page-title">New Examination</h1>
-      <p class="page-subtitle">Select a patient from today's consultations to begin.</p>
-    </div>
-  </div>
-  <div class="page-body">
-    <div style="max-width:900px;width:100%;margin:0 auto">
-
-      <!-- Today's appointments card -->
-      <div style="background:white;border:1px solid #e5e7eb;border-radius:14px;padding:20px 24px;margin-bottom:16px">
-
-        <!-- Card header -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${todayAppts.length ? '20px' : '0'}">
-          <div style="display:flex;align-items:center;gap:10px">
-            <div style="width:32px;height:32px;border-radius:8px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;color:#E8891C;flex-shrink:0">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            </div>
-            <div>
-              <div style="font-size:.9rem;font-weight:700;color:#111827">Today's Appointments</div>
-              <div style="font-size:.72rem;color:#9ca3af">${todayLabel}</div>
-            </div>
-          </div>
-          <span style="background:#f3f4f6;color:#374151;font-size:.72rem;font-weight:600;padding:3px 10px;border-radius:20px">${todayAppts.length} patient${todayAppts.length !== 1 ? 's' : ''}</span>
-        </div>
-
-        ${apptCardHTML}
-
-      </div>
-
-    </div>
-  </div>`
-  }
+  if (!p) return newExamPickerHtml()
 
   const today      = localDateStr()
+  // A new exam started from an appointment defaults to that appointment's
+  // date (the visit date), not today — matters when it's recorded late,
+  // e.g. after an admin reverts a no-show for a visit the exam wasn't
+  // saved for. Still editable in Step 1.
+  const _apptForDate = (!params?.examId && window._examApptId) ? appointments.find(a => a.id === window._examApptId) : null
+  const defaultExamDate = (_apptForDate?.date && _apptForDate.date < today) ? _apptForDate.date : today
   const specificExam = params?.examId ? (p.examinations || []).find(e => e.id === params.examId) : null
   // Only prefill from a real record when actually editing THAT exam — a
   // brand-new consultation must always start blank, never carrying over
@@ -4018,7 +4681,8 @@ function pageNewExamination() {
   // (e.g. from the Patient Profile's Examinations tab, which lists exams by
   // every doctor, not just the current one) falls back to the same
   // read-only view every non-doctor role gets, via pageExamination().
-  if (isEdit && specificExam && specificExam.doctor !== user?.name) {
+  // Admins can edit any doctor's exam record (it keeps its original doctor).
+  if (isEdit && specificExam && state.role !== 'admin' && specificExam.doctor !== user?.name) {
     return pageExamination()
   }
 
@@ -4030,7 +4694,7 @@ function pageNewExamination() {
   // initial inline opacity/pointer-events (set server-side above from the
   // same linkedRx check) — pointer-events:none alone doesn't block
   // keyboard Tab-focus into them.
-  state.afterRender = () => { window._examPatientId = p.id; examWizInit(); window.syncIssuePrescription?.(); window.syncFollowUpNeeded?.() }
+  state.afterRender = () => { window._examPatientId = p.id; examWizInit(); window.syncIssuePrescription?.(); window.syncFollowUpNeeded?.(); if (!isEdit) window.examDraftInit?.(p.id) }
 
   const fl = (label, req=false) =>
     `<label style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;font-weight:600;display:block;margin-bottom:6px">${label}${req ? ' <span style="color:#ef4444">*</span>' : ''}</label>`
@@ -4063,7 +4727,7 @@ function pageNewExamination() {
         ${i < STEPS.length - 1 ? `<div id="wiz-line-${s.n}" class="wiz-step-line" style="flex:1;height:2px;background:#e5e7eb;margin:0 4px;border-radius:2px;transition:background 0.3s;min-width:6px"></div>` : ''}
       </div>`).join('')}
   </div>
-  <div id="wiz-step-label" style="display:none;font-size:.8rem;font-weight:600;color:#6b7280;text-align:center;padding:6px 0 12px">Step 1 of 7: Patient Info</div>`
+  <!-- No "Step N of 7" line: the stepper above already shows the current step. -->`
 
   // Same derivation saveNewExam() (main.js) uses to decide what actually
   // gets submitted: from the linked appointment when starting fresh from
@@ -4099,7 +4763,7 @@ function pageNewExamination() {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
       <div class="form-group" style="margin:0">
         ${fl('Examination Date')}
-        ${window.dateFieldHtml('ne-date', { value: pre.date || today, style: inp, max: 'none' })}
+        ${window.dateFieldHtml('ne-date', { value: pre.date || defaultExamDate, style: inp, max: 'none' })}
       </div>
       <div class="form-group" style="margin:0">
         ${fl('Patient ID')}
@@ -4120,20 +4784,14 @@ function pageNewExamination() {
       ${fl('Company / Employer')}
       <input id="ne-employer" class="form-input" style="${inp}" value="${p.occupation || ''}" placeholder="Optional">
     </div>
-    <!-- Read-only reference for the doctor — not part of this visit's own
-         record (medical history lives on the patient's profile, edited via
-         Add/Edit Patient or the patient's own Settings), just surfaced here
+    <!-- The patient's medical history (lives on their profile, not this
+         visit's record) — editable here by the doctor via Edit/Add, as well
+         as via Add/Edit Patient or the patient's own Settings. Surfaced here
          so it's in view while examining regardless of what this particular
          visit's service type is. Amber/prominent only when there's actually
          something on file worth not missing — an empty one stays low-key
          so a patient with nothing recorded doesn't read as an alarm. -->
-    <div style="background:${p.medicalHistory ? '#FFFBEB' : '#F9FAFB'};border:2px solid ${p.medicalHistory ? '#FDE68A' : '#E5E7EB'};border-radius:10px;padding:14px 16px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span style="flex-shrink:0;display:flex;color:${p.medicalHistory ? '#D97706' : '#9CA3AF'}">${ic('alert-circle','icon-lg')}</span>
-        <span style="display:inline-flex;align-items:center;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 10px;border-radius:999px;background:${p.medicalHistory ? '#FEF3C7' : '#F3F4F6'};color:${p.medicalHistory ? '#92400E' : '#6B7280'}">Medical History</span>
-      </div>
-      <div style="font-size:.85rem;color:${p.medicalHistory ? '#78350F' : '#9CA3AF'};line-height:1.55;white-space:pre-wrap">${p.medicalHistory ? esc(p.medicalHistory) : 'No medical history on file.'}</div>
-    </div>
+    ${examMedHistoryBoxHtml(p)}
   </div>`
 
   // ── Step 2: Consultation ──────────────────────────────────────
@@ -4147,6 +4805,34 @@ function pageNewExamination() {
   const preFollowUpLabel = preCon.followUpDate
     ? new Date(preCon.followUpDate+'T00:00:00').toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) + (preCon.followUpTime ? ` at ${preCon.followUpTime}` : '')
     : 'Select date & time'
+
+  // The exam's own doctor, for the follow-up picker's calendar (an admin
+  // editing has no doctor record of their own to look availability up by).
+  window._examEditDoctorId = isEdit
+    ? (findDoctorByName(specificExam?.doctor, specificExam?.doctorId)?.id || '') : ''
+
+  // Once staff/admin have actually booked the follow-up (a Follow-up
+  // Consultation appointment for this patient dated after this exam, not
+  // cancelled/declined/no-show — those leave the follow-up still owed, so
+  // the doctor can recommend a new date), the recommendation is done — lock it here so an
+  // edit can't silently drift from the real booking or re-notify staff.
+  // Changes from then on go through the appointment itself (reschedule).
+  // Appointments aren't linked to the exam that recommended them, so it has
+  // to land within 30 days of the recommended date (staff book from that
+  // prefill; a reschedule rarely moves it further) — otherwise an unrelated
+  // later visit would "fulfil" a recommendation a year out.
+  const _fuDaysApart = (a, b) => Math.abs(new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 86400000
+  const bookedFollowUp = (isEdit && preCon.followUpDate)
+    ? appointments
+        .filter(a => a.patientId === p.id && a.type === 'Follow-up Consultation'
+          && !['cancelled', 'disapproved', 'no-show'].includes(a.status)
+          && a.date > (specificExam?.date || '')
+          && _fuDaysApart(a.date, preCon.followUpDate) <= 30)
+        .sort((a, b) => _fuDaysApart(a.date, preCon.followUpDate) - _fuDaysApart(b.date, preCon.followUpDate))[0] || null
+    : null
+  const bookedFollowUpLabel = bookedFollowUp
+    ? new Date(bookedFollowUp.date+'T00:00:00').toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) + (bookedFollowUp.time ? ` at ${bookedFollowUp.time}` : '')
+    : ''
 
   // Follow-up Date is only ever a suggested target, not a real booked
   // slot — setting it just notifies admin/staff to go schedule the actual
@@ -4172,6 +4858,23 @@ function pageNewExamination() {
          the appointment queue, so re-entering either would just be
          duplicate (and sometimes contradictory) data entry. saveNewExam()
          derives both automatically instead — see main.js. -->
+    ${bookedFollowUp ? `
+    <!-- Hidden inputs keep the saved recommendation as-is on save. -->
+    <input type="radio" name="ne-followup-choice" id="r-followup-yes" value="Yes" checked style="display:none">
+    <input type="hidden" id="ne-con-followup" value="${preCon.followUpDate || ''}">
+    <input type="hidden" id="ne-con-followup-time" value="${preCon.followUpTime || ''}">
+    <div class="form-group" style="margin-bottom:16px">
+      ${fl('Follow-up Consultation')}
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:8px;background:#F9FAFB;border:1px solid #e5e7eb">
+        <span style="color:#059669;flex-shrink:0;display:flex;margin-top:2px">${ic('lock','icon-sm')}</span>
+        <div style="min-width:0">
+          <div style="font-size:.85rem;font-weight:600;color:#1C1C1C">${bookedFollowUp.status === 'completed' ? 'Completed on' : 'Booked for'} ${bookedFollowUpLabel} <span style="font-weight:400;color:#6b7280">&middot; ${bookedFollowUp.id} &middot; ${bookedFollowUp.status.charAt(0).toUpperCase() + bookedFollowUp.status.slice(1)}</span></div>
+          <div style="font-size:.75rem;color:#6b7280;margin-top:2px">${bookedFollowUp.status === 'completed'
+            ? 'The patient has already completed this follow-up, so it can no longer be changed here.'
+            : 'The clinic has already scheduled this follow-up, so it can no longer be changed here. To move it, reschedule the appointment from Appointments.'}</div>
+        </div>
+      </div>
+    </div>` : `
     <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:16px;flex-wrap:wrap">
       <div>
         <span style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;font-weight:600;white-space:nowrap;display:block;margin-bottom:6px">Need Follow-up Consultation?</span>
@@ -4197,8 +4900,8 @@ function pageNewExamination() {
           ${fl('Follow-up Date & Time')}
           <input type="hidden" id="ne-con-followup" value="${preCon.followUpDate || ''}">
           <input type="hidden" id="ne-con-followup-time" value="${preCon.followUpTime || ''}">
-          <button type="button" class="form-input" style="${inp};height:40px;text-align:left;cursor:pointer;background:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%"
-                  onclick="window.openFollowUpPicker()">
+          <button type="button" id="ne-followup-picker-btn" class="form-input" style="${inp};height:40px;text-align:left;cursor:pointer;background:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%"
+                  onclick="this.classList.remove('error');window.openFollowUpPicker()">
             <span id="ne-followup-picker-label" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${needsFollowUpByDefault ? '#1C1C1C' : '#9CA3AF'}">${preFollowUpLabel}</span>
             <span style="color:#9CA3AF;flex-shrink:0;display:flex">${ic('calendar','icon-sm')}</span>
           </button>
@@ -4207,7 +4910,7 @@ function pageNewExamination() {
     </div>
     <div style="${needsFollowUpByDefault ? '' : 'display:none'}" id="ne-followup-hint-wrap">
       <div style="font-size:.72rem;color:#9CA3AF;margin-top:6px;margin-bottom:16px">Clinic staff will be notified to schedule this follow-up appointment once you save.</div>
-    </div>
+    </div>`}
     <div class="form-group" style="margin-bottom:16px">
       ${fl('Chief Complaint')}
       <textarea id="ne-con-complaint" class="form-textarea" style="${inp};resize:vertical;width:100%;min-height:70px" placeholder="In the patient's own words: why they came in...">${preCon.chiefComplaint || ''}</textarea>
@@ -4499,9 +5202,9 @@ function pageNewExamination() {
     <div style="border:1.5px dashed #d1d5db;border-radius:10px;padding:24px" id="ne-rx-preview">
       <div style="text-align:center;color:#9CA3AF;font-size:.84rem;padding:16px">Loading preview...</div>
     </div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-top:16px">
       ${isEdit ? `<button class="btn-ghost" style="color:#0891b2;border-color:#0891b2" onclick="window.generateClearance('${p.id}','${params.examId}')">${ic('award','icon-sm')} Generate Clearance</button>` : ''}
-      <button class="btn-secondary" onclick="window.printNewExamDraft(window._examPatientId)">${ic('printer','icon-sm')} Print Prescription</button>
+      ${isEdit ? `<button class="btn-secondary" onclick="window.printNewExamDraft(window._examPatientId)">${ic('printer','icon-sm')} Print Prescription</button>` : ''}
     </div>
   </div>`
 
@@ -4534,7 +5237,7 @@ function pageNewExamination() {
     </div>
   </div>`
 
-  const _dob = p.dob ? new Date(p.dob+'T00:00:00').toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) : '—'
+  const _dob = p.dob ? new Date(p.dob+'T00:00:00').toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) : emptyVal('Not set')
 
   const rightColumn = `
   <div style="background:white;border-radius:12px;border:1px solid #e5e7eb;padding:20px">
@@ -4543,15 +5246,16 @@ function pageNewExamination() {
       <div style="width:72px;height:72px;border-radius:50%;background:#E8760A;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:1.5rem;font-weight:800;color:#fff;letter-spacing:-.02em;overflow:hidden">${p.photoUrl ? `<img src="${p.photoUrl}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="${avatarFallbackAttr(p.name)}">` : initials(p.name)}</div>
       <div style="font-size:1rem;font-weight:800;color:#1f2937;margin-bottom:2px">${p.name}</div>
       <div style="font-size:.75rem;font-family:monospace;color:#9CA3AF;margin-bottom:6px">${p.id}</div>
-      <span style="display:inline-block;background:#dcfce7;color:#16a34a;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 10px;border-radius:20px">${p.status || 'Active'}</span>
+      <div class="np-card-tags">${patientSourceBadge(p)}${newPatientTag(p, 'md')}</div>
+      ${isNewPatient(p) ? '<div class="np-first-exam">' + NP_ICON_NEW + 'First examination at the clinic</div>' : ''}
       ${p.occupation ? `<div style="font-size:.72rem;color:#9CA3AF;margin-top:6px">${p.occupation}</div>` : ''}
     </div>
     <div style="display:flex;flex-direction:column;gap:12px">
       ${[
-        [ic('user','icon-sm'),     'Gender / Age',    `${p.gender||'—'}, ${p.age ? p.age+' yrs' : '—'}`],
+        [ic('user','icon-sm'),     'Gender / Age',    [p.gender || '', p.age ? p.age + ' yrs' : ''].filter(Boolean).join(', ') || emptyVal('Not set')],
         [ic('calendar','icon-sm'), 'Date of Birth',   _dob],
-        [ic('phone','icon-sm'),    'Contact Number',  p.contact || '—'],
-        [ic('calendar','icon-sm'), 'Last Visit',      (p.lastVisit && p.lastVisit !== '—') ? new Date(p.lastVisit+'T00:00:00').toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) : '—'],
+        [ic('phone','icon-sm'),    'Contact Number',  orEmpty(p.contact, 'No contact number')],
+        [ic('calendar','icon-sm'), 'Last Visit',      (p.lastVisit && p.lastVisit !== '—') ? new Date(p.lastVisit+'T00:00:00').toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) : emptyVal('No visits yet')],
       ].map(([iconHtml, label, val]) => `
         <div style="display:flex;align-items:flex-start;gap:10px">
           <span style="color:#9ca3af;flex-shrink:0;margin-top:2px">${iconHtml}</span>
@@ -4563,6 +5267,41 @@ function pageNewExamination() {
     </div>
   </div>
   `
+
+  // Admin starting a new exam: choose which doctor it's recorded under
+  // (their name + PRC license go on the record and any prescription).
+  // Defaults to the appointment's doctor; required when the appointment
+  // was still "to be assigned". Editing never changes the doctor.
+  let adminDoctorPickerHTML = ''
+  if (state.role === 'admin' && !isEdit) {
+    const linkedAppt = window._examApptId ? appointments.find(a => a.id === window._examApptId) : null
+    const defaultDocId = linkedAppt?.doctorId
+      || findDoctorByName(linkedAppt?.doctorName)?.id || ''
+    const docOptions = doctors
+      .filter(d => (d.status || 'active') === 'active' || d.id === defaultDocId)
+      .map(d => ({ value: d.id, label: d.name }))
+    // Same card pattern as the wizard steps (e.g. Step 1's Patient
+    // Information): white card, orange icon badge, title + subtitle, then
+    // an uppercase field label over a standard form input.
+    adminDoctorPickerHTML = `
+      <div style="background:white;border-radius:12px;border:1px solid #e5e7eb;padding:24px 28px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+          <div style="width:36px;height:36px;border-radius:50%;background:#E8760A;color:white;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('user','icon-sm')}</div>
+          <div>
+            <div style="font-size:.95rem;font-weight:700;color:#1f2937">Examining Doctor</div>
+            <div style="font-size:.75rem;color:#6b7280;margin-top:1px">
+              ${linkedAppt && !linkedAppt.doctorId && !linkedAppt.doctorName
+                ? 'This appointment has no doctor yet. The doctor you choose will be assigned to it.'
+                : 'The exam and any prescription will be recorded under this doctor.'}
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin:0">
+          ${fl('Doctor', true)}
+          ${window.selectFieldHtml('ne-doctor', { value: defaultDocId, options: docOptions, placeholder: 'Select the doctor for this exam', style: inp })}
+        </div>
+      </div>`
+  }
 
   return `
   <div class="page-header">
@@ -4582,6 +5321,7 @@ function pageNewExamination() {
 
     <!-- LEFT: Wizard -->
     <div style="min-width:0;overflow:hidden">
+      ${adminDoctorPickerHTML}
       ${stepperHTML}
       <div id="wiz-steps-container" style="position:relative">
         ${stepsHTML}
@@ -4779,13 +5519,10 @@ function pagePatientExamHistory() {
     <div class="card" id="exam-hist-card">
       <div class="card-header">
         <div class="card-title">${sorted.length} Examination${sorted.length !== 1 ? 's' : ''} on Record</div>
-        <div class="search-input-wrap">
-          ${ic('search','icon-sm')}
-          <input class="search-input" placeholder="Search diagnosis or doctor…" oninput="window._filterExamHistory(this.value)">
-        </div>
       </div>
+      <div class="rec-filter-row">${recFilterBar('exam-hist-card', { items: sorted, placeholder: 'Search diagnosis or doctor…' })}</div>
       ${sorted.map((e, i) => `
-      <div class="exam-hist-row hist-row${i===0 ? ' hist-row-featured' : ''}" data-search="${(e.diagnosis||'').toLowerCase()} ${e.doctor.toLowerCase()}">
+      <div class="exam-hist-row hist-row${i===0 ? ' hist-row-featured' : ''}" ${recRowAttrs({ search: `${e.diagnosis || ''} ${e.doctor || ''}`, doctor: e.doctor, date: e.date, id: e.id })}>
         <!-- Date block -->
         <div style="text-align:center;min-width:38px;flex-shrink:0">
           <div style="font-size:1.05rem;font-weight:800;color:#1C1C1C;line-height:1">${new Date(e.date + 'T00:00:00').getDate()}</div>
@@ -4825,6 +5562,59 @@ function pagePatientExamHistory() {
 // ════════════════════════════════════════════════════════════════
 //  PATIENT — DASHBOARD
 // ════════════════════════════════════════════════════════════════
+// ── Patient: medical history (one-time self-report) ──────────────
+// A patient may submit their medical history ONCE, and only while nothing
+// is on file (api/patients/submit-medical-history.php enforces the same).
+// After that — or once the clinic has recorded something — it's view-only
+// for them; the clinic (doctor/admin/staff) keeps it up to date.
+function patientCanSubmitMedHistory(rec) {
+  return !!rec && !rec.medicalHistory && !rec.medicalHistoryPatientSubmitted
+}
+window.patientCanSubmitMedHistory = patientCanSubmitMedHistory
+
+// Empty-history wording: a patient who answered "I have none" is recorded
+// information in itself, distinct from never having been asked.
+function medHxEmptyText(rec, forPatient) {
+  if (rec?.medicalHistoryPatientSubmitted) {
+    return forPatient ? 'You reported no known medical history.' : 'Patient reported no known medical history.'
+  }
+  return 'No medical history on file.'
+}
+window.medHxEmptyText = medHxEmptyText
+
+function patientMedHistorySectionHtml(rec) {
+  if (patientCanSubmitMedHistory(rec)) {
+    return `
+      <textarea class="form-textarea" rows="4" maxlength="2000" id="pt-medhx-input"
+                placeholder="Conditions (e.g. diabetes, high blood pressure), allergies, current medications, past eye surgeries or injuries, family history of eye disease…"></textarea>
+      <div style="margin-top:8px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:10px 12px;font-size:.75rem;color:#9A3412;line-height:1.55;display:flex;gap:8px;align-items:flex-start">
+        <span style="flex-shrink:0;display:inline-flex;margin-top:1px">${ic('alert-circle','icon-xs')}</span>
+        <span><strong>You can only submit this once.</strong> Please review it carefully before saving. After that, only your doctor or the clinic can make changes. Just let them know at your next visit.</span>
+      </div>
+      <div class="medhx-form"><div class="medhx-btn-pair">
+        <button type="button" class="btn-secondary" onclick="window.submitPatientMedicalHistory(true)">${ic('minus-circle','icon-sm')} I have no medical history</button>
+        <button type="button" class="btn-primary" id="pt-medhx-submit" onclick="window.submitPatientMedicalHistory()">${ic('check','icon-sm')} Submit Medical History</button>
+      </div></div>`
+  }
+  const has = !!rec?.medicalHistory
+  return `
+    <div style="background:${has ? '#FFFBEB' : '#F9FAFB'};border:1.5px solid ${has ? '#FDE68A' : '#E5E7EB'};border-radius:10px;padding:12px 14px;font-size:.85rem;line-height:1.6;white-space:pre-wrap;color:${has ? '#78350F' : '#9CA3AF'}">${has ? esc(rec.medicalHistory) : medHxEmptyText(rec, true)}</div>
+    <p style="margin:6px 0 0;font-size:.72rem;color:#6B7280;display:flex;gap:6px;align-items:flex-start;line-height:1.5">
+      <span style="flex-shrink:0;display:inline-flex;margin-top:1px;color:#9CA3AF">${ic('info','icon-xs')}</span>
+      <span>${rec?.medicalHistoryByPatient ? 'Submitted by you and awaiting review by your doctor. ' : ''}To update your medical history, please inform your doctor at your next visit or contact the clinic.</span>
+    </p>`
+}
+window.patientMedHistorySectionHtml = patientMedHistorySectionHtml
+
+// Small "Reported by patient" tag for the clinic side — shown until a
+// doctor/admin/staff edits (reviews) the patient's self-reported history.
+function medHxReportedTag(p) {
+  return p?.medicalHistory && p?.medicalHistoryByPatient
+    ? `<span title="Self-reported by the patient. Review and edit it to confirm." style="display:inline-flex;align-items:center;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:999px;background:#EFF6FF;color:#1D4ED8;white-space:nowrap">Reported by patient</span>`
+    : ''
+}
+window.medHxReportedTag = medHxReportedTag
+
 function pagePatientDashboard() {
   const { user } = st()
   const today    = localDateStr()
@@ -4844,6 +5634,21 @@ function pagePatientDashboard() {
     </div>
   </div>
   <div class="page-body">
+
+    ${patientCanSubmitMedHistory(patients.find(p => p.id === user.id) || user) ? `
+    <!-- Optional one-time prompt — goes away once the patient submits their
+         history, says they have none, or the clinic records one. See patientMedHistorySectionHtml(). -->
+    <div id="medhx-prompt" class="medhx-prompt" style="position:relative;display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#FFFBEB;border:1.5px solid #FDE68A;border-radius:12px;padding:16px 18px;margin-bottom:16px">
+      <span style="flex-shrink:0;display:flex;color:#D97706">${ic('alert-circle','icon-lg')}</span>
+      <div style="flex:1;min-width:220px">
+        <div style="font-size:.9rem;font-weight:700;color:#78350F">Any medical history we should know about? <span style="font-weight:500;color:#B45309">(optional)</span></div>
+        <div style="font-size:.78rem;color:#92400E;line-height:1.55;margin-top:2px">Conditions, allergies, medications or past eye surgeries help your doctor during your exam. You can submit this once; after that, changes are made by the clinic.</div>
+      </div>
+      <div class="medhx-btn-pair">
+        <button class="btn-secondary" onclick="window.submitPatientMedicalHistory(true)">${ic('minus-circle','icon-sm')} I have none</button>
+        <button class="btn-primary" onclick="window.navigate('patient-settings')">${ic('edit','icon-sm')} Add Medical History</button>
+      </div>
+    </div>` : ''}
 
     <div class="welcome-banner" style="margin-bottom:20px">
       <div class="welcome-banner-text">
@@ -4918,7 +5723,7 @@ function pagePatientDashboard() {
               <td data-label="Doctor" style="font-size:.82rem;font-weight:500">${a.doctorName || '<span style="font-style:italic;color:#9CA3AF;font-weight:400">To be assigned</span>'}</td>
               <td data-label="Date" style="font-size:.82rem">${fmtDate(a.date)}</td>
               <td data-label="Time" style="font-size:.82rem;white-space:nowrap">${a.time}</td>
-              <td data-label="Type" style="font-size:.78rem;color:#6B7280">${a.type}</td>
+              <td data-label="Type" style="font-size:.78rem;color:#6B7280">${apptTypeCell(a)}</td>
               <td data-label="Status">${badge(a.status)}</td>
             </tr>`).join('')}
           </tbody>
@@ -4960,7 +5765,7 @@ function pagePatientDashboard() {
 //  the admin/staff "New Appointment" page (mode:'staff'). The calendar,
 //  doctor-cards, time-slot grid and type-selection steps are identical
 //  either way; only the Review step (initial status vs. T&C + submit
-//  target) and the waitlist card (patient-only server-side) differ.
+//  target) differs.
 // ════════════════════════════════════════════════════════════════
 function appointmentWizardHtml(mode) {
   const isStaff = mode === 'staff'
@@ -5093,23 +5898,15 @@ function appointmentWizardHtml(mode) {
       .time-slot:hover:not(.taken):not(.mine) { border-color:#E8760A; }
       .time-slot.selected { background:#E8760A; color:#fff; border-color:#E8760A; }
       .time-slot.taken { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; text-decoration:line-through; }
-      .time-slot.full { background:#FFF7ED; color:#C2410C; border-color:#FDBA74; }
-      .time-slot.full:hover { background:#FFEDD5; border-color:#E8760A; }
-      /* A full/waitlist slot that's also the current pick — .selected and
-         .full alone tie in specificity (2 classes each), so whichever rule
-         is declared later in the file silently wins; this 3-class rule
-         out-specifies both so the orange "selected" look always wins. */
-      .time-slot.selected.full { background:#E8760A; color:#fff; border-color:#E8760A; }
       /* A slot that's full specifically because the patient viewing this
          already has their own appointment there (see wizBuildTimeSlots(),
          main.js) — same grayed-out/crossed-out treatment as .taken (its
          own class rather than reusing .taken directly, since the tooltip
          text still needs to say something different: "you already have
          an appointment" rather than "this time has passed"). */
-      .time-slot.mine { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; text-decoration:line-through; }
+      .time-slot.mine { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; text-decoration:line-through; border-style:dashed; border-color:#C4C8CE; }
       .time-slot-legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; font-family:'Poppins',sans-serif; font-size:.72rem; color:#6B7280; }
       .time-slot-legend-item { display:flex; align-items:center; gap:6px; }
-      .time-slot-legend-swatch { width:10px; height:10px; border-radius:3px; display:inline-block; flex-shrink:0; }
       /* ── Mini calendar ── */
       .appt-mini-cal { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:3px; min-width:0; }
       .amc-hdr { text-align:center; font-size:.65rem; font-weight:700; color:#9CA3AF; padding:4px 0; text-transform:uppercase; }
@@ -5172,8 +5969,6 @@ function appointmentWizardHtml(mode) {
         font-family:'Poppins',sans-serif; margin-left:auto; padding:0; flex-shrink:0; align-self:center; }
       .rev-edit:hover { text-decoration:underline; }
     </style>
-
-    ${isStaff ? '' : '<div id="my-waitlist-card"></div>'}
 
     ${isStaff ? '' : `
     <!-- Preference gate — patient-only, shown before the wizard proper.
@@ -5320,13 +6115,7 @@ function appointmentWizardHtml(mode) {
               <div style="font-size:.85rem;color:#6B7280">Available slots for <strong id="wiz-doc-lbl3" style="color:#1C1C1C"></strong> on <strong id="wiz-date-lbl3" style="color:#1C1C1C"></strong></div>
             </div>
             <div id="appt-time-slots"></div>
-            <div class="time-slot-legend">
-              <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#fff;border:1.5px solid #e5e7eb"></span>Available</div>
-              <div class="time-slot-legend-item" id="tsl-full-item"><span class="time-slot-legend-swatch" id="tsl-full-swatch" style="background:#FFF7ED;border:1.5px solid #FDBA74"></span><span id="tsl-full-txt">Fully booked (waitlist available)</span></div>
-              <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#E8760A"></span>Selected</div>
-              ${!isStaff ? `<div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#F3F4F6;border:1.5px solid #e5e7eb"></span>Booked by you</div>` : ''}
-              ${_minAdv === 0 ? `<div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#F3F4F6;border:1.5px solid #e5e7eb"></span>Past</div>` : ''}
-            </div>
+            ${window.slotLegendHtml({ mineLabel: isStaff ? "Patient already booked" : "Booked by you", showPast: _minAdv === 0 })}
             <input type="hidden" id="appt-time" value="">
             <div class="wiz-nav">
               <button class="wiz-btn-back" onclick="window.wizGo(-1)">${ic('chevron-left','icon-sm')} Back</button>
@@ -5346,7 +6135,7 @@ function appointmentWizardHtml(mode) {
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
               ${bookableServices.map((s, i) => `
-              <button class="appt-type-card"
+              <button class="appt-type-card" data-type="${esc(s.name)}"
                       onclick="window.selectApptType('${s.name.replace(/'/g,"\\'")}',this)">
                 <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px">
                   <span style="color:#E8760A">${ic(s.icon || 'eye','icon-sm')}</span>
@@ -5415,7 +6204,7 @@ function appointmentWizardHtml(mode) {
             </div>
             ` : `
             <div style="font-size:.75rem;color:#9CA3AF;line-height:1.5;margin-bottom:16px;display:flex;align-items:flex-start;gap:6px">
-              ${ic('info','icon-sm')} Your appointment request will be reviewed by clinic staff to confirm doctor availability and scheduling. You will be notified once confirmed.
+              ${ic('info','icon-sm')} Your appointment request will be reviewed by clinic staff for final approval. You will be notified once confirmed.
             </div>
             <!-- Hint placed above the checkbox/link it refers to, not
                  nested after it — users scan top to bottom, so they should
@@ -5571,8 +6360,18 @@ function pagePatientAppts() {
       ? [..._pool].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
       : [..._pool].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))
 
-  if (tab === 'request' && !user.bookingRestricted) {
-    window.state.afterRender = () => { window.amcInit(); window.loadMyWaitlistCard() }
+  // Max Upcoming Appointments Per Patient (Scheduling Rules, default 1):
+  // open = booked online by the patient, pending/approved, today or later.
+  // Admin/staff bookings (walk-in, e.g. follow-ups) don't count. Told up
+  // front here; api/appointments/create.php enforces it too.
+  const _cs = (typeof consultationSettings !== 'undefined' && consultationSettings) || {}
+  const _maxOpen  = Math.max(1, parseInt(_cs.maxUpcomingApptsPerPatient, 10) || 1)
+  const _openOwn  = myAppts.filter(a => a.source !== 'walk-in' && ['pending','approved'].includes(a.status) && a.date >= _today)
+                      .sort((a, b) => a.date.localeCompare(b.date) || (window._clockToMinutes?.(a.time) || 0) - (window._clockToMinutes?.(b.time) || 0))
+  const atLimit   = _openOwn.length >= _maxOpen
+
+  if (tab === 'request' && !user.bookingRestricted && !atLimit) {
+    window.state.afterRender = () => { window.amcInit() }
   } else {
     window.state.afterRender = () => { window.initPagination('pt-appt-tbody'); window.initSortable('pt-appt-tbody', tab === 'today' ? { key: 'time', type: 'text', dir: 1, context: tab } : { key: 'date', type: 'date', dir: _asc ? 1 : -1, context: tab }) }
   }
@@ -5605,20 +6404,45 @@ function pagePatientAppts() {
         <button class="btn-secondary" onclick="window.navigate('patient-appts',{filter:'all'})">${ic('chevron-left','icon-sm')} Back to My Appointments</button>
       </div>
     </div>
+    ` : atLimit ? `
+    <div class="card" style="max-width:560px;margin:0 auto">
+      <div class="card-body" style="text-align:center;padding:40px 32px">
+        <div style="width:56px;height:56px;border-radius:50%;background:#FFF7ED;border:2px solid #FED7AA;
+                    display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#E8760A">
+          ${ic('calendar','icon-lg')}
+        </div>
+        <div style="font-size:1.05rem;font-weight:700;color:#1C1C1C;margin-bottom:8px">You Already Have an Upcoming Appointment</div>
+        <div style="font-size:.85rem;color:#6B7280;line-height:1.6;margin-bottom:16px">
+          ${_maxOpen === 1
+            ? `You can book another once it's done. To change it, reschedule or cancel it from My Appointments.`
+            : `You have ${_openOwn.length} upcoming appointments, the most you can book at once. You can book another once one is done, or reschedule or cancel one from My Appointments.`}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;text-align:left">
+          ${_openOwn.map(a => `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;background:#F9FAFB;border:1px solid #F3F4F6;border-radius:10px;padding:10px 14px;flex-wrap:wrap">
+            <div style="min-width:0">
+              <div style="font-size:.84rem;font-weight:600;color:#1C1C1C">${fmtDate(a.date)} at ${esc(a.time)}</div>
+              <div style="font-size:.74rem;color:#6B7280;margin-top:2px">${esc(a.type || '')}${a.doctorName ? ' · ' + esc(a.doctorName) : ''}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              ${badge(a.status)}
+              <button class="btn-ghost btn-sm" onclick="window.viewAppt('${a.id}')">${ic('eye','icon-sm')} View</button>
+            </div>
+          </div>`).join('')}
+        </div>
+        <button class="btn-secondary" onclick="window.navigate('patient-appts',{filter:'all'})">${ic('chevron-left','icon-sm')} Back to My Appointments</button>
+      </div>
+    </div>
     ` : `
     ${appointmentWizardHtml('patient')}
     `) : `
     <div class="table-wrap">
       <div class="table-toolbar">
         <span class="table-title">${tab === 'today' ? "Today's Appointments" : statusFilter ? statusFilter.charAt(0).toUpperCase()+statusFilter.slice(1)+' Appointments' : 'All Appointments'} (${sortedAppts.length})</span>
-        <div class="table-actions">
-          <div class="search-input-wrap">
-            ${ic('search','icon-sm')}
-            <input class="search-input" placeholder="Search…" oninput="window.filterTable(this,'pt-appt-tbody')">
-          </div>
-        </div>
       </div>
       ${sortedAppts.length ? `
+      <div class="rec-filter-row">${recFilterBar('pt-appt-tbody', { isTable: true, items: sortedAppts, getDoctor: a => a.doctorName, placeholder: 'Search doctor, type or ID…',
+        statuses: statusFilter ? null : APPT_STATUS_OPTS.filter(([v]) => sortedAppts.some(a => a.status === v)) })}</div>
       <table class="tbl">
         <colgroup>
           <col style="width:24%"><col style="width:15%"><col style="width:12%"><col style="width:22%"><col style="width:14%"><col style="width:13%">
@@ -5630,11 +6454,11 @@ function pagePatientAppts() {
         </tr></thead>
         <tbody id="pt-appt-tbody">
           ${sortedAppts.map(a => {
-            return `<tr data-search="${(a.doctorName||'').toLowerCase()} ${(a.type||'').toLowerCase()}" data-appt-status="${a.status}" data-sort-doctor="${(a.doctorName||'').toLowerCase()}" data-sort-date="${a.date}">
+            return `<tr ${recRowAttrs({ search: `${a.id} ${a.doctorName || ''} ${a.type || ''}`, doctor: a.doctorName, date: a.date, time: a.time, status: a.status, id: a.id })} data-appt-status="${a.status}" data-sort-doctor="${(a.doctorName||'').toLowerCase()}" data-sort-date="${a.date}">
             <td data-label="Doctor" style="font-size:.82rem;font-weight:500">${a.doctorName || '<span style="font-style:italic;color:#9CA3AF;font-weight:400">To be assigned</span>'}</td>
             <td data-label="Date" style="font-size:.82rem">${fmtDate(a.date)}</td>
             <td data-label="Time" style="font-size:.82rem;white-space:nowrap">${a.time}</td>
-            <td data-label="Type" style="font-size:.82rem">${a.type}</td>
+            <td data-label="Type" style="font-size:.82rem">${apptTypeCell(a)}</td>
             <td data-label="Status" style="align-items:center">${apptStatusCell(a)}</td>
             <td data-label="Actions">
               <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
@@ -5712,13 +6536,10 @@ function pagePatientConsultations() {
     <div class="card" id="con-hist-card">
       <div class="card-header">
         <div class="card-title">${sorted.length} Consultation${sorted.length !== 1 ? 's' : ''} on Record</div>
-        <div class="search-input-wrap">
-          ${ic('search','icon-sm')}
-          <input class="search-input" placeholder="Search doctor or diagnosis…" oninput="window._filterConsultHistory(this.value)">
-        </div>
       </div>
+      <div class="rec-filter-row">${recFilterBar('con-hist-card', { items: sorted, placeholder: 'Search complaint, doctor or type…', statuses: [...new Set(sorted.map(c => c.type).filter(Boolean))].map(t => [t, t]), statusLabel: 'All Types' })}</div>
       ${sorted.map((c, i) => `
-      <div class="con-hist-row hist-row${i===0 ? ' hist-row-featured' : ''}" data-search="${(c.chiefComplaint||'').toLowerCase()} ${(c.doctor||'').toLowerCase()} ${(c.type||'').toLowerCase()}">
+      <div class="con-hist-row hist-row${i===0 ? ' hist-row-featured' : ''}" ${recRowAttrs({ search: `${c.chiefComplaint || ''} ${c.doctor || ''} ${c.type || ''}`, doctor: c.doctor, date: c.date, status: c.type, id: c.id })}>
         <!-- Date block -->
         <div style="text-align:center;min-width:38px;flex-shrink:0">
           <div style="font-size:1.05rem;font-weight:800;color:#1C1C1C;line-height:1">${new Date(c.date+'T00:00:00').getDate()}</div>
@@ -5918,16 +6739,10 @@ function pageStaffSettings() {
             <label class="form-label">Last Name</label>
             <input class="form-input" id="st-lname" value="${staffMember.lastName || ''}">
           </div>
-          <div class="form-row-2">
-            <div class="form-group">
-              <label class="form-label">Email Address</label>
-              <input class="form-input" type="email" id="st-email" value="${staffMember.email || ''}">
-            </div>
             <div class="form-group">
               <label class="form-label">Phone Number</label>
               <input class="form-input" id="st-phone" inputmode="numeric" maxlength="13" oninput="window.formatContactInput(this)" value="${staffMember.contact || ''}">
             </div>
-          </div>
           <div style="display:flex;justify-content:flex-end;margin-top:4px">
             <button class="btn-primary" onclick="window.saveUserProfile(this)">
               ${ic('check','icon-sm')} Save Changes
@@ -5936,6 +6751,9 @@ function pageStaffSettings() {
         </div>
       </div>
 
+      <!-- RIGHT: Email + Security, same layout as the patient Settings page -->
+      <div style="display:flex;flex-direction:column;gap:20px">
+      ${ownEmailCardHtml(staffMember.email)}
       <!-- RIGHT: Security -->
       <div class="card" style="padding:28px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
@@ -5944,6 +6762,7 @@ function pageStaffSettings() {
         </div>
         <div style="font-size:.82rem;color:#9CA3AF;margin-bottom:20px">Change your account password</div>
         <div style="display:flex;flex-direction:column;gap:14px">
+          <form onsubmit="return false" style="display:contents" autocomplete="off"><input type="text" name="username" autocomplete="username" value="${(window.state?.user?.email || '').replace(/"/g, '&quot;')}" tabindex="-1" aria-hidden="true" style="display:none">
           <div class="form-group">
             <label class="form-label">Current Password</label>
             ${pwField('st-curpw','Enter current password', `oninput="window.updateSettingsPwGate('st')"`)}
@@ -5958,6 +6777,7 @@ function pageStaffSettings() {
             ${pwField('st-confpw','Repeat new password', `oninput="window.updateSettingsPwGate('st')"`)}
             <div id="st-pw-err" class="field-error">Passwords do not match.</div>
           </div>
+          </form>
           <div style="display:flex;align-items:flex-start;gap:6px;font-size:.78rem;color:#9CA3AF">
             ${ic('info','icon-sm')} Can't reuse a previous password.
           </div>
@@ -5968,6 +6788,7 @@ function pageStaffSettings() {
             </button>
           </div>
         </div>
+      </div>
       </div>
 
     </div>
@@ -5990,9 +6811,9 @@ function renderRxDocumentCard(rx, patient, isFeatured) {
   const expiryDate = rx.expiryDate ? new Date(rx.expiryDate.includes('T') ? rx.expiryDate : rx.expiryDate+'T00:00:00')
                      : (() => { const d = new Date(rxDate); d.setFullYear(d.getFullYear()+1); return d })()
   const expiryStr  = expiryDate.toLocaleDateString('en-PH', {year:'numeric',month:'long',day:'numeric'})
-  const statusLabel = rx.status === 'superseded' ? 'Superseded' : (rx.status === 'expired' || expiryDate < new Date() ? 'Expired' : 'Valid')
-  const docInits   = (rx.doctor||'Dr').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
-  const docRecord  = doctors.find(d => d.name === rx.doctor)
+  const statusLabel = (rx.status === 'expired' || expiryDate < new Date()) ? 'Expired' : 'Valid'
+  const docInits   = (rx.doctor||'Dr').replace(/^Dr\.?\s+/i, '').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
+  const docRecord  = findDoctorByName(rx.doctor, rx.doctorId)
   const docPhoto   = docRecord?.photoUrl || null
   // Same contact-lens type list the exam wizard's own Correction Type
   // toggle uses (pageNewExamination(), this file) — duplicated locally
@@ -6019,8 +6840,8 @@ function renderRxDocumentCard(rx, patient, isFeatured) {
       <div class="rx-issuer-strip" style="background:#F9FAFB;border-bottom:1px solid #F3F4F6;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div style="display:flex;align-items:center;gap:10px">
           ${docPhoto
-            ? `<div style="width:34px;height:34px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${docPhoto}" alt="${rx.doctor}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block"></div>`
-            : `<div style="width:34px;height:34px;border-radius:50%;background:#1C1C1C;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:800;color:#E8760A;flex-shrink:0;letter-spacing:.02em">${docInits}</div>`
+            ? `<div style="width:34px;height:34px;border-radius:50%;overflow:hidden;flex-shrink:0;background:#E8760A;color:#fff;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700"><img src="${docPhoto}" alt="${rx.doctor}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="this.parentElement.textContent='${docInits}'"></div>`
+            : `<div style="width:34px;height:34px;border-radius:50%;background:#E8760A;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#fff;flex-shrink:0;letter-spacing:.02em">${docInits}</div>`
           }
           <div>
             <div style="font-size:.6rem;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em">Issued by</div>
@@ -6029,7 +6850,7 @@ function renderRxDocumentCard(rx, patient, isFeatured) {
         </div>
         <div class="rx-issuer-meta" style="text-align:right;flex-shrink:0">
           <div style="font-size:.72rem;color:#9CA3AF;margin-bottom:4px">${rxDateStr}</div>
-          <span style="font-size:.68rem;font-weight:700;padding:3px 10px;border-radius:20px;${statusLabel === 'Valid' ? 'background:#ECFDF5;color:#059669;border:1px solid #A7F3D0' : (statusLabel === 'Superseded' ? 'background:#F3F4F6;color:#6B7280;border:1px solid #E5E7EB' : 'background:#FEE2E2;color:#DC2626;border:1px solid #FECACA')}">
+          <span style="font-size:.68rem;font-weight:700;padding:3px 10px;border-radius:20px;${statusLabel === 'Valid' ? 'background:#ECFDF5;color:#059669;border:1px solid #A7F3D0' : 'background:#FEE2E2;color:#DC2626;border:1px solid #FECACA'}">
             ${statusLabel === 'Valid' ? ic('check-circle','icon-sm') + ' Valid until ' + expiryStr : ic('x-circle','icon-sm') + ' ' + statusLabel}
           </span>
         </div>
@@ -6165,18 +6986,15 @@ function pagePatientPrescriptions() {
     <div class="card" id="rx-hist-card">
       <div class="card-header">
         <div class="card-title">${sorted.length} Prescription${sorted.length !== 1 ? 's' : ''} on Record</div>
-        <div class="search-input-wrap">
-          ${ic('search','icon-sm')}
-          <input class="search-input" placeholder="Search doctor or lens type…" oninput="window._filterRxHistory(this.value)">
-        </div>
       </div>
+      <div class="rec-filter-row">${recFilterBar('rx-hist-card', { items: sorted, placeholder: 'Search Rx no., doctor or lens type…', statuses: RX_STATUS_OPTS })}</div>
       ${sorted.map((rx, i) => {
         const d = new Date(rx.date.includes('T') ? rx.date : rx.date + 'T00:00:00')
         const expiryDate = rx.expiryDate ? new Date(rx.expiryDate.includes('T') ? rx.expiryDate : rx.expiryDate+'T00:00:00')
           : (() => { const e = new Date(d); e.setFullYear(e.getFullYear()+1); return e })()
-        const isExpired = rx.status === 'expired' || (rx.status !== 'superseded' && expiryDate < new Date())
+        const isExpired = rx.status === 'expired' || expiryDate < new Date()
         return `
-      <div class="rx-hist-row hist-row${i===0 ? ' hist-row-featured' : ''}" data-search="${(rx.doctor||'').toLowerCase()} ${(rx.lensType||'').toLowerCase()} ${rx.id.toLowerCase()}">
+      <div class="rx-hist-row hist-row${i===0 ? ' hist-row-featured' : ''}" ${recRowAttrs({ search: `${rx.id} ${rx.doctor || ''} ${rx.lensType || ''}`, doctor: rx.doctor, date: rx.date, status: rxFilterStatus(rx), id: rx.id })}>
         <!-- Date block -->
         <div style="text-align:center;min-width:38px;flex-shrink:0">
           <div style="font-size:1.05rem;font-weight:800;color:#1C1C1C;line-height:1">${d.getDate()}</div>
@@ -6216,9 +7034,9 @@ function pagePatientPrescriptions() {
 function pagePatientNotifications() {
   const notifs = window._notifications || []
 
-  const typeIcon  = { approved:'check-circle', cancelled:'x-circle', disapproved:'x-circle', rescheduled:'calendar', new_appointment:'calendar', reschedule_request:'alert-circle', welcome:'home', reminder:'clock', waitlist_offer:'alert-circle', waitlist_removed:'x-circle', waitlist_join:'clock', waitlist_left:'x-circle', no_show:'alert-circle', record:'eye', prescription:'file-text', info:'info', appointment_confirmed:'check-circle', follow_up_needed:'calendar', new_login:'monitor', deletion_request:'user-x', deletion_reviewed:'check-circle' }
-  const typeColor = { approved:'#059669', cancelled:'#EF4444', disapproved:'#EF4444', rescheduled:'#3B82F6', new_appointment:'#E8760A', reschedule_request:'#D97706', welcome:'#E8760A', reminder:'#D97706', waitlist_offer:'#E8760A', waitlist_removed:'#EF4444', waitlist_join:'#E8760A', waitlist_left:'#6B7280', no_show:'#EF4444', record:'#E8760A', prescription:'#3B82F6', info:'#6B7280', appointment_confirmed:'#059669', follow_up_needed:'#E8760A', new_login:'#E8760A', deletion_request:'#EF4444', deletion_reviewed:'#059669' }
-  const typeBg    = { approved:'#ECFDF5', cancelled:'#FEF2F2', disapproved:'#FEF2F2', rescheduled:'#EFF6FF', new_appointment:'#FFF0DC', reschedule_request:'#FFF3CD', welcome:'#FFF0DC', reminder:'#FFF3CD', waitlist_offer:'#FFF0DC', waitlist_removed:'#FEF2F2', waitlist_join:'#FFF0DC', waitlist_left:'#F3F4F6', no_show:'#FEF2F2', record:'#FFF0DC', prescription:'#EFF6FF', info:'#F3F4F6', appointment_confirmed:'#ECFDF5', follow_up_needed:'#FFF0DC', new_login:'#FFF0DC', deletion_request:'#FEF2F2', deletion_reviewed:'#ECFDF5' }
+  const typeIcon  = { approved:'check-circle', cancelled:'x-circle', disapproved:'x-circle', rescheduled:'calendar', new_appointment:'calendar', reschedule_request:'alert-circle', welcome:'home', reminder:'clock', no_show:'alert-circle', record:'eye', prescription:'file-text', info:'info', appointment_confirmed:'check-circle', follow_up_needed:'calendar', new_login:'monitor', deletion_request:'user-x', deletion_reviewed:'check-circle', exam_draft:'file-text', exam_draft_expired:'alert-circle', reschedule_proposed:'refresh-cw', reschedule_accepted:'check-circle', reschedule_declined:'x-circle' }
+  const typeColor = { approved:'#059669', cancelled:'#EF4444', disapproved:'#EF4444', rescheduled:'#3B82F6', new_appointment:'#E8760A', reschedule_request:'#D97706', welcome:'#E8760A', reminder:'#D97706', no_show:'#EF4444', record:'#E8760A', prescription:'#3B82F6', info:'#6B7280', appointment_confirmed:'#059669', follow_up_needed:'#E8760A', new_login:'#E8760A', deletion_request:'#EF4444', deletion_reviewed:'#059669', exam_draft:'#D97706', exam_draft_expired:'#EF4444', reschedule_proposed:'#2563EB', reschedule_accepted:'#059669', reschedule_declined:'#EF4444' }
+  const typeBg    = { approved:'#ECFDF5', cancelled:'#FEF2F2', disapproved:'#FEF2F2', rescheduled:'#EFF6FF', new_appointment:'#FFF0DC', reschedule_request:'#FFF3CD', welcome:'#FFF0DC', reminder:'#FFF3CD', no_show:'#FEF2F2', record:'#FFF0DC', prescription:'#EFF6FF', info:'#F3F4F6', appointment_confirmed:'#ECFDF5', follow_up_needed:'#FFF0DC', new_login:'#FFF0DC', deletion_request:'#FEF2F2', deletion_reviewed:'#ECFDF5', exam_draft:'#FFF3CD', exam_draft_expired:'#FEF2F2', reschedule_proposed:'#EFF6FF', reschedule_accepted:'#ECFDF5', reschedule_declined:'#FEF2F2' }
   // 'welcome' precedent (info-typed but title-matched to a more specific
   // display type) reused here for notifications created before
   // 'deletion_reviewed' became its own type (api/patients/dismiss-
@@ -6393,9 +7211,8 @@ function pagePatientSettings() {
             <input type="text" class="form-input" placeholder="e.g. Teacher, Engineer, Student" value="${patient?.occupation || ''}" id="sett-occupation">
           </div>
           <div class="form-group">
-            <label class="form-label">Medical History <span style="font-size:.75rem;color:#9CA3AF;font-weight:400">(optional)</span></label>
-            <textarea class="form-textarea" rows="3" placeholder="Conditions, allergies, ongoing medications, past eye surgeries, etc." id="sett-medical-history">${esc(patient?.medicalHistory || '')}</textarea>
-            <p style="margin:6px 0 0;font-size:.72rem;color:#9CA3AF">Shared with your doctor during examinations.</p>
+            <label class="form-label">Medical History</label>
+            ${patientMedHistorySectionHtml(patient || user)}
           </div>
           <div class="form-row-2">
             <div class="form-group">
@@ -6413,7 +7230,7 @@ function pagePatientSettings() {
           <div class="form-row-2">
             <div class="form-group">
               <label class="form-label">Gender</label>
-              ${window.selectFieldHtml('sett-gender', { value: patient?.gender || '', options: ['Male','Female','Other'] })}
+              ${window.selectFieldHtml('sett-gender', { value: patient?.gender || '', options: ['Male','Female','Prefer not to say'] })}
             </div>
             <div class="form-group"></div>
           </div>
@@ -6464,6 +7281,7 @@ function pagePatientSettings() {
           </div>
           <div style="font-size:.82rem;color:#9CA3AF;margin-bottom:20px">Change your account password</div>
           <div style="display:flex;flex-direction:column;gap:14px">
+            <form onsubmit="return false" style="display:contents" autocomplete="off"><input type="text" name="username" autocomplete="username" value="${(window.state?.user?.email || '').replace(/"/g, '&quot;')}" tabindex="-1" aria-hidden="true" style="display:none">
             <div class="form-group">
               <label class="form-label">Current Password</label>
               ${pwField('sett-curpw','Enter current password', `oninput="window.updateSettingsPwGate('sett')"`)}
@@ -6478,6 +7296,7 @@ function pagePatientSettings() {
               ${pwField('sett-confpw','Repeat new password', `oninput="window.updateSettingsPwGate('sett')"`)}
               <div id="sett-pw-err" class="field-error">Passwords do not match.</div>
             </div>
+            </form>
             <div style="display:flex;align-items:flex-start;gap:6px;font-size:.78rem;color:#9CA3AF">
               ${ic('info','icon-sm')} Can't reuse a previous password.
             </div>
@@ -6545,7 +7364,7 @@ function pagePatientSettings() {
           Requesting deletion does not remove anything immediately, it notifies clinic staff, who will review it.
           Your account and records stay exactly as they are until staff acts on the request, and you can cancel it any time before then.
         </div>
-        <button class="btn-secondary" style="color:#DC2626;border-color:#FECACA" onmouseover="this.style.background='#FEF2F2'" onmouseout="this.style.background=''" onclick="window.openRequestDeletionModal()">
+        <button class="btn-secondary btn-danger-outline" onclick="window.openRequestDeletionModal()">
           ${ic('user-x','icon-sm')} Request Account Deletion
         </button>`}
       </div>
@@ -6569,7 +7388,7 @@ function pageActiveSessions() {
   <div class="page-header">
     <div class="page-header-left">
       <h1 class="page-title">Sessions &amp; Sign-in</h1>
-      <p class="page-subtitle">Devices currently signed in to your account. Changing your password signs the others out automatically.</p>
+      <p class="page-subtitle">Devices that have signed in to your account. Signed-out devices stay trusted, so they only need your password. Remove a device you don't recognize; it will need an email verification code to sign in again.</p>
     </div>
   </div>
   <div class="page-body">
@@ -6871,6 +7690,10 @@ function pagePatientDoctorAvail() {
       ? nextAvail.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
         + ' (' + weekdayNames[nextAvail.getDay()].slice(0,3) + ')'
       : '—'
+    // That day's actual first slot — the doctor's own hours for that weekday
+    // (per-day hours), not just the clinic's opening time.
+    const nextAvailIso   = nextAvail ? `${nextAvail.getFullYear()}-${String(nextAvail.getMonth()+1).padStart(2,'0')}-${String(nextAvail.getDate()).padStart(2,'0')}` : ''
+    const nextAvailStart = (nextAvailIso && window.doctorSessionsForDate?.(doctor, nextAvailIso)?.[0]?.[0]) || consultationSettings.morningStart
 
     return `
     <div id="pat-doc-panel-${doctor.id}" class="pat-doc-panel" style="display:none">
@@ -6948,7 +7771,7 @@ function pagePatientDoctorAvail() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" width="14" height="14" style="flex-shrink:0"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 <span style="font-size:.82rem;color:#166534;font-weight:600">${nextAvailStr}</span>
               </div>
-              <div style="font-size:.75rem;color:#6B7280;margin-top:4px">Starting ${consultationSettings.morningStart}</div>
+              <div style="font-size:.75rem;color:#6B7280;margin-top:4px">${nextAvail ? `Starting ${nextAvailStart}` : 'No upcoming days set'}</div>
             </div>
 
           </div>

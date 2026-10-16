@@ -46,90 +46,59 @@ try {
         "{$name} sent a message: \"{$excerpt}\""
     );
 
-    // Email notification to clinic — non-critical, never blocks the response
+    // Email alert — non-critical, never blocks the response. Goes to the
+    // clinic email AND each active admin/staff account's own email: when the
+    // clinic email is the same Gmail the system sends from, Gmail files the
+    // message under Sent / All Mail only, never the Inbox, so it looked like
+    // nothing arrived. Reply-To is the sender, so "Reply" answers them.
     try {
         $clinicRow  = $pdo->query('SELECT email FROM clinic_settings WHERE id = 1 LIMIT 1')->fetch();
-        $adminEmail = ($clinicRow['email'] ?? '') ?: SMTP_FROM;
-
-        sendEmail(
-            $adminEmail, 'Cana Optical Clinic',
-            "New Contact Message from {$name}",
-            _contactEmailBody($name, $email, $service, $message),
-            "From: {$name} <{$email}>\nService: " . ($service ?: 'Not specified') . "\n\n{$message}"
-        );
+        $recipients = [($clinicRow['email'] ?? '') ?: SMTP_FROM];
+        foreach ($pdo->query("SELECT email FROM users WHERE role IN ('admin','staff') AND is_active = 1 AND email <> ''")->fetchAll(PDO::FETCH_COLUMN) as $e) {
+            $recipients[] = $e;
+        }
+        // Each send takes a few seconds; more admin/staff accounts must not
+        // push the request past PHP's default 30s limit.
+        @set_time_limit(30 + 15 * count($recipients));
+        $seen = [];
+        foreach ($recipients as $to) {
+            $key = strtolower(trim($to));
+            if ($key === '' || isset($seen[$key]) || !filter_var($to, FILTER_VALIDATE_EMAIL)) continue;
+            $seen[$key] = true;
+            try {
+                sendEmailLater(
+                    $to, 'Cana Optical Clinic',
+                    "New Contact Message from {$name}",
+                    _contactEmailBody($name, $email, $service, $message),
+                    "From: {$name} <{$email}>\nService: " . ($service ?: 'Not specified') . "\n\n{$message}",
+                    $email
+                );
+            } catch (\Throwable $e) {
+                error_log("[contact/create] email to {$to} failed: " . $e->getMessage());
+            }
+        }
     } catch (\Throwable $e) {
-        // Non-critical — message is already saved to DB and in-app notification sent
+        // Message is already saved and the in-app notification sent.
+        error_log('[contact/create] email alert failed: ' . $e->getMessage());
     }
 
+    // Only answered once the emails have actually gone out, so "Sending…"
+    // on the form lasts as long as the real delivery does.
     jsonResponse(['success' => true, 'id' => $newId]);
 
 } catch (PDOException $e) {
     jsonResponse(['success' => false, 'message' => 'Database error. Please try again.'], 500);
 }
 
+// Same layout as every other system email (systemEmailBody(), config/smtp.php;
+// the patient's "Reply to Your Message" uses it too): orange header with a
+// "NEW CONTACT MESSAGE" label, sender details in the main box, and their
+// message in its own highlighted box below.
 function _contactEmailBody(string $name, string $email, string $service, string $message): string {
-    $safeName    = htmlspecialchars($name,                        ENT_QUOTES, 'UTF-8');
-    $safeEmail   = htmlspecialchars($email,                       ENT_QUOTES, 'UTF-8');
-    $safeService = htmlspecialchars($service ?: 'Not specified',  ENT_QUOTES, 'UTF-8');
-    $safeMessage = nl2br(htmlspecialchars($message,               ENT_QUOTES, 'UTF-8'));
-    $dateStr     = date('F j, Y · g:i A');
-
-    return <<<HTML
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>New Contact Message — Cana Optical Clinic</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,sans-serif">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px">
-    <tr><td align="center">
-      <table width="100%" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)">
-        <tr>
-          <td style="background:#E8760A;padding:28px 32px;text-align:center">
-            <div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.02em">&#128236; New Contact Message</div>
-            <div style="font-size:13px;color:rgba(255,255,255,.85);margin-top:4px">Cana Optical Clinic</div>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:28px 32px">
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td style="padding:10px 0;border-bottom:1px solid #f0f0f0">
-                  <div style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">From</div>
-                  <div style="font-size:15px;color:#111827;font-weight:500">{$safeName}</div>
-                </td>
-              </tr>
-              <tr>
-                <td style="padding:10px 0;border-bottom:1px solid #f0f0f0">
-                  <div style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Email</div>
-                  <div style="font-size:15px"><a href="mailto:{$safeEmail}" style="color:#F59E0B;text-decoration:none">{$safeEmail}</a></div>
-                </td>
-              </tr>
-              <tr>
-                <td style="padding:10px 0;border-bottom:1px solid #f0f0f0">
-                  <div style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Service</div>
-                  <div style="font-size:15px;color:#111827">{$safeService}</div>
-                </td>
-              </tr>
-              <tr>
-                <td style="padding:14px 0 0">
-                  <div style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Message</div>
-                  <div style="font-size:15px;color:#374151;line-height:1.7;background:#f9fafb;border-radius:8px;padding:16px 18px;border-left:3px solid #F59E0B">{$safeMessage}</div>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:14px 32px 24px;text-align:center;border-top:1px solid #f0f0f0">
-            <div style="font-size:12px;color:#9ca3af">Received {$dateStr}</div>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>
-HTML;
+    $details = "{$name} sent a new message through the Contact Us page. You can answer it from Contact Messages in the clinic system.\n\n"
+             . "Name: {$name}\n"
+             . "Email: {$email}\n"
+             . "Inquiry type: " . ($service ?: 'Not specified') . "\n"
+             . "Received: " . date('F j, Y \a\t g:i A');
+    return systemEmailBody('Clinic Team', 'New Contact Message', $details, '', '', '', 'Their Message', $message, 'neutral', '', 'New Contact Message');
 }

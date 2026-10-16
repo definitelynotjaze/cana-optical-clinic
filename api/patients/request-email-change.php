@@ -10,9 +10,11 @@
 //  of a bare email, and the code goes to the address being ADDED, not an
 //  existing one.
 //
-//  Patient-only for now — other roles still change email straight
-//  through their existing profile-save endpoints (see email_changes'
-//  table comment in database/schema.sql for the reasoning).
+//  Used by every role for their OWN email (patient Settings, and the
+//  admin/staff/doctor My Profile pages) — api/users/update_profile.php no
+//  longer changes email directly. Lives under api/patients/ only because
+//  it started as patient-only; email_changes is keyed by users.id, so it
+//  works the same for any account.
 //
 //  → { success:true, cooldownSeconds }
 //  → { success:false, cooldown:true, retryAfter } | { success:false, message }
@@ -28,7 +30,7 @@ startSession();
 if (!isset($_SESSION['user_id'])) {
     jsonResponse(['success' => false, 'message' => 'Not authenticated.'], 401);
 }
-if (($_SESSION['role'] ?? '') !== 'patient') {
+if (!in_array($_SESSION['role'] ?? '', ['patient', 'doctor', 'staff', 'admin'], true)) {
     jsonResponse(['success' => false, 'message' => 'Unauthorized.'], 403);
 }
 
@@ -192,7 +194,7 @@ function emailBody(string $otp, string $newEmail): string {
                   </svg>
                 </td>
                 <td style="font-size:13px;color:#6b7280;line-height:1.65;">
-                  If you did not request this change, please ignore this email — your account's email address will remain unchanged. Never share this code with anyone.
+                  If you did not request this change, please ignore this email. Your account's email address will remain unchanged. Never share this code with anyone.
                 </td>
               </tr>
             </table>

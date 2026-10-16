@@ -1,6 +1,8 @@
 /vendor/
 .claude/settings.local.json
 .env
+# Any renamed/backup copy of .env (e.g. .envqwer) holds the same secrets.
+.env*
 *.log
 .DS_Store
 Thumbs.db
@@ -14,3 +16,11 @@ node_modules/
 !/assets/uploads/
 !/assets/uploads/*/
 !/assets/uploads/*/.gitkeep
+
+# Automatic pre-restore safety backups (api/backup/import.php) — a
+# short-lived local safety net taken right before a Restore overwrites
+# the live database, not a real backup archive (those are downloaded by
+# the admin, never stored in the repo/container long-term).
+/storage/backups/**
+!/storage/backups/
+!/storage/backups/.gitkeep

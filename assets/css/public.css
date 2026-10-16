@@ -55,3 +55,89 @@ body { opacity: 0; animation: pageIn 0.2s ease forwards; }
   .footer-inner { padding: 36px 20px 28px; grid-template-columns: 1fr; gap: 28px; }
   .footer-bottom { padding: 16px 20px; }
 }
+
+/* ════════════════════════════════════════════════════════════════
+   UNIFIED BUTTON HOVER — same block at the end of global.css (app) and
+   public.css (website), so every button behaves the same everywhere:
+   • lifts 1px on hover (subtle), settles back on press
+   • solid (filled) buttons fade slightly lighter (opacity), never darker
+   The lift uses the standalone `translate` property rather than
+   `transform`, so it stacks with any button's own transform (press
+   scale, centering) instead of replacing it. Selectors are wrapped in
+   :where() (zero specificity) so each button's own colors still apply;
+   the transition is !important only so inline-styled buttons built in
+   JS get the same smooth motion.
+   Excluded: things that are buttons in markup but not "buttons" to the
+   eye — tabs, select triggers, cards, password eyes, video/carousel/
+   photo-viewer controls, menu toggles and plain text links.
+════════════════════════════════════════════════════════════════ */
+:where(button, .btn-primary, .btn-secondary, .btn-ghost, .btn-danger, .btn-success, .btn-warning, .btn-disapprove, .btn-icon, .btn-solid, .btn-outline, .nav-book, .cta-btn, .about-cta-btn, .btn-submit, .footer-booknow, .auth-back-link):not(
+  .ac-btn, .ac-dot, .ac-lb-btn, .vid-btn, .vid-center-btn, .vid-skip, .vid-speed-opt,
+  .navbar-toggler, .nav-toggle, .topbar-toggle,
+  .lf-pw-eye, .fp-pw-eye, .dob-picker-select, .dob-picker-icon-btn,
+  .reg-input, .form-input, .cust-select-trigger, .pub-select-trigger,
+  .filter-tab, .sched-tab, .ptab-btn, .pat-doc-tab, [role="tab"], [role="option"],
+  .pref-card, .doctor-sel-card, .doc-card, .appt-type-card, .pick-person-row,
+  .nav-profile-btn, .nav-profile-dropdown-item, .nav-profile-logout,
+  .fp-back-link, .fp-resend-link, .notify-mark-read, .gal-del-btn,
+  [onclick*="togglePwVisibility"], [onclick*="togglePw"]
+) {
+  transition:
+    translate .2s ease,
+    filter .2s ease, opacity .2s ease, box-shadow .2s ease,
+    background-color .2s ease, border-color .2s ease, color .2s ease,
+    transform .15s ease !important;
+}
+@media (hover: hover) {
+:where(button, .btn-primary, .btn-secondary, .btn-ghost, .btn-danger, .btn-success, .btn-warning, .btn-disapprove, .btn-icon, .btn-solid, .btn-outline, .nav-book, .cta-btn, .about-cta-btn, .btn-submit, .footer-booknow, .auth-back-link):not(
+  .ac-btn, .ac-dot, .ac-lb-btn, .vid-btn, .vid-center-btn, .vid-skip, .vid-speed-opt,
+  .navbar-toggler, .nav-toggle, .topbar-toggle,
+  .lf-pw-eye, .fp-pw-eye, .dob-picker-select, .dob-picker-icon-btn,
+  .reg-input, .form-input, .cust-select-trigger, .pub-select-trigger,
+  .filter-tab, .sched-tab, .ptab-btn, .pat-doc-tab, [role="tab"], [role="option"],
+  .pref-card, .doctor-sel-card, .doc-card, .appt-type-card, .pick-person-row,
+  .nav-profile-btn, .nav-profile-dropdown-item, .nav-profile-logout,
+  .fp-back-link, .fp-resend-link, .notify-mark-read, .gal-del-btn,
+  [onclick*="togglePwVisibility"], [onclick*="togglePw"]
+):hover:not(:disabled, [aria-disabled="true"]) {
+  translate: 0 -1px;
+}
+}
+:where(button, .btn-primary, .btn-secondary, .btn-ghost, .btn-danger, .btn-success, .btn-warning, .btn-disapprove, .btn-icon, .btn-solid, .btn-outline, .nav-book, .cta-btn, .about-cta-btn, .btn-submit, .footer-booknow, .auth-back-link):active:not(:disabled) {
+  translate: 0 0;
+}
+/* Solid buttons: a soft fade toward white on hover — never darker, never brighter/more saturated. */
+@media (hover: hover) {
+:where(.btn-primary, .btn-danger, .lf-btn, .fp-btn-primary, .reg-next-btn,
+       .btn-solid, .nav-book, .cta-btn, .btn-submit):hover:not(:disabled, [aria-disabled="true"]) {
+  opacity: .88;
+}
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(button, .btn-primary, .btn-secondary, .btn-ghost, .btn-danger, .btn-success, .btn-warning, .btn-disapprove, .btn-icon, .btn-solid, .btn-outline, .nav-book, .cta-btn, .about-cta-btn, .btn-submit, .footer-booknow, .auth-back-link):hover {
+    translate: none;
+  }
+}
+
+/* Website solid buttons — same look as the app's Sign In button (12px
+   corners, soft orange shadow on hover). On hover the orange is mixed
+   toward WHITE rather than faded with opacity: several of these sit on
+   the dark hero photo, where an opacity fade lets the dark image show
+   through and reads as darker/muddy. :is() + :not() keeps these above
+   each page's own .x:hover rules, which load after this file. */
+:is(.btn-solid, .cta-btn, .btn-submit, .nav-book):hover:not(:disabled, [aria-disabled="true"]) {
+  opacity: 1;
+  background-color: color-mix(in srgb, var(--orange) 82%, #fff);
+  box-shadow: 0 3px 10px rgba(232,137,28,.3);
+}
+
+/* The floating back-to-top button (public-nav.js) fades away while a
+   full-screen layer is open — the mobile menu drawer or the home page's
+   photo viewer — instead of floating on top of it. !important beats the
+   inline opacity/transform its scroll handler sets. */
+.nav-drawer-open .scroll-top-btn,
+.ac-viewer-open .scroll-top-btn {
+  opacity: 0 !important;
+  transform: translateY(12px) !important;
+  pointer-events: none !important;
+}

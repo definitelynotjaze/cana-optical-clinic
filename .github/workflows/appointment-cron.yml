@@ -1,0 +1,50 @@
+name: Appointment cron
+
+# api/cron/appointment_reminders.php (this repo) does all the real work —
+# day-before reminders (plus a second one if still unconfirmed) and
+# auto-declining pending requests whose date has passed. That endpoint was built ready to be triggered externally (see
+# its own header comment) but nothing was ever actually calling it — this
+# workflow is that missing trigger, since the app itself has no in-process
+# job runner and this repo already lives on GitHub.
+#
+# Every 5 minutes matches the granularity the endpoint's own time-window
+# checks (CURTIME() >= configured reminder time, etc.) are written to tolerate —
+# GitHub's own scheduler is best-effort and can run a few minutes late
+# under load, which this design already accounts for.
+#
+# Requires one repo secret: CRON_SECRET, set to the SAME value as the
+# CRON_SECRET environment variable on the Railway service — Settings →
+# Secrets and variables → Actions → New repository secret, in this repo
+# on GitHub. If CRON_SECRET was never actually set on Railway, the
+# endpoint currently falls back to a hardcoded local-dev key
+# ('cana-local-dev-cron-key', config/db.php's neighbor api/cron/
+# appointment_reminders.php) — that fallback is fine for XAMPP, but MUST
+# be overridden with a real random secret on Railway before this workflow
+# (or anyone else who finds the URL) can be trusted to call it.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {} # lets you trigger a run manually from the Actions tab, for testing
+
+jobs:
+  run-cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit the appointment cron endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set — see this workflow file's own header comment."
+            exit 1
+          fi
+          http_status=$(curl -s -o response.json -w "%{http_code}" \
+            "https://canaopticalclinic2.up.railway.app/api/cron/appointment_reminders.php?key=$CRON_SECRET")
+          echo "HTTP status: $http_status"
+          cat response.json
+          echo ""
+          if [ "$http_status" -ne 200 ]; then
+            echo "::error::Cron endpoint returned HTTP $http_status"
+            exit 1
+          fi

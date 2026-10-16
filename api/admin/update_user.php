@@ -89,7 +89,7 @@ try {
     if ($role === 'Doctor') {
         $sets = [];
         $vals = [];
-        if ($specialization !== '') { $sets[] = "specialization = COALESCE(NULLIF(?, ''), specialization)"; $vals[] = $specialization; }
+        if ($specialization !== '') { $sets[] = 'specialization = ?'; $vals[] = $specialization; }
         if ($prcLicense     !== '') { $sets[] = 'prc_license = ?';  $vals[] = $prcLicense; }
         if ($degree         !== '') { $sets[] = 'degree = ?';       $vals[] = $degree; }
         // Secondary credential is genuinely optional and paired (only prints
@@ -144,8 +144,15 @@ try {
         $pdo->prepare('UPDATE users SET email = ? WHERE id = ?')->execute([$email, $userId]);
     }
 
+    // Editing a patient account renames them on their existing appointments too.
+    if ($role === 'Patient') syncPatientNameEverywhere($pdo, (string)$profileId);
+
     jsonResponse(['success' => true, 'swappedWith' => $swappedWith]);
 
-} catch (PDOException $e) {
-    jsonResponse(['success' => false, 'message' => 'Database error. Please try again.'], 500);
+} catch (Throwable $e) {
+    // Admin-only endpoint, so the real cause is safe to show — it's what
+    // tells a schema/data mismatch on the live database apart from a bug
+    // (the generic "Database error" alone gave nothing to go on).
+    error_log('[update_user] ' . $e->getMessage());
+    jsonResponse(['success' => false, 'message' => 'Could not save changes: ' . $e->getMessage()], 500);
 }

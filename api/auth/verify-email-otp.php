@@ -2,9 +2,11 @@
 // ================================================================
 //  CANAOPTICALCLINIC — api/auth/verify-email-otp.php
 //  POST { email, otp }
-//  Reads from pending_registrations. On correct OTP, creates the
-//  real users + patients rows, deletes the pending record, starts
-//  the session, and returns the full user object.
+//  Reads from pending_registrations. On correct OTP, creates the real
+//  users + patients rows (linking back to the pending record via
+//  users.pending_registration_id, kept rather than deleted — see that
+//  INSERT's own comment), starts the session, and returns the full
+//  user object.
 //  → { success:true, role, user }
 //  → { success:false, attemptsLeft?, locked?, message }
 // ================================================================
@@ -103,10 +105,23 @@ try {
 
     $qr = 'CANA-' . $pid . '-' . strtoupper($first . $last);
 
+    // The pending_registrations row is deliberately NOT deleted below
+    // anymore — pending_registration_id is ON DELETE SET NULL, so
+    // deleting it here would immediately null this same INSERT's FK back
+    // out before this transaction even commits. Kept instead, so a
+    // user's account stays traceable back to its original signup
+    // (demographics + OTP verification history) — register.php's own
+    // stale-pending cleanup now explicitly skips any row a users row
+    // still references (see its own comment), and archive/delete.php
+    // deletes this row too once (and only once) the account it belongs
+    // to is actually permanently deleted, so this never outlives the
+    // account it's attached to.
+    $pendingId = $row['id'];
+
     $pdo->beginTransaction();
 
-    $pdo->prepare('INSERT INTO users (email, password_hash, role, email_verified) VALUES (?,?,?,1)')
-        ->execute([$email, $hash, 'patient']);
+    $pdo->prepare('INSERT INTO users (pending_registration_id, email, password_hash, role, email_verified) VALUES (?,?,?,?,1)')
+        ->execute([$pendingId, $email, $hash, 'patient']);
     $uid = (int)$pdo->lastInsertId();
 
     $pdo->prepare(
@@ -120,9 +135,10 @@ try {
         $contact, $address, '',
         $qr, $today, 'active',
     ]);
-
-    // Remove the pending record — real account now exists
-    $pdo->prepare('DELETE FROM pending_registrations WHERE email = ?')->execute([$email]);
+    // Registered themselves on the website.
+    if (patientSourceColumns($pdo)) {
+        $pdo->prepare("UPDATE patients SET source = 'online' WHERE id = ?")->execute([$pid]);
+    }
 
     $pdo->commit();
 
@@ -137,7 +153,7 @@ try {
     // No temp password here — self-registration means they already chose
     // their own password.
     try {
-        sendEmail(
+        sendEmailLater(
             $email, "$first $last",
             'Welcome to Cana Optical Clinic',
             welcomeEmailBody("$first $last", 'patient', $email),

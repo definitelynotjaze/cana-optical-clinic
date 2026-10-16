@@ -80,6 +80,8 @@ try {
         }
     } catch (PDOException) { /* columns not yet migrated — skip */ }
 
+    $dayHoursMap = doctorDayHoursMap($pdo);
+
     // Blocked dates — one-off unavailability, separate from the weekly pattern.
     // Only future/today dates are useful to the frontend calendars.
     $blockedMap = [];
@@ -108,6 +110,9 @@ try {
         'workHours'      => $r['work_hours'] ?: '',
         'hours'          => $r['work_hours'] ?: '',
         'days'           => $r['days'] ? explode(',', $r['days']) : [],
+        // Per-day hours (null day = clinic hours); `hours` above is now
+        // just a display summary of these.
+        'dayHours'       => (object)($dayHoursMap[$r['id']] ?? []),
         'availableDays'  => $r['days'] ? explode(',', $r['days']) : [],
         'available'      => (bool)$r['available'],
         'status'         => $r['status'],

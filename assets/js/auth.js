@@ -162,6 +162,24 @@ async function handleLogin() {
         if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; btn.style.opacity = '1' }
         return
       }
+      // Password was correct, but login.php doesn't recognize this
+      // device — it emailed an OTP instead of completing the login. Same
+      // verify-screen the registration flow uses, in its device-login
+      // mode (see showEmailVerify()'s own doc comment).
+      if (data.requiresDeviceVerification) {
+        // Carry the Remember-me choice across the OTP step — the login
+        // only actually completes in evSubmitOTP(), which applies this.
+        _pendingDeviceRemember = { email, remember }
+        showEmailVerify(data.email, false, true)
+        // Sync both timers to the server: a code was just emailed, so
+        // Resend starts on its 60s cooldown (it used to be clickable
+        // immediately, only to be refused), and a reopened still-valid
+        // code keeps its real remaining expiry instead of a fresh 5:00.
+        if (data.expiresIn) _evStartTimer(data.expiresIn)
+        _evStartResendCooldown(data.retryAfter || data.cooldownSeconds || 60)
+        if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; btn.style.opacity = '1' }
+        return
+      }
       _showLoginError(data.message || 'The email or password you entered is incorrect. Please try again.')
       _shakeCard()
       document.getElementById('login-password').value = ''
@@ -171,10 +189,7 @@ async function handleLogin() {
 
     // Remember (or forget) the email for next time, based on the checkbox —
     // separate from the session-length extension login.php already applies.
-    try {
-      if (remember) localStorage.setItem('canaopticalclinic_remembered_email', email)
-      else localStorage.removeItem('canaopticalclinic_remembered_email')
-    } catch (_) { /* localStorage unavailable (private mode, etc.) — non-critical */ }
+    _applyRememberedEmail(email, remember)
 
     _bootAfterAuth(data.role, data.user)
   } catch (_) {
@@ -252,6 +267,7 @@ async function logout(reason) {
   _prefillRememberedEmail()
   if (reason) _showLoginError(reason)
 }
+window.logout = logout
 
 // ── Register ─────────────────────────────────────────────────────
 async function handleRegister() {
@@ -296,8 +312,12 @@ async function handleRegister() {
     errEl.style.display = 'flex'; return
   }
 
+  // _btnBusy/_btnIdle (main.js) — same real animated-spinner + disabled
+  // convention used for every other submit button in the app, instead of
+  // this one's previous plain disabled+textContent swap (no spinner at
+  // all, and no protection against a fast double-tap firing this twice).
   const regBtn = document.getElementById('reg-submit-btn')
-  if (regBtn) { regBtn.disabled = true; regBtn.textContent = 'Creating account…' }
+  if (window._btnBusy(regBtn, 'primary', 'Creating account…')) return
 
   try {
     const res  = await fetch('api/auth/register.php', {
@@ -318,7 +338,7 @@ async function handleRegister() {
     errMsg.textContent  = 'Network error. Please check your connection and try again.'
     errEl.style.display = 'flex'
   } finally {
-    if (regBtn) { regBtn.disabled = false; regBtn.textContent = 'Create Account' }
+    window._btnIdle(regBtn)
   }
 }
 
@@ -335,16 +355,22 @@ const DEFAULT_TERMS_MD = `## 1. Acceptance of Terms
 By creating a patient account with Cana Optical Clinic ("the Clinic"), you agree to be bound by these Terms & Conditions. If you do not agree, please do not proceed with registration.
 
 ## 2. Account Registration
-You must provide accurate, current, and complete information during registration. You are responsible for keeping your password confidential and for all activity under your account. Notify the Clinic immediately if you suspect unauthorized use.
+You must provide accurate, current, and complete information during registration.
+
+> You are responsible for keeping your password confidential and for all activity under your account.
+
+Notify the Clinic immediately if you suspect unauthorized use.
 
 ## 3. Your Patient QR Code
-Upon registration, a unique QR code is generated and linked to your patient record. Present this QR code at the clinic for fast, accurate check-in. Do not share it with anyone else — it provides access to your health information.
+Upon registration, a unique QR code is generated and linked to your patient record. Present this QR code at the clinic for fast, accurate check-in.
+
+> Do not share your QR code with anyone else, since it provides access to your health information.
 
 ## 4. Appointments
-Appointment requests submitted through this system are subject to confirmation by clinic staff based on doctor availability. The Clinic reserves the right to reschedule or decline requests when necessary.
+Appointment requests submitted through this system are subject to review and approval by clinic staff. The Clinic reserves the right to reschedule or decline requests when necessary.
 
 ## 5. Use of the Platform
-You agree to use this system only for legitimate healthcare purposes related to your own care. Misuse — including attempting to access another patient's records or interfering with the system's normal operation — may result in account suspension.
+You agree to use this system only for legitimate healthcare purposes related to your own care. Misuse, including attempting to access another patient's records or interfering with the system's normal operation, may result in account suspension.
 
 ## 6. Changes to these Terms
 The Clinic may update these Terms & Conditions from time to time. Continued use of your account after changes are posted constitutes acceptance of the revised terms.
@@ -371,7 +397,9 @@ The Clinic collects the personal and sensitive personal information you provide 
 Your data is stored on secured servers with access restricted to authorized clinic personnel (admin, staff, and your attending doctor) who need it to perform their duties. We apply reasonable organizational, physical, and technical safeguards to protect your information against unauthorized access, alteration, disclosure, or destruction.
 
 ## 4. Data Sharing
-The Clinic does not sell or rent your personal information. Your data may only be shared with third parties when required by law, when necessary to provide your care (e.g. referrals), or with your explicit consent.
+> The Clinic does not sell or rent your personal information.
+
+Your data may only be shared with third parties when required by law, when necessary to provide your care (e.g. referrals), or with your explicit consent.
 
 ## 5. Data Retention
 Your personal and health records are retained for as long as your account is active, and for the period required by applicable healthcare record-keeping regulations afterward, after which they are securely disposed of.
@@ -385,10 +413,14 @@ Under the Data Privacy Act, you have the right to:
 - Request deletion of your data, where applicable
 - File a complaint with the National Privacy Commission (NPC)
 
-To exercise any of these rights, please contact the clinic directly using the contact details on our website.
+Account deletion is handled by request instead of happening instantly. You can send a request from Settings > My Profile, and clinic staff will review it. This is because your examination, diagnosis, and prescription records are health records the Clinic must keep for the period required by healthcare record-keeping regulations, and the review confirms that the request really comes from you. Your account stays as it is until staff act on the request, and you can cancel it any time before then. Once it is processed, your account is closed and your records are kept only for the required period, then securely disposed of.
+
+> To exercise any of these rights, please contact the clinic directly using the contact details on our website.
 
 ## 7. Consent and Changes to this Notice
-By checking "I agree" and completing registration, you acknowledge that you have read and understood this notice, and you consent to the collection, use, storage, and processing of your personal and sensitive personal information as described above, for the purpose of receiving care from Cana Optical Clinic — and you are entrusting your credentials and personal information to the Clinic on that basis. The Clinic may update this notice from time to time; continued use of your account after changes are posted constitutes acceptance of the revised notice.
+> By checking "I agree" and completing registration, you acknowledge that you have read and understood this notice, and you consent to the collection, use, storage, and processing of your personal and sensitive personal information as described above, for the purpose of receiving care from Cana Optical Clinic, and you are entrusting your credentials and personal information to the Clinic on that basis.
+
+The Clinic may update this notice from time to time; continued use of your account after changes are posted constitutes acceptance of the revised notice.
 `
 
 function openTermsModal() {
@@ -788,6 +820,18 @@ async function restoreSession() {
 // saved — called on page load alongside restoreSession(). Independent of
 // the session itself, since a remembered email is still useful after the
 // session (even a 30-day one) has expired and the user has to sign in again.
+// Saves (or clears) the remembered login email. Called on a normal login,
+// and after a new-device OTP succeeds — that login finishes in
+// evSubmitOTP(), not handleLogin(), so it needs the choice carried over
+// (_pendingDeviceRemember) to take effect right away.
+let _pendingDeviceRemember = null
+function _applyRememberedEmail(email, remember) {
+  try {
+    if (remember && email) localStorage.setItem('canaopticalclinic_remembered_email', email)
+    else localStorage.removeItem('canaopticalclinic_remembered_email')
+  } catch (_) { /* localStorage unavailable (private mode, etc.) — non-critical */ }
+}
+
 function _prefillRememberedEmail() {
   try {
     const saved = localStorage.getItem('canaopticalclinic_remembered_email')
@@ -832,6 +876,19 @@ function showRegister() {
   document.getElementById('register-screen').style.display = 'flex'
   ;['reg-first','reg-last','reg-address','reg-contact','reg-email','reg-password','reg-confirm']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = '' })
+  // register-screen is a persistent DOM node (shown/hidden via display,
+  // never rebuilt), so clearing the value above alone leaves every other
+  // bit of visual state from a previous attempt exactly as it was —
+  // .value = '' doesn't fire an input event, so the password checklist
+  // (updatePwChecklist, wired to oninput) keeps showing whatever was
+  // last checked off instead of resetting to unchecked. Same for a
+  // "Show password" toggle left on: the field's actual value is gone,
+  // but it'd still render as type="text" with the open-eye icon.
+  if (window.updatePwChecklist) window.updatePwChecklist('reg-password', '')
+  ;[['reg-password', 'reg-pw-eye1'], ['reg-confirm', 'reg-pw-eye2']].forEach(([inputId, iconId]) => {
+    const inp = document.getElementById(inputId)
+    if (inp && inp.type === 'text' && window.toggleRegPw) window.toggleRegPw(inputId, iconId)
+  })
   // reg-dob is the custom picker (see main.js) — reset its display, not just
   // the underlying hidden input, and recompute the 13+ cutoff each time the
   // form opens rather than once at page load.
@@ -1288,6 +1345,9 @@ async function fpResendOTP() {
 function fpStartTimer() {
   clearInterval(window._fpTimerInterval)
   window._fpTimeLeft = 300
+  // Real-clock deadline, not a per-tick counter — see _evStartTimer() for
+  // why (background tabs slow timers down, so a counter falls behind).
+  const deadline = Date.now() + 300 * 1000
 
   // Rebuild the timer markup every time this runs. A previous expiry (this
   // email or an earlier one) replaces #fp-otp-timer's innerHTML with "Code
@@ -1304,18 +1364,33 @@ function fpStartTimer() {
     const display = document.getElementById('fp-timer-display')
     const timerEl = document.getElementById('fp-otp-timer')
     if (!display) { clearInterval(window._fpTimerInterval); return }
-    const m = Math.floor(window._fpTimeLeft / 60), s = window._fpTimeLeft % 60
-    display.textContent = m + ':' + String(s).padStart(2, '0')
+    window._fpTimeLeft = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
     if (window._fpTimeLeft <= 0) {
       clearInterval(window._fpTimerInterval)
       timerEl.classList.add('expired')
       timerEl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Code expired'
+      return
     }
-    window._fpTimeLeft--
+    const m = Math.floor(window._fpTimeLeft / 60), s = window._fpTimeLeft % 60
+    display.textContent = m + ':' + String(s).padStart(2, '0')
   }
   tick()
   window._fpTimerInterval = setInterval(tick, 1000)
+  window._fpTimerTick = tick   // re-run instantly when the tab is shown again
 }
+
+// Browsers slow/pause timers in a hidden tab, so a countdown can't tick
+// there — but since both expiry timers count to a real-clock deadline,
+// one tick the moment the tab is visible again (or the window regains
+// focus) shows the true time left right away instead of after the next
+// throttled tick.
+function _refreshOtpTimersNow() {
+  if (document.hidden) return
+  if (window._evTimerInterval || _evTimerInterval) { try { window._evTimerTick && window._evTimerTick() } catch (_) {} }
+  if (window._fpTimerInterval) { try { window._fpTimerTick && window._fpTimerTick() } catch (_) {} }
+}
+document.addEventListener('visibilitychange', _refreshOtpTimersNow)
+window.addEventListener('focus', _refreshOtpTimersNow)
 
 // Keeps step 1's Submit button + live countdown in sync with the cooldown
 // for whatever email is currently typed in the field — NOT a global switch,
@@ -1397,8 +1472,16 @@ let _evBusy = false
 // reopened for something else. Not bumped when it's a reopen for the exact
 // same email with a verify still running — see the sameOngoing check below.
 let _evFlowId = 0
+// Which backend this same verify-screen actually talks to — three modes
+// now share it: a brand-new registration's own OTP (verify-email-otp.php/
+// send-email-verification.php), login.php's old dead "needsVerification"
+// branch (never actually set by the backend, kept only so that call site
+// doesn't need touching), and login.php's device-verification gate
+// (verify-login-device.php/resend-login-device-otp.php) — see
+// isDeviceLogin below.
+let _evIsDeviceLogin = false
 
-function showEmailVerify(email, fromRegistration = false) {
+function showEmailVerify(email, fromRegistration = false, isDeviceLogin = false) {
   // A verify already running for this *same* email keeps going naturally
   // instead of being reset/discarded — same reasoning as forgot-password's
   // step 1 (see showForgotPassword()). But if this is for a *different*
@@ -1406,8 +1489,9 @@ function showEmailVerify(email, fromRegistration = false) {
   // login elsewhere), the old one must not be allowed to resolve into a
   // login/boot for the wrong account, so that case still gets a full reset.
   const sameOngoing = _evBusy && _evEmail === email
-  _evEmail   = email
-  _evFromReg = fromRegistration
+  _evEmail        = email
+  _evFromReg      = fromRegistration
+  _evIsDeviceLogin = isDeviceLogin
 
   _syncAuthBranding()
   document.getElementById('login-screen').style.display    = 'none'
@@ -1422,10 +1506,32 @@ function showEmailVerify(email, fromRegistration = false) {
   evCancelEditEmail()
 
   // Editing only makes sense for a pending registration (there's a row in
-  // pending_registrations to update) — the login "needsVerification" path
-  // isn't backed by one, so hide the trigger there.
+  // pending_registrations to update) — neither the dead login
+  // "needsVerification" path nor device-login (backed by
+  // login_device_otps, keyed off an existing account's email — not
+  // something this screen is meant to let someone redirect elsewhere)
+  // has one, so hide the trigger for both.
   const editRow = document.getElementById('ev-edit-email-trigger-row')
   if (editRow) editRow.style.display = fromRegistration ? '' : 'none'
+
+  const otpTitle   = document.querySelector('#ev-header-otp .fp-title')
+  const otpDesc    = document.querySelector('#ev-header-otp .fp-desc')
+  const submitBtn  = document.getElementById('ev-submit-btn')
+  const step3Title = document.getElementById('ev-3-title')
+  const step3Desc  = document.getElementById('ev-3-desc')
+  if (isDeviceLogin) {
+    if (otpTitle) otpTitle.textContent = 'Verify This Device'
+    if (otpDesc)  otpDesc.innerHTML    = `We don't recognize this device. Enter the 6-digit code we sent to <strong id="ev-email-display">${esc(email)}</strong> to continue signing in.`
+    if (submitBtn) submitBtn.textContent = 'Verify & Sign In'
+    if (step3Title) step3Title.textContent = 'Device Verified!'
+    if (step3Desc)  step3Desc.textContent  = 'Signing you in…'
+  } else {
+    if (otpTitle) otpTitle.textContent = 'Verify Your Email'
+    if (otpDesc)  otpDesc.innerHTML    = `We've sent a 6-digit code to <strong id="ev-email-display">${esc(email)}</strong>. Enter it below to activate your account.`
+    if (submitBtn) submitBtn.textContent = 'Verify & Activate Account'
+    if (step3Title) step3Title.textContent = 'Email Verified!'
+    if (step3Desc)  step3Desc.textContent  = 'Your account is now active. Welcome to Cana Optical Clinic!'
+  }
 
   if (sameOngoing) return // leave OTP boxes, error, button, and timer exactly as they are
 
@@ -1471,26 +1577,48 @@ function evShowStep(n) {
 window.evShowStep = evShowStep
 
 function _evStartTimer(seconds) {
-  _evStopTimer()
-  let remaining = seconds
-  const display  = document.getElementById('ev-timer-display')
-  const timerEl  = document.getElementById('ev-timer')
+  // Only the expiry countdown — NOT _evStopTimer(), which also kills the
+  // resend cooldown. A resend starts its cooldown and then this, so
+  // stopping both here froze the cooldown label on its first frame
+  // ("Resend in 0:60") with the button stuck disabled.
+  if (_evTimerInterval) { clearInterval(_evTimerInterval); _evTimerInterval = null }
+  // Counts down to a fixed deadline on the real clock instead of
+  // decrementing once per tick — browsers slow/pause timers in a tab the
+  // user isn't looking at (e.g. while they switch to their inbox to get
+  // the code), which made a tick counter fall behind and still show time
+  // left after the server's 5 minutes were really up.
+  const deadline = Date.now() + seconds * 1000
+  const timerEl = document.getElementById('ev-timer')
+  const clockSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
+
+  // Same pattern as the Forgot Password timer (fpStartTimer above): on
+  // expiry the WHOLE pill reads "Code expired" — swapping only the
+  // countdown span left "Expires in Expired" — so each new code rebuilds
+  // the "Expires in m:ss" markup here before counting down again.
+  if (timerEl) {
+    timerEl.classList.remove('expired')
+    timerEl.innerHTML = clockSvg + ' Expires in <span id="ev-timer-display">5:00</span>'
+  }
+  const display = document.getElementById('ev-timer-display')
 
   function tick() {
     if (!display || !display.isConnected) { _evStopTimer(); return }
+    const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+    if (remaining <= 0) {
+      _evStopTimer()
+      if (timerEl) {
+        timerEl.classList.add('expired')
+        timerEl.innerHTML = clockSvg + ' Code expired'
+      }
+      return
+    }
     const m = Math.floor(remaining / 60)
     const s = remaining % 60
     display.textContent = m + ':' + String(s).padStart(2, '0')
-    if (remaining <= 0) {
-      _evStopTimer()
-      if (timerEl) timerEl.classList.add('expired')
-      display.textContent = 'Expired'
-      return
-    }
-    remaining--
   }
   tick()
   _evTimerInterval = setInterval(tick, 1000)
+  window._evTimerTick = tick   // re-run instantly when the tab is shown again
 }
 
 function _evStopTimer() {
@@ -1500,22 +1628,38 @@ function _evStopTimer() {
   _evResendCooldownLeft = 0
 }
 
-function _evStartResendCooldown() {
-  const btn = document.getElementById('ev-resend-btn')
-  if (!btn) return
+// Drives both possible resend buttons at once — the small link on the
+// normal entry screen (#ev-resend-btn) and the full-width one on the
+// locked screen (#ev-2-resend). Only one is ever visible at a time, but
+// keeping both in sync means the cooldown survives switching between
+// those two screens instead of resetting/losing its display. `seconds`
+// lets a server-reported cooldown (data.retryAfter — its clock, not the
+// client's) override the optimistic 60s default, same as forgot-password's
+// own resend cooldown does.
+function _evStartResendCooldown(seconds = 60) {
+  const btns = [document.getElementById('ev-resend-btn'), document.getElementById('ev-2-resend')].filter(Boolean)
+  if (!btns.length) return
   clearInterval(_evResendCooldownInterval)
-  _evResendCooldownLeft = 60
-  btn.disabled = true
+  _evResendCooldownLeft = seconds
+  const cooldownEnd = Date.now() + seconds * 1000   // real-clock deadline (see _evStartTimer)
+  // Each button keeps its own resting label ("Resend Code" vs "Request New
+  // Code") — captured once, per element, so restoring it later never mixes
+  // the two up.
+  btns.forEach(btn => {
+    if (!btn.dataset.restLabel) btn.dataset.restLabel = btn.textContent
+    btn.disabled = true
+  })
   function tick() {
-    if (!btn.isConnected) { clearInterval(_evResendCooldownInterval); _evResendCooldownLeft = 0; return }
+    const connected = btns.filter(btn => btn.isConnected)
+    if (!connected.length) { clearInterval(_evResendCooldownInterval); _evResendCooldownLeft = 0; return }
+    _evResendCooldownLeft = Math.max(0, Math.ceil((cooldownEnd - Date.now()) / 1000))
     if (_evResendCooldownLeft <= 0) {
       clearInterval(_evResendCooldownInterval)
-      btn.disabled = false
-      btn.textContent = 'Resend Code'
+      connected.forEach(btn => { btn.disabled = false; btn.textContent = btn.dataset.restLabel })
       return
     }
-    btn.textContent = 'Resend in 0:' + String(_evResendCooldownLeft).padStart(2, '0')
-    _evResendCooldownLeft--
+    const m = Math.floor(_evResendCooldownLeft / 60), s = _evResendCooldownLeft % 60
+    connected.forEach(btn => { btn.textContent = 'Resend in ' + m + ':' + String(s).padStart(2, '0') })
   }
   tick()
   _evResendCooldownInterval = setInterval(tick, 1000)
@@ -1547,7 +1691,7 @@ async function evSubmitOTP() {
   if (btn) { btn.disabled = true; btn.textContent = 'Verifying…' }
 
   try {
-    const res  = await fetch('api/auth/verify-email-otp.php', {
+    const res  = await fetch(_evIsDeviceLogin ? 'api/auth/verify-login-device.php' : 'api/auth/verify-email-otp.php', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ email: _evEmail, otp }),
@@ -1562,13 +1706,21 @@ async function evSubmitOTP() {
       const resend  = document.getElementById('ev-2-resend')
 
       if (data.banned) {
-        if (title) title.textContent = 'Registration Blocked'
-        if (msg)   msg.textContent   = 'Too many failed attempts. Please go back and register again with a valid email address.'
+        if (_evIsDeviceLogin) {
+          if (title) title.textContent = 'Verification Blocked'
+          if (msg)   msg.textContent   = data.message || 'Too many failed attempts. Please try logging in again.'
+        } else {
+          if (title) title.textContent = 'Registration Blocked'
+          if (msg)   msg.textContent   = 'Too many failed attempts. Please go back and register again with a valid email address.'
+        }
         if (retry)  retry.style.display  = 'none'
         if (resend) resend.style.display = 'none'
       } else if (data.locked) {
         if (title) title.textContent = 'Too Many Attempts'
         if (msg)   msg.textContent   = 'You\'ve entered the wrong code too many times. Request a new code to try again.'
+          + (_evIsDeviceLogin && data.totalLeft
+              ? ` After ${data.totalLeft} more wrong ${data.totalLeft === 1 ? 'attempt' : 'attempts'}, sign-in from this device will be locked for 1 hour.`
+              : '')
         if (retry)  retry.style.display  = 'none'
         if (resend) resend.style.display = 'block'
       } else {
@@ -1586,6 +1738,14 @@ async function evSubmitOTP() {
     // Success — show success step briefly then boot
     _evStopTimer()
     evShowStep(3)
+
+    // New-device login just completed — apply the Remember-me choice made
+    // on the login form (only if it was for this same account).
+    if (_evIsDeviceLogin && _pendingDeviceRemember &&
+        _pendingDeviceRemember.email.toLowerCase() === (_evEmail || '').toLowerCase()) {
+      _applyRememberedEmail(_pendingDeviceRemember.email, _pendingDeviceRemember.remember)
+    }
+    _pendingDeviceRemember = null
 
     // Push to patients array if this was a self-registration flow
     if (_evFromReg) {
@@ -1615,24 +1775,35 @@ async function evSubmitOTP() {
   } finally {
     if (myFlow !== _evFlowId) return // stale — don't clobber a fresh attempt's own state
     _evBusy = false
-    if (btn) { btn.disabled = false; btn.textContent = 'Verify & Activate Account' }
+    if (btn) { btn.disabled = false; btn.textContent = _evIsDeviceLogin ? 'Verify & Sign In' : 'Verify & Activate Account' }
   }
 }
 window.evSubmitOTP = evSubmitOTP
 
+// Handles BOTH resend entry points: the small link on the normal entry
+// screen, and the "Request New Code" button on the locked screen (step 2)
+// — reached after 5 wrong attempts, where it's the only way forward short
+// of abandoning this login/registration attempt entirely. Mirrors
+// fpResendOTP()'s shape (forgot-password's own resend): fully awaited, no
+// screen change until the outcome is actually known, cooldown synced to
+// the server's clock rather than assumed, and a real failure leaves the
+// user exactly where they were with the real reason shown — never a fake
+// "it worked" navigation.
+let _evResendBusy = false
 async function evResendCode() {
   if (_evResendCooldownLeft > 0) return
+  if (_evResendBusy) return // already in flight — ignore re-entrant calls (the cooldown itself only starts once the server confirms, so this covers the gap before that)
+  _evResendBusy = true
 
   const errEl = document.getElementById('ev-error')
   errEl.classList.remove('show')
 
   const myFlow = _evFlowId // see showEmailVerify()'s sameOngoing comment
-  _evStartResendCooldown()
-  const resendBtn = document.getElementById('ev-resend-btn')
-  if (resendBtn) resendBtn.textContent = 'Sending…'
+  const btns = [document.getElementById('ev-resend-btn'), document.getElementById('ev-2-resend')].filter(Boolean)
+  btns.forEach(btn => { if (!btn.dataset.restLabel) btn.dataset.restLabel = btn.textContent; btn.disabled = true; btn.textContent = 'Sending…' })
 
   try {
-    const res  = await fetch('api/auth/send-email-verification.php', {
+    const res  = await fetch(_evIsDeviceLogin ? 'api/auth/resend-login-device-otp.php' : 'api/auth/send-email-verification.php', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ email: _evEmail }),
@@ -1641,32 +1812,60 @@ async function evResendCode() {
     if (myFlow !== _evFlowId) return // stale — screen was reopened for a different attempt
 
     if (!data.success) {
-      if (data.banned) {
+      if (data.banned || data.expired) {
         const title  = document.getElementById('ev-2-title')
         const msg    = document.getElementById('ev-2-msg')
         const retry  = document.getElementById('ev-2-retry')
         const resend = document.getElementById('ev-2-resend')
-        if (title)  title.textContent  = 'Registration Blocked'
-        if (msg)    msg.textContent    = 'Too many failed attempts. Please go back and register again with a valid email address.'
+        if (data.expired) {
+          // Nothing left to resend — only a fresh sign-in can issue a code.
+          if (title) title.textContent = 'Code Expired'
+          if (msg)   msg.textContent   = data.message || 'This verification has expired. Please sign in again.'
+        } else if (_evIsDeviceLogin) {
+          if (title) title.textContent = 'Verification Blocked'
+          if (msg)   msg.textContent   = data.message || 'Too many failed attempts. Please try logging in again.'
+        } else {
+          if (title) title.textContent = 'Registration Blocked'
+          if (msg)   msg.textContent   = 'Too many failed attempts. Please go back and register again with a valid email address.'
+        }
         if (retry)  retry.style.display  = 'none'
         if (resend) resend.style.display = 'none'
         evShowStep(2)
         return
       }
+      // Server-enforced cooldown (its clock, not the client's) — sync the
+      // button state to it and stop there, same as forgot-password's own
+      // resend: the ticking "Resend in 0:XX" label is enough, no need to
+      // also pop a red error banner for a state the button already shows.
+      if (data.cooldown && data.retryAfter) {
+        _evStartResendCooldown(data.retryAfter)
+        return
+      }
+      // Resend didn't actually go through (e.g. hit its own rate limit) —
+      // don't pretend a new code was sent. Leave the existing countdown/
+      // inputs alone, restore the button, and surface the real reason.
+      btns.forEach(btn => { btn.disabled = false; btn.textContent = btn.dataset.restLabel })
       errEl.textContent = data.message || 'Failed to resend code. Please try again.'
       errEl.classList.add('show')
       return
     }
 
-    // Success — reset inputs and restart OTP expiry timer; cooldown already running
+    // Only reached once the resend is confirmed successful — now it's
+    // safe to move to the entry screen (a no-op if already there) and
+    // start a fresh 5-minute expiry window for the new code.
     document.querySelectorAll('#ev-otp-row .otp-input').forEach(i => { i.value = ''; i.classList.remove('error') })
+    evShowStep(1)
     document.querySelector('#ev-otp-row .otp-input')?.focus()
-    _evStartTimer(300)
+    _evStartTimer(data.expiresIn || 300)
+    _evStartResendCooldown(data.cooldownSeconds || 60)
 
   } catch (_) {
     if (myFlow !== _evFlowId) return // stale — see above
+    btns.forEach(btn => { btn.disabled = false; btn.textContent = btn.dataset.restLabel })
     errEl.textContent = 'Network error. Please try again.'
     errEl.classList.add('show')
+  } finally {
+    if (myFlow === _evFlowId) _evResendBusy = false
   }
 }
 window.evResendCode = evResendCode
@@ -1781,6 +1980,24 @@ async function evSaveEditEmail() {
 }
 window.evSaveEditEmail = evSaveEditEmail
 
+// Auto-submit a 6-box code as soon as every box holds a digit — typed one
+// by one or pasted in one go — so nobody has to press Verify for a code
+// they've already finished entering. Shared by the email/device verify,
+// forgot-password and email-change code screens. The short delay lets the
+// last digit render first; each submit function has its own busy guard,
+// so a fast double trigger can't send the code twice. A wrong code leaves
+// the boxes as they are, and editing any digit re-checks and resubmits.
+function _otpAutoSubmit(inputs, submitFn) {
+  const boxes = [...inputs]
+  if (boxes.length !== 6 || !boxes.every(i => /^\d$/.test(i.value))) return
+  clearTimeout(_otpAutoSubmit._t)
+  _otpAutoSubmit._t = setTimeout(() => {
+    // Still complete (not edited in the meantime) — then submit.
+    if (boxes.every(i => /^\d$/.test(i.value))) submitFn()
+  }, 150)
+}
+window._otpAutoSubmit = _otpAutoSubmit
+
 // Init OTP inputs for email verify screen
 ;(function() {
   function setupEvOTP() {
@@ -1790,6 +2007,7 @@ window.evSaveEditEmail = evSaveEditEmail
         const val = e.target.value.replace(/\D/g, '')
         e.target.value = val ? val[0] : ''
         if (val && idx < 5) inputs[idx + 1].focus()
+        _otpAutoSubmit(inputs, evSubmitOTP)
       })
       input.addEventListener('keydown', e => {
         if (e.key === 'Backspace' && !e.target.value && idx > 0) inputs[idx - 1].focus()
@@ -1800,6 +2018,7 @@ window.evSaveEditEmail = evSaveEditEmail
         const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '')
         ;[...pasted].slice(0, 6).forEach((ch, i) => { if (inputs[idx + i]) inputs[idx + i].value = ch })
         inputs[Math.min(idx + pasted.length, 5)].focus()
+        _otpAutoSubmit(inputs, evSubmitOTP)
       })
     })
   }
@@ -1816,13 +2035,18 @@ window.evSaveEditEmail = evSaveEditEmail
         const val = e.target.value.replace(/\D/g, '')
         e.target.value = val ? val[0] : ''
         if (val && idx < 5) inputs[idx + 1].focus()
+        _otpAutoSubmit(inputs, fpS3Submit)
       })
-      input.addEventListener('keydown', e => { if (e.key === 'Backspace' && !e.target.value && idx > 0) inputs[idx - 1].focus() })
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Backspace' && !e.target.value && idx > 0) inputs[idx - 1].focus()
+        if (e.key === 'Enter') fpS3Submit()
+      })
       input.addEventListener('paste', e => {
         e.preventDefault()
         const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '')
         ;[...pasted].slice(0, 6).forEach((ch, i) => { if (inputs[idx + i]) inputs[idx + i].value = ch })
         inputs[Math.min(idx + pasted.length, 5)].focus()
+        _otpAutoSubmit(inputs, fpS3Submit)
       })
     })
   }
@@ -1857,7 +2081,25 @@ function fpTogglePw(inputId, iconId) {
 }
 
 // ── Private helpers ───────────────────────────────────────────────
+// Tells the server this device's model so Sessions & Sign-in can name it
+// like Google does ("Samsung Galaxy S23", "Windows 11 PC"). Chrome/Edge
+// expose it through User-Agent Client Hints (the plain UA hides the model
+// on Android); Safari/Firefox don't, and fall back to the UA server-side.
+async function _reportDeviceInfo() {
+  try {
+    const uad = navigator.userAgentData
+    if (!uad?.getHighEntropyValues) return
+    const v = await uad.getHighEntropyValues(['model', 'platformVersion'])
+    await fetch('api/auth/device-info.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: v.model || '', platformVersion: v.platformVersion || '' })
+    })
+  } catch (_) { /* best effort — the list just shows a generic name */ }
+}
+window._reportDeviceInfo = _reportDeviceInfo
+
 function _bootAfterAuth(role, user) {
+  _reportDeviceInfo()
   // Fresh session — clear the "already handled a forced logout" latch
   // (_handleSessionRevoked) from any previous session, so a future
   // revocation this session can trigger it again.
@@ -1879,14 +2121,27 @@ function _bootAfterAuth(role, user) {
   window.bootShell(role, user)
 
   // Load real data from backend (non-blocking)
-  _syncAppointments()
+  const apptsLoaded = _syncAppointments()
+  // Arrived from an email's appointment link (app.html, #appt=ID): once
+  // their appointments are in, open that one — the confirm prompt if it's
+  // waiting for confirmation, otherwise its details. Patients only (the
+  // emails only go to patients); another account just lands as usual.
+  const linkedApptId = window._openApptId
+  window._openApptId = null
+  if (linkedApptId && role === 'patient') {
+    Promise.resolve(apptsLoaded).then(() => {
+      const a = (window.appointments || []).find(x => x.id === linkedApptId)
+      if (!a) { window.toast && window.toast("That appointment couldn't be found on your account.", 'info'); return }
+      if (a.status === 'approved' && a.reminderSentAt && !a.confirmedAt && window.confirmApptPrompt) window.confirmApptPrompt(a.id)
+      else if (window.viewAppt) window.viewAppt(a.id)
+    })
+  }
   _syncNotifications().then(() => _startSystemPolling())
   _syncClinicSettings()
   _syncServices()
   if (role === 'admin') { _syncActivityLog(); _syncStaff(); _syncArchives() }
   if (role === 'staff') _syncStaff()
   if (['admin', 'staff', 'doctor'].includes(role)) _syncPatients()
-  if (['admin', 'staff'].includes(role)) _syncWaitlist()
   if (role === 'patient') _syncMyRecords()
   // Doctors array (incl. schedule/availability/blocked dates) — every role needs
   // a synced copy, not just staff: patients book against it, doctors see their
@@ -1912,6 +2167,8 @@ const _APPT_PAGES = new Set([
 window._apptPendingCount     = 0
 window._doctorTodayCount     = 0
 window._doctorUpcomingCount  = 0
+window._doctorApprovedCount  = 0
+window._doctorPendingCount   = 0
 window._doctorApptAlertCount = 0
 
 async function _syncAppointments(rerender = true) {
@@ -1945,7 +2202,8 @@ async function _syncPatients() {
     const d = await r.json()
     if (!d.success || !Array.isArray(d.patients)) return
     const changed = _pollDataChanged(patients, d.patients)
-    patients.splice(0, patients.length, ...d.patients)
+    // Age from DOB at load time (rolls over on birthdays even mid-session).
+    patients.splice(0, patients.length, ...d.patients.map(p => ({ ...p, age: (window.ageFromDob && window.ageFromDob(p.dob)) ?? p.age })))
     if (!changed) return
     // Re-render page if it shows patients list
     const p = window.state?.page
@@ -2102,25 +2360,6 @@ async function _syncContactMessages() {
 }
 window._syncContactMessages = _syncContactMessages
 
-// ── Waitlist sync (admin/staff visibility only — patients read their own
-// entry directly via loadMyWaitlistCard) ────────────────────────────
-window._waitlistCount = 0
-
-async function _syncWaitlist() {
-  try {
-    const r = await fetch('api/waitlist/index.php')
-    if (!r.ok) return
-    const d = await r.json()
-    if (!d.success || !Array.isArray(d.entries)) return
-    const changed = _pollDataChanged(waitlistEntries, d.entries)
-    waitlistEntries.splice(0, waitlistEntries.length, ...d.entries)
-    window._waitlistCount = d.entries.length
-    if (window._updateSidebarBadges) window._updateSidebarBadges()
-    if (changed && window.state?.page === 'waitlist' && window.renderPage) window.renderPage({ silent: true })
-  } catch (_) {}
-}
-window._syncWaitlist = _syncWaitlist
-
 // ── Clinic settings + services sync ─────────────────────────────────
 const _CLINIC_SETTINGS_PAGES = new Set([
   'admin-settings', 'doctor-availability', 'patient-appts', 'patient-dashboard'
@@ -2157,8 +2396,8 @@ async function _syncClinicSettings() {
       morningStart: s.morningStart, morningEnd: s.morningEnd,
       afternoonStart: s.afternoonStart, afternoonEnd: s.afternoonEnd,
       lunchBreak: s.lunchBreak, clinicDays: s.clinicDays,
-      reminderTime: s.reminderTime, confirmDeadlineTime: s.confirmDeadlineTime,
-      waitlistOfferHours: s.waitlistOfferHours
+      reminderTime: s.reminderTime, followupReminderTime: s.followupReminderTime,
+      maxUpcomingApptsPerPatient: s.maxUpcomingApptsPerPatient
     })
     window._clinicName     = clinicInfo.name     || 'Cana Optical Clinic'
     window._clinicAddress  = clinicInfo.address  || ''
@@ -2207,6 +2446,9 @@ let _pollSkipTicks  = 0
 
 // Returns true on success so the poll tick can use it as a server-health signal.
 async function _syncNotifications() {
+  // Nobody signed in (logged out, or a page sync firing mid-logout) — there
+  // is no session to ask about, so don't send a request that can only fail.
+  if (!window.state?.role) return false
   try {
     const r = await fetch('api/notifications/index.php')
     // 401 specifically means "not authenticated" (api/notifications/index.php's
@@ -2218,6 +2460,13 @@ async function _syncNotifications() {
     if (r.status === 401) { _handleSessionRevoked(); return false }
     if (!r.ok) return false
     const d = await r.json()
+    // Current form of the "not authenticated" answer (see index.php) — only
+    // acted on if this device still thinks it's signed in, so a late response
+    // to a request sent just before logout doesn't trigger a second logout.
+    if (d.authenticated === false) {
+      if (window.state?.role) _handleSessionRevoked()
+      return false
+    }
     if (!d.success) return false
     window._notifications = d.notifications || []
     window._unreadCount   = d.unread_count  || 0
@@ -2272,7 +2521,7 @@ async function _systemPollTick() {
 
   // Role-specific light syncs
   if (role === 'patient') _syncMyRecords()
-  if (['admin','staff'].includes(role)) { _syncContactMessages(); _syncWaitlist() }
+  if (['admin','staff'].includes(role)) _syncContactMessages()
 
   // Heavier syncs every other tick (~60s)
   if (_pollTick % 2 === 0) {

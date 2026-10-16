@@ -3,7 +3,7 @@
 //  CANAOPTICALCLINIC — api/patients/update.php
 //
 //  POST { action:'profile', firstName, middleName, lastName, phone,
-//         address, occupation, medicalHistory, gender?, dob? }
+//         address, occupation, gender?, dob? }   (medical history is clinic-managed)
 //
 //  Only authenticated patients may call this endpoint.
 //  (Password changes for patients go through api/users/change_password.php,
@@ -49,14 +49,18 @@ try {
         $phone      = trim($b['phone']      ?? '');
         $address    = trim($b['address']    ?? '');
         $occupation = trim($b['occupation'] ?? '');
-        $medHx      = trim($b['medicalHistory'] ?? '');
+        // medicalHistory is deliberately NOT accepted here any more — the
+        // clinic owns that record (doctors/admin/staff edit it via
+        // update-medical-history.php / admin_update.php). Patients can view
+        // it on their profile but not change it, so a self-edit can't
+        // silently remove something the doctor recorded (e.g. an allergy).
         $gender     = trim($b['gender']     ?? '');
         $dob        = trim($b['dob']        ?? '');
 
         if (!$fn || !$ln) {
             jsonResponse(['success' => false, 'message' => 'First and last name are required.']);
         }
-        if ($gender && !in_array($gender, ['Male', 'Female', 'Other'], true)) {
+        if ($gender && !in_array($gender, ['Male', 'Female', 'Prefer not to say'], true)) {
             jsonResponse(['success' => false, 'message' => 'Invalid gender value.']);
         }
         if ($phone && !isValidContact($phone)) {
@@ -66,8 +70,8 @@ try {
             jsonResponse(['success' => false, 'message' => 'Please enter a complete address.']);
         }
 
-        $sets   = ['first_name = ?', 'middle_name = ?', 'last_name = ?', 'contact = ?', 'address = ?', 'occupation = ?', 'medical_history = ?'];
-        $values = [$fn, $mn ?: null, $ln, $phone, $address, $occupation, $medHx ?: null];
+        $sets   = ['first_name = ?', 'middle_name = ?', 'last_name = ?', 'contact = ?', 'address = ?', 'occupation = ?'];
+        $values = [$fn, $mn ?: null, $ln, $phone, $address, $occupation];
 
         if ($gender) { $sets[] = 'gender = ?'; $values[] = $gender; }
         if ($dob) {
@@ -79,6 +83,11 @@ try {
 
         $values[] = $userId;
         $pdo->prepare('UPDATE patients SET ' . implode(', ', $sets) . ' WHERE user_id = ?')->execute($values);
+
+        // A renamed patient's existing appointments show the new name too.
+        $pid = $pdo->prepare('SELECT id FROM patients WHERE user_id = ? LIMIT 1');
+        $pid->execute([$userId]);
+        syncPatientNameEverywhere($pdo, (string)$pid->fetchColumn());
 
         jsonResponse(['success' => true, 'message' => 'Profile updated successfully.']);
     }

@@ -14,6 +14,12 @@
 //  so the frontend can compute per-slot gap zones correctly. The batch
 //  form powers the "any available optometrist" booking path, which needs
 //  the same data for several doctors at once to compute union availability.
+//
+//  Optional &patientId=P001 (either form) adds
+//  patientTaken:[{time,duration},…] — that patient's own booked times on
+//  the date with ANY doctor (online or clinic-booked), so pickers can grey
+//  out times the patient is already booked. A patient only ever gets their
+//  own; excludeId still applies (the appointment being rescheduled).
 // ================================================================
 
 require_once '../../config/db.php';
@@ -30,6 +36,10 @@ $doctorId  = trim($_GET['doctorId']  ?? '');
 $doctorIds = trim($_GET['doctorIds'] ?? '');
 $date      = trim($_GET['date']      ?? '');
 $excludeId = trim($_GET['excludeId'] ?? '');
+$patientId = trim($_GET['patientId'] ?? '');
+if ($patientId !== '' && ($_SESSION['role'] ?? '') === 'patient') {
+    $patientId = (string)($_SESSION['profile_id'] ?? '');
+}
 
 if ((!$doctorId && !$doctorIds) || !$date) {
     jsonResponse(['success' => false, 'message' => 'doctorId (or doctorIds) and date are required.']);
@@ -44,6 +54,10 @@ try {
     preg_match('/(\d+)/', $durStr ?: '45', $dm);
     $defaultDuration = isset($dm[1]) ? (int)$dm[1] : 45;
 
+    $extra = $patientId !== ''
+        ? ['patientTaken' => _takenTimesForPatient($pdo, $patientId, $date, $defaultDuration, $excludeId)]
+        : [];
+
     // ── Batch mode: several doctors at once, grouped per doctor ──
     if ($doctorIds) {
         $ids = array_values(array_filter(array_map('trim', explode(',', $doctorIds))));
@@ -51,11 +65,11 @@ try {
         foreach ($ids as $id) {
             $byDoctor[$id] = _takenTimesForDoctor($pdo, $id, $date, $defaultDuration, $excludeId);
         }
-        jsonResponse(['success' => true, 'byDoctor' => $byDoctor, 'defaultDuration' => $defaultDuration]);
+        jsonResponse(['success' => true, 'byDoctor' => $byDoctor, 'defaultDuration' => $defaultDuration] + $extra);
     }
 
     $taken = _takenTimesForDoctor($pdo, $doctorId, $date, $defaultDuration, $excludeId);
-    jsonResponse(['success' => true, 'taken' => $taken, 'defaultDuration' => $defaultDuration]);
+    jsonResponse(['success' => true, 'taken' => $taken, 'defaultDuration' => $defaultDuration] + $extra);
 
 } catch (PDOException $e) {
     jsonResponse(['success' => false, 'message' => 'Database error.'], 500);
@@ -67,10 +81,8 @@ try {
 // so its own current slot does not show as taken.
 function _takenTimesForDoctor(PDO $pdo, string $doctorId, string $date, int $defaultDuration, string $excludeId): array {
     // patient_id rides along so the picker can tell "taken by someone
-    // else" (still waitlist-able) apart from "taken by this same patient's
-    // own other appointment" (see wizBuildTimeSlots() in main.js) — offering
-    // a waitlist join for a slot the patient already holds themselves
-    // doesn't make sense.
+    // else" apart from "taken by this same patient's own other
+    // appointment" (see wizBuildTimeSlots() in main.js).
     $sql = "SELECT a.time, a.patient_id
             FROM appointments a
             WHERE a.doctor_id = :doc AND a.date = :date
@@ -88,17 +100,23 @@ function _takenTimesForDoctor(PDO $pdo, string $doctorId, string $date, int $def
         'patientId' => $r['patient_id'],
     ], $rows);
 
-    // Slots currently held by an active (unexpired) waitlist offer to
-    // someone else aren't in `appointments` yet — fold them in too so the
-    // picker greys them out instead of only bouncing at submit time.
-    $held = $pdo->prepare(
-        "SELECT time FROM appointment_waitlist
-         WHERE doctor_id = ? AND date = ? AND status = 'offered' AND offer_expires_at > NOW()"
-    );
-    $held->execute([$doctorId, $date]);
-    foreach ($held->fetchAll(PDO::FETCH_COLUMN) as $heldTime) {
-        $taken[] = ['time' => $heldTime, 'duration' => $defaultDuration];
+    // A clinic-proposed reschedule awaiting the patient's answer holds its slot too.
+    foreach (heldProposalTimes($pdo, $doctorId, $date, $excludeId, true) as $h) {
+        $taken[] = ['time' => $h['time'], 'duration' => $defaultDuration, 'patientId' => $h['patientId']];
     }
 
     return array_values($taken);
+}
+
+// One patient's own booked times on a date, across every doctor.
+function _takenTimesForPatient(PDO $pdo, string $patientId, string $date, int $defaultDuration, string $excludeId): array {
+    $sql = "SELECT time FROM appointments
+            WHERE patient_id = :pid AND date = :date
+              AND status NOT IN ('cancelled','disapproved')"
+         . ($excludeId ? ' AND id != :excl' : '');
+    $stmt = $pdo->prepare($sql);
+    $params = [':pid' => $patientId, ':date' => $date];
+    if ($excludeId) $params[':excl'] = $excludeId;
+    $stmt->execute($params);
+    return array_map(fn($t) => ['time' => $t, 'duration' => $defaultDuration], $stmt->fetchAll(PDO::FETCH_COLUMN));
 }

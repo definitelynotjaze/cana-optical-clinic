@@ -44,7 +44,7 @@
 .nav-login:hover { color: var(--orange); }
 .nav-login:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; border-radius: 4px; }
 .nav-book { display: inline-flex; align-items: center; gap: 6px; padding: 8px 20px; background: var(--orange); color: #fff; font-size: 0.85rem; font-weight: 600; border-radius: 999px; transition: opacity 0.25s ease, transform 0.25s ease; }
-.nav-book:hover { opacity: 0.9; transform: translateY(-1px); }
+.nav-book:hover { }
 .nav-book:active { transform: translateY(0); }
 .nav-book:focus-visible { outline: 2px solid var(--orange-dk); outline-offset: 2px; }
 .nav-link-login { display: none; }
@@ -103,79 +103,120 @@
   .nav-actions { grid-column: 3; justify-self: end; }
 }
 
+/* Drawer pieces injected by public-nav.js — desktop never shows them */
+.nav-drawer-head, .nav-backdrop, .nav-ico { display: none; }
+
 @media (max-width: 991.98px) {
   .nav-toggle.navbar-toggler { display: flex; }
-  /* Bypass Bootstrap's collapse JS entirely — it sets inline height styles
-     that made the dropdown render taller than its content (extra white space).
-     We use a max-height CSS toggle driven by our own JS click handler instead.
-     display:block !important overrides Bootstrap's .collapse { display:none }. */
-  /* opacity+transform animation avoids the max-height "white sliver" flash.
-     visibility delays to 0 on close so the element hides only after the
-     fade completes; on open it snaps to visible immediately. */
+
+  /* ── Side drawer ──────────────────────────────────────────────────
+     A one-sided panel that slides in from the right (same side as the hamburger) over a dimmed page
+     (replaces the old full-width dropdown). #navbar always carries a
+     transform (translateZ hint, and translateY when folded), which makes
+     it the containing block for these position:fixed children — so the
+     drawer/backdrop size themselves to the viewport explicitly (100vw /
+     100dvh) instead of inset:0, and body.nav-drawer-open un-folds the bar
+     so the drawer never rides up with it. Only transform/opacity animate. */
   .navbar-collapse {
-    display: block !important;
-    /* 100vw bypasses any containing-block created by backdrop-filter on the
-       navbar ancestor — using 100% can resolve to a narrower ancestor width.
-       z-index must be explicit: position:fixed takes the element out of the
-       navbar's stacking context, so without it the collapse sits at z-index:auto
-       (effectively 0) and hero section layers (image, overlays) render on top. */
-    position: fixed; top: 70px; left: 0; width: 100vw; z-index: 999;
+    display: flex !important; flex-direction: column;
+    /* Bootstrap sets .navbar-collapse { align-items:center } — in this
+       column layout that shrinks the header to its content and centers it. */
+    align-items: stretch;
+    position: fixed; top: 0; right: 0; left: auto; z-index: 2;
+    width: min(84vw, 320px); height: 100vh; height: 100dvh;
     box-sizing: border-box;
-    background: #fff;
-    border-bottom: 1px solid rgba(229,231,235,0.7);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-    opacity: 0;
+    background: #1C0E00;
+    border-radius: 22px 0 0 22px;
+    box-shadow: -12px 0 40px rgba(28,14,0,.28), -2px 0 8px rgba(28,14,0,.12);
+    padding: 0 0 max(18px, env(safe-area-inset-bottom));
+    overflow-y: auto; overscroll-behavior: contain;
+    transform: translateX(104%);
     visibility: hidden;
-    pointer-events: none;
-    transform: translateY(-6px);
-    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s linear 0.2s;
+    transition: transform .38s cubic-bezier(.32,.72,0,1), visibility 0s linear .38s;
   }
   .navbar-collapse.show {
-    opacity: 1;
+    transform: translateX(0);
     visibility: visible;
-    pointer-events: auto;
-    transform: translateY(0);
-    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s linear 0s;
+    transition: transform .42s cubic-bezier(.32,.72,0,1), visibility 0s linear 0s;
   }
-  /* Prevent the flex row from wrapping now that the collapse is out of flow */
-  .nav-inner { flex-wrap: nowrap; }
-  /* backdrop-filter creates a GPU compositor layer that can flash white when
-     a child changes visibility — not needed on mobile since the bar is opaque */
-  #navbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255,255,255,1); }
-  /* .navbar-nav.nav-links (2 classes) elsewhere sets align-items:center —
-     more specific than a plain .nav-links rule, so it would silently win
-     over align-items:stretch here regardless of media-query order. Match
-     the same compound selector so this override actually applies, or every
-     item collapses to a short, centered, content-width box instead of a
-     full-width left-aligned row (which is what made the menu look broken/
-     "compressed" rather than a normal mobile dropdown). */
-  .navbar-nav.nav-links { flex-direction: column !important; align-items: stretch !important; width: 100%; box-sizing: border-box; gap: 2px; padding: 10px 16px 16px !important; }
-  .nav-links .nav-link { display: block; width: 100%; text-align: left; padding: 13px 14px; border-radius: 10px; border-bottom: none; transition: color 0.2s ease, background 0.2s ease; }
+  .nav-backdrop {
+    display: block; position: fixed; top: 0; left: 0; z-index: 1;
+    width: 100vw; height: 100vh; height: 100dvh;
+    background: rgba(20,12,4,.52);
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    opacity: 0; pointer-events: none;
+    transition: opacity .3s ease;
+  }
+  body.nav-drawer-open .nav-backdrop { opacity: 1; pointer-events: auto; }
+  body.nav-drawer-open #navbar,
+  body.nav-drawer-open #navbar.navbar-folded { transform: translateZ(0) !important; }
+
+  /* Drawer header: logo + name + round close button */
+  .nav-drawer-head {
+    width: 100%; box-sizing: border-box;
+    display: flex; align-items: center; gap: 10px;
+    padding: max(18px, env(safe-area-inset-top)) 18px 18px 20px;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    margin-bottom: 8px;
+  }
+  .nav-drawer-head img { width: 36px; height: 36px; border-radius: 50%; object-fit: contain; background: #fff; flex-shrink: 0; }
+  .nav-drawer-name { flex: 1; min-width: 0; font-size: .95rem; font-weight: 700; color: #fff; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nav-drawer-close {
+    width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,.08); color: rgba(255,255,255,.85);
+    border: none; cursor: pointer;
+    transition: background-color .2s ease, transform .2s ease;
+  }
+  .nav-drawer-close:hover { background: rgba(255,255,255,.16); }
+  .nav-drawer-close:active { transform: scale(.92); }
+  .nav-drawer-close:focus-visible { outline: 2px solid #FDBA74; outline-offset: 2px; }
+
+  /* Links */
+  .navbar-nav.nav-links {
+    flex: 1; display: flex; flex-direction: column !important; align-items: stretch !important;
+    width: 100%; box-sizing: border-box; gap: 4px; padding: 4px 14px 0 !important; margin: 0;
+  }
+  .nav-links .nav-link {
+    display: flex; align-items: center; gap: 14px; width: 100%;
+    padding: 12px 14px; border-radius: 12px; text-align: left;
+    font-size: .92rem; font-weight: 500;
+    color: rgba(255,255,255,.78) !important;
+    transition: color .2s ease, background-color .2s ease;
+  }
   .nav-links .nav-link::after { display: none; }
-  .nav-links .nav-link:hover { background: rgba(127,127,127,0.1); }
-  .nav-links .nav-link.active { background: rgba(232,137,28,0.12); }
-  .nav-links .nav-link { display: flex; align-items: center; gap: 10px; }
-  .nav-link-login { display: list-item; }
-  .nav-link-login .nav-link { border-top: 2px solid rgba(0,0,0,0.10); border-radius: 0; margin-top: 4px; padding-top: 16px; }
-  .nav-link-account { display: list-item; border-top: 1px solid var(--border); margin-top: 6px; padding-top: 16px; }
+  .nav-links .nav-link:hover { background: rgba(255,255,255,.07); color: #fff !important; }
+  .nav-links .nav-link.active { background: rgba(232,137,28,.18); color: #FDBA74 !important; font-weight: 600; }
+  .nav-ico { display: inline-flex; width: 20px; height: 20px; flex-shrink: 0; color: currentColor; opacity: .9; }
+  .nav-ico svg { width: 20px; height: 20px; }
+
+  /* Bottom group: Log In / account + Book Now pinned to the bottom */
+  .nav-link-login, .nav-link-account { display: list-item; list-style: none; margin-top: auto; }
+  .nav-link-login .nav-link {
+    justify-content: center; margin-top: 18px;
+    border: 1.5px solid rgba(255,255,255,.22); color: #fff !important; font-weight: 600;
+  }
+  .nav-link-login .nav-link:hover { background: rgba(255,255,255,.08); }
+  .nav-link-account { border-top: 1px solid rgba(255,255,255,.1); padding-top: 14px; }
   .nav-mobile-account { display: flex; align-items: center; gap: 10px; padding: 4px 14px 10px; }
-  .nav-mobile-account-name { font-size: 0.85rem; font-weight: 600; color: var(--text); }
-  .nav-link-dashboard { display: list-item; }
-  .nav-link-logout { display: list-item; }
-  .nav-link-logout .nav-link { color: #DC2626; }
-  .nav-link-logout .nav-link:hover { background: #FEF2F2; }
-  .nav-actions .nav-login { display: none; }
-  /* The desktop profile button never appears collapsed — its content
-     already lives in the mobile menu via the items above. */
-  .nav-actions .nav-profile { display: none; }
-  /* Reduce padding so logo + hamburger fit without overflow on small screens */
-  .nav-inner { padding: 0 16px; }
-  /* Hide the pill Book Now button — it's too wide to share the bar with the logo and hamburger */
-  .nav-book { display: none; }
-  /* Show Book Now as a styled link inside the mobile menu instead */
-  .nav-link-book { display: list-item; position: relative; margin-top: 8px; }
-  .nav-link-book::before { content: ''; display: block; height: 2px; background: rgba(232,137,28,0.45); margin: 0 14px 4px; }
-  .nav-link-book .nav-link { color: var(--orange); font-weight: 600; border-top: none; border-radius: 10px; margin-top: 0; padding-top: 13px; }
-  .nav-link-book .nav-link:hover { background: rgba(232,137,28,0.12); color: var(--orange-dk); }
+  .nav-mobile-account-name { font-size: .88rem; font-weight: 600; color: #fff; }
+  .nav-link-dashboard, .nav-link-logout { display: list-item; list-style: none; }
+  .nav-link-logout .nav-link { color: #FCA5A5 !important; }
+  .nav-link-logout .nav-link:hover { background: rgba(220,38,38,.14); }
+  .nav-link-book { display: list-item; list-style: none; margin-top: 8px; }
+  .nav-link-book .nav-link {
+    justify-content: center; background: var(--orange); color: #fff !important; font-weight: 600;
+    box-shadow: 0 6px 18px -6px rgba(232,137,28,.6);
+  }
+  .nav-link-book .nav-link:hover { background: var(--orange); color: #fff !important; opacity: .9; }
+
+  /* Bar itself */
+  .nav-inner { flex-wrap: nowrap; padding: 0 16px; }
+  #navbar { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255,255,255,1); }
+  .nav-actions .nav-login, .nav-actions .nav-profile, .nav-book { display: none; }
+}
+
+@media (max-width: 991.98px) and (prefers-reduced-motion: reduce) {
+  .navbar-collapse, .navbar-collapse.show, .nav-backdrop { transition: none; }
 }
 

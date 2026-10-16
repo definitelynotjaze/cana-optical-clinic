@@ -7,7 +7,8 @@
 //  → { success:false, locked:true }                  — too many wrong tries
 //  → { success:false, banned:true }                  — 1-hour lockout
 //
-//  Step 2 of the patient email-change flow — see request-email-change.php.
+//  Step 2 of the email-change flow (any role, own account) — see
+//  request-email-change.php.
 // ================================================================
 
 require_once '../../config/db.php';
@@ -19,7 +20,7 @@ startSession();
 if (!isset($_SESSION['user_id'])) {
     jsonResponse(['success' => false, 'message' => 'Not authenticated.'], 401);
 }
-if (($_SESSION['role'] ?? '') !== 'patient') {
+if (!in_array($_SESSION['role'] ?? '', ['patient', 'doctor', 'staff', 'admin'], true)) {
     jsonResponse(['success' => false, 'message' => 'Unauthorized.'], 403);
 }
 

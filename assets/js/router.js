@@ -19,8 +19,8 @@ var state = {
 // A plain back-stack of {page, params, filter} snapshots, pushed by every
 // real navigate() call. goBack() pops it and re-navigates without pushing
 // again — so "Back" always returns to wherever the user actually came
-// from (the Waitlist button on Dashboard vs. on Appointments, a patient
-// reached from Patient Records vs. from Exam Records, etc.) instead of a
+// from (a patient reached from Patient Records vs. from Exam Records,
+// etc.) instead of a
 // single hardcoded parent that's only right some of the time.
 var _navHistory = []
 var _suppressHistoryPush = false
@@ -43,8 +43,15 @@ const SIDEBAR_CONFIG = {
         { key: 'appointments', filter: 'no-show',     label: 'No-show',     color: '#6D28D9' }
       ]
     },
-    { key: 'patient-list',         label: 'Patient Records',  icon: 'file-text' },
-    { key: 'exam-records',         label: 'Examination Records', icon: 'eye' },
+    { key: 'patient-list',         label: 'Patients',         icon: 'id-card' },
+    // Admins can start exams too (choosing the doctor it's under) — same
+    // "Optical Examination" group doctors get.
+    { key: 'examination',          label: 'Optical Examination', icon: 'eye',
+      children: [
+        { key: 'new-examination',  label: 'New Examination' },
+        { key: 'exam-records',     label: 'Examination Records' }
+      ]
+    },
     { key: 'schedule',             label: 'Doctor Schedule',  icon: 'clock' },
     { key: 'admin-reports',        label: 'Reports',          icon: 'bar-chart' },
     { section: 'System' },
@@ -53,8 +60,9 @@ const SIDEBAR_CONFIG = {
         { key: 'admin-users', filter: 'all',     label: 'All Users' },
         { key: 'admin-users', filter: 'admin',   label: 'Admin' },
         { key: 'admin-users', filter: 'staff',   label: 'Staff' },
-        { key: 'admin-users', filter: 'doctor',  label: 'Doctor' },
-        { key: 'admin-users', filter: 'patient', label: 'Patient' }
+        { key: 'admin-users', filter: 'doctor',  label: 'Doctor' }
+        // No Patient tab: patient accounts are managed from Patients
+        // (patient-list) — profile, records, login and archive in one place.
       ]
     },
     { key: 'activity-log',         label: 'Activity Log',     icon: 'activity' },
@@ -66,6 +74,7 @@ const SIDEBAR_CONFIG = {
         { key: 'admin-settings', filter: 'consultation', label: 'Consultation Settings' },
         { key: 'admin-settings', filter: 'terms',        label: 'Terms & Policies' },
         { key: 'admin-settings', filter: 'archives',     label: 'Archives' },
+        { key: 'admin-settings', filter: 'backup',       label: 'Backup & Restore' },
         { key: 'active-sessions',                        label: 'Sessions & Sign-in' }
       ]
     }
@@ -86,10 +95,10 @@ const SIDEBAR_CONFIG = {
         { key: 'appointments', filter: 'no-show',     label: 'No-show',     color: '#6D28D9' }
       ]
     },
-    { key: 'patient-list',         label: 'Patient Records',  icon: 'file-text' },
+    { key: 'patient-list',         label: 'Patients',         icon: 'id-card' },
     { key: 'exam-records',         label: 'Examination Records', icon: 'eye' },
     { key: 'schedule',             label: 'Doctor Schedule',  icon: 'clock' },
-    { key: 'admin-reports',        label: 'Reports',          icon: 'bar-chart' },
+    // No Reports for staff — reports and report generation are admin-only.
     { section: 'Account' },
     { key: 'staff-settings',       label: 'Settings',         icon: 'settings',
       children: [
@@ -106,7 +115,8 @@ const SIDEBAR_CONFIG = {
       children: [
         { key: 'doctor-appointments', filter: 'all',       label: 'All Appointments' },
         { key: 'doctor-appointments', filter: 'today',     label: 'Today',    badgeKey: '_doctorTodayCount' },
-        { key: 'doctor-appointments', filter: 'upcoming',  label: 'Upcoming', badgeKey: '_doctorUpcomingCount' },
+        { key: 'doctor-appointments', filter: 'approved',  label: 'Approved', badgeKey: '_doctorApprovedCount' },
+        { key: 'doctor-appointments', filter: 'pending',   label: 'Pending',  badgeKey: '_doctorPendingCount' },
         { key: 'doctor-appointments', filter: 'completed', label: 'Completed', color: '#616161' }
       ]
     },
@@ -116,7 +126,7 @@ const SIDEBAR_CONFIG = {
         { key: 'exam-records',     label: 'Examination Records' }
       ]
     },
-    { key: 'patient-list',         label: 'Patient Records',  icon: 'file-text' },
+    { key: 'patient-list',         label: 'Patients',         icon: 'id-card' },
     { key: 'doctor-schedule',      label: 'My Schedule',      icon: 'clock' },
     { section: 'Account' },
     { key: 'doctor-settings',      label: 'Settings',         icon: 'settings',
@@ -171,8 +181,7 @@ const ROLE_DASHBOARD = {
 
 // True if `page` is one of the role's own sidebar destinations (top-level
 // or a filtered child) — used to tell "primary section" navigation apart
-// from a "detail" page (Patient Profile, the exam wizard, Waitlist, QR
-// Scanner, …) that's only ever reached via a button, for the topbar
+// from a "detail" page (Patient Profile, the exam wizard, QR Scanner, …) that's only ever reached via a button, for the topbar
 // breadcrumb's dynamic back-link (see renderTopbar()).
 function _isSidebarPage(role, page) {
   const config = SIDEBAR_CONFIG[role] || []
@@ -185,8 +194,7 @@ const PAGE_LABELS = {
   'admin-users':           'User Management',
   'appointments':          'Appointments',
   'create-appointment':    'New Appointment',
-  'waitlist':              'Waitlist',
-  'patient-list':          'Patient Records',
+  'patient-list':          'Patients',
   'add-patient':           'Add Patient',
   'patient-view':          'Patient Profile',
   'contact-messages':      'Contact Messages',
@@ -228,6 +236,10 @@ const PAGE_LABELS = {
 
 // ── Navigate ────────────────────────────────────────────────────
 function navigate(page, params = {}) {
+  // Leaving the exam wizard: save its draft now (fields are read before
+  // the page is replaced), not 2s later when they're already gone.
+  if (window._examDraftSave) window._examDraftSave(true)
+
   // Handle sidebar actions that open modals/overlays
   if (page === 'add-user')    { window.openAddUserModal();    return }
   if (page === 'add-patient') { window.navigate('patient-list'); setTimeout(() => window.openAddPatientModal(), 100); return }
@@ -251,7 +263,10 @@ function navigate(page, params = {}) {
   if (window.closeModal) window.closeModal()
   closeMobileSidebar()
   if (window.stopQRCamera) window.stopQRCamera()
-  renderPage()
+  // A real navigation always starts fresh (top of page, page 1, empty
+  // search) — see renderPage()'s same-page state keeping.
+  _navRendering = true
+  try { renderPage() } finally { _navRendering = false }
 
   // ── Per-page sync-on-navigate ────────────────────────────────────
   // Fire the relevant sync immediately so the page opens with fresh data
@@ -294,13 +309,6 @@ function navigate(page, params = {}) {
   // Contact messages (admin/staff)
   if (page === 'contact-messages') {
     if (window._syncContactMessages) window._syncContactMessages()
-  }
-
-  // Waitlist (admin/staff) — was previously boot+poll only, could show
-  // up to ~30s-stale data on first visit; now syncs immediately on nav
-  // just like every other data-driven page.
-  if (page === 'waitlist') {
-    if (window._syncWaitlist) window._syncWaitlist()
   }
 
   // Activity log (admin)
@@ -347,8 +355,24 @@ window.goBack = goBack
 // opts.silent: skip the fade-up entrance animation — used by background
 // polling so a data refresh the user didn't ask for doesn't visibly blink
 // the whole page. Real navigation (the default) keeps the animation.
+// True only while navigate() is rendering — a real page change.
+var _navRendering = false
+// What was last rendered (page + section/filter + params), to tell a
+// same-page re-render apart from a page/section change made by setting
+// state directly and calling renderPage().
+var _lastRenderSig = ''
+// Bumped on every render — a delayed restore only applies if no newer
+// render (e.g. the user navigated away) has happened since.
+var _renderSeq = 0
+
 function renderPage(opts) {
   const silent = !!(opts && opts.silent)
+  // Reports are admin-only — anyone else who lands on it (stale link, back
+  // button, saved state) is sent to their own dashboard instead.
+  if (state.page === 'admin-reports' && state.role !== 'admin') {
+    state.page = { staff: 'staff-dashboard', doctor: 'doctor-dashboard', patient: 'patient-dashboard' }[state.role] || 'admin-dashboard'
+    state.params = {}
+  }
   const { page, role } = state
   const Pages = window._pages
 
@@ -357,7 +381,6 @@ function renderPage(opts) {
     'admin-users':           Pages.pageAdminUsers,
     'appointments':          Pages.pageAppointments,
     'create-appointment':    Pages.pageCreateAppointment,
-    'waitlist':              Pages.pageWaitlist,
     'patient-list':          Pages.pagePatientList,
     'add-patient':           Pages.pageComingSoon,
     'patient-view':          Pages.pagePatientView,
@@ -396,22 +419,51 @@ function renderPage(opts) {
   const el = document.getElementById('main-content')
   if (!fn || !el) return
 
-  // Silent refresh: preserve scroll position and skip the entrance
-  // animation entirely, since this is a background data update the user
-  // didn't initiate, not a page change.
-  const scrollTop = silent ? el.scrollTop : 0
+  // Same-page re-render — after saving in a modal, or the background poll
+  // (silent) — keeps the user exactly where they were: scroll position,
+  // each table's page + rows-per-page, and any typed search, with no
+  // entrance animation. Only a real navigation (navigate()) or a change
+  // of page/section starts fresh at the top.
+  const sig  = page + '|' + (state.filter || '') + '|' + JSON.stringify(state.params || {})
+  const keep = !_navRendering && (silent || sig === _lastRenderSig)
+  _lastRenderSig = sig
+  const seq = ++_renderSeq
+  const scrollTop = keep ? el.scrollTop : 0
+  const searches  = keep ? Array.from(el.querySelectorAll('input.search-input')).map(i => i.value) : []
+  const pgSnap    = keep && window.pgSnapshot ? window.pgSnapshot() : null
+
   el.innerHTML = fn()
-  el.className = silent ? '' : 'fade-up'
-  if (silent) el.scrollTop = scrollTop
+  el.className = keep ? '' : 'fade-up'
+  el.scrollTop = scrollTop
 
   wrapTableScroll()
   renderTopbar()
   highlightSidebarActive()
 
+  // Put the kept search text + table pages back once the page's own
+  // afterRender (initPagination/initSortable) has run. Searches first —
+  // re-running a search filter resets its table to page 1 — then the
+  // saved pages on top.
+  const restore = () => {
+    if (!keep || seq !== _renderSeq) return
+    const inputs = el.querySelectorAll('input.search-input')
+    searches.forEach((v, i) => {
+      if (v && inputs[i]) { inputs[i].value = v; inputs[i].dispatchEvent(new Event('input', { bubbles: true })) }
+    })
+    if (pgSnap && window.pgRestore) window.pgRestore(pgSnap)
+    el.scrollTop = scrollTop
+  }
+
   // Charts, QR etc. need two rAF ticks so container dimensions are settled
   const cb = state.afterRender
   state.afterRender = null
-  if (cb) requestAnimationFrame(() => requestAnimationFrame(cb))
+  if (cb || keep) requestAnimationFrame(() => requestAnimationFrame(() => {
+    // A newer render already replaced this page — its afterRender/restore
+    // belong to the old DOM, so skip them.
+    if (seq !== _renderSeq) return
+    try { if (cb) cb() } catch (e) { console.error('[renderPage] afterRender failed:', e) }
+    restore()
+  }))
 }
 
 // ── Shell bootstrap (called once after login) ───────────────────
@@ -623,7 +675,7 @@ function renderTopbar() {
         (params.patientId && window.patients ? window.patients.find(p => p.id === params.patientId)?.name : null)
       const currentLabel = `${label}${patientName ? ` — ${patientName}` : ''}`
       // Pages not reachable from the sidebar itself (Patient Profile, the
-      // exam wizard, Waitlist, QR Scanner, etc.) are always drilled into
+      // exam wizard, QR Scanner, etc.) are always drilled into
       // from some button — show a clickable crumb back to wherever that
       // actually was (from the back-stack), not a fixed guessed parent.
       // Sidebar-navigable pages skip this: hopping between top-level
@@ -705,8 +757,8 @@ function _notifTimeAgo(dateStr) {
 }
 window._notifTimeAgo = _notifTimeAgo
 
-const _NOTIF_ICON  = { approved:'check-circle', cancelled:'x-circle', disapproved:'x-circle', rescheduled:'calendar', new_appointment:'calendar', reschedule_request:'alert-circle', no_show:'alert-circle', reminder:'clock', waitlist_offer:'alert-circle', waitlist_removed:'x-circle', waitlist_join:'clock', waitlist_left:'x-circle', welcome:'home', info:'info', contact_message:'mail', follow_up_needed:'calendar', new_login:'monitor', appointment_confirmed:'check-circle', deletion_request:'user-x', deletion_reviewed:'check-circle' }
-const _NOTIF_COLOR = { approved:'green', cancelled:'red', disapproved:'red', rescheduled:'blue', new_appointment:'orange', reschedule_request:'orange', no_show:'red', reminder:'orange', waitlist_offer:'orange', waitlist_removed:'red', waitlist_join:'orange', waitlist_left:'gray', welcome:'orange', info:'gray', contact_message:'orange', follow_up_needed:'orange', new_login:'orange', appointment_confirmed:'green', deletion_request:'red', deletion_reviewed:'green' }
+const _NOTIF_ICON  = { approved:'check-circle', cancelled:'x-circle', disapproved:'x-circle', rescheduled:'calendar', new_appointment:'calendar', reschedule_request:'alert-circle', no_show:'alert-circle', reminder:'clock', welcome:'home', info:'info', contact_message:'mail', follow_up_needed:'calendar', new_login:'monitor', appointment_confirmed:'check-circle', deletion_request:'user-x', deletion_reviewed:'check-circle', exam_draft:'file-text', exam_draft_expired:'alert-circle', reschedule_proposed:'refresh-cw', reschedule_accepted:'check-circle', reschedule_declined:'x-circle' }
+const _NOTIF_COLOR = { approved:'green', cancelled:'red', disapproved:'red', rescheduled:'blue', new_appointment:'orange', reschedule_request:'orange', no_show:'red', reminder:'orange', welcome:'orange', info:'gray', contact_message:'orange', follow_up_needed:'orange', new_login:'orange', appointment_confirmed:'green', deletion_request:'red', deletion_reviewed:'green', exam_draft:'orange', exam_draft_expired:'red', reschedule_proposed:'blue', reschedule_accepted:'green', reschedule_declined:'red' }
 // Same 'welcome' precedent extended to catch notifications created before
 // 'deletion_reviewed' existed as its own type (they're stuck as plain
 // 'info' in the DB forever) — the only way those rows ever pick up the
@@ -724,7 +776,7 @@ function _notifNavTarget(type, role) {
                  :                     'patient-dashboard'
 
   // Route appointment notifications to the correct filter per role and type
-  const apptTypes = new Set(['approved','cancelled','disapproved','rescheduled','new_appointment','reschedule_request','no_show','appointment_confirmed'])
+  const apptTypes = new Set(['approved','cancelled','disapproved','rescheduled','new_appointment','reschedule_request','no_show','appointment_confirmed','reschedule_proposed','reschedule_accepted','reschedule_declined'])
   if (apptTypes.has(type)) {
     // Patients: go to the filter that matches the status they were notified about
     if (role === 'patient') {
@@ -771,16 +823,8 @@ function _notifNavTarget(type, role) {
     return { page: 'appointments', params: { filter: staffFilter } }
   }
 
-  // Reminder/waitlist notifications only ever go to patients.
+  // Reminder notifications only ever go to patients.
   if (type === 'reminder')         return { page: 'patient-appts', params: { filter: 'approved' } }
-  if (type === 'waitlist_offer')   return { page: 'patient-request-appt', params: {} }
-  if (type === 'waitlist_removed') return { page: 'patient-request-appt', params: {} }
-
-  // A patient joining or leaving the waitlist is admin/staff-only — send
-  // them to the Waitlist list page (there's no per-status filter there to
-  // preserve).
-  if (type === 'waitlist_join')    return { page: 'waitlist', params: {} }
-  if (type === 'waitlist_left')    return { page: 'waitlist', params: {} }
 
   const map = {
     record:          role === 'patient' ? 'patient-exam-history'  : 'patient-list',
@@ -906,19 +950,12 @@ function _markNotifDropdown(id) {
   // markNotifRead()'s (main.js) follow_up_needed branch for the same reason
   // as the shortcuts above: the bell dropdown and the full Notifications
   // page are two separate click-handling paths.
+  if (['exam_draft','exam_draft_expired','reschedule_proposed','reschedule_accepted','reschedule_declined'].includes(notif.type) && notif.relatedId && (state.role !== 'patient' || notif.type === 'reschedule_proposed')) {
+    window.openApptFromNotif(notif.relatedId)
+    return
+  }
   if (notif.type === 'follow_up_needed' && notif.relatedId && state.role !== 'patient') {
-    const p = (window.patients || patients).find(pt => pt.id === notif.relatedId)
-    const con = p && (p.consultations || []).find(c => c.followUpDate)
-    if (p && con) {
-      const doc = (window.doctors || doctors).find(d => d.name === con.doctor)
-      window._staffCalPrefill = {
-        doctorId: doc?.id || '', doctorName: doc?.name || con.doctor || '',
-        doctorSpec: doc?.specialization || '', date: con.followUpDate, time: con.followUpTime || '', isFollowUp: true
-      }
-      navigate('create-appointment', { patientId: p.id, patientName: p.name })
-    } else {
-      navigate('patient-view', { patientId: notif.relatedId })
-    }
+    window.openFollowUpFromNotif(notif.relatedId)
     return
   }
   const { page: _np, params: _npar } = _notifNavTarget(notif.type, state.role)

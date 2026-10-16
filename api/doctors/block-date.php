@@ -54,17 +54,16 @@ try {
     // cancelled/rescheduled first instead of letting the block succeed
     // unchecked. Scoped to 'approved' only (not 'pending') — nothing was
     // promised to the patient yet for a still-pending request.
-    $apptChk = $pdo->prepare(
-        "SELECT COUNT(*) FROM appointments WHERE doctor_id = ? AND date = ? AND status = 'approved'"
-    );
-    $apptChk->execute([$doctorId, $date]);
-    $apptCount = (int)$apptChk->fetchColumn();
-    if ($apptCount > 0) {
-        $plural = $apptCount === 1 ? '' : 's';
-        $pron   = $apptCount === 1 ? 'it' : 'them';
-        jsonResponse(['success' => false, 'message' =>
-            "This date already has {$apptCount} approved appointment{$plural}. Cancel or reschedule {$pron} before blocking this date."
-        ]);
+    // Pending AND approved appointments on that date must be moved or
+    // cancelled first — a blocked date can't keep appointments. The list
+    // comes back so staff can see exactly which ones.
+    $onDate = upcomingDoctorAppointments($pdo, $doctorId, $date);
+    if ($onDate) {
+        $n = count($onDate);
+        jsonResponse(['success' => false, 'blocked' => true,
+            'conflicts' => array_map(fn($r) => _affectedAppt($r, 'Booked on this date'), $onDate),
+            'message' => "This date has {$n} pending or approved appointment" . ($n === 1 ? '' : 's')
+                       . '. Reschedule or cancel ' . ($n === 1 ? 'it' : 'them') . ' before blocking this date.']);
     }
 
     $s = $pdo->prepare(

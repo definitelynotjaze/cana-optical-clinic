@@ -15,8 +15,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     jsonResponse(['success' => false, 'message' => 'Method not allowed.'], 405);
 }
 
+// Answered as a 200 with authenticated:false rather than a 401 — this is
+// polled every 30s, and a poll that lands during logout/login (or after a
+// remote sign-out) would otherwise print a red "Failed to load resource"
+// error in the browser console. The client (auth.js _syncNotifications)
+// reads authenticated:false as the same "session ended" signal.
 if (!isset($_SESSION['user_id'])) {
-    jsonResponse(['success' => false, 'message' => 'Not authenticated.'], 401);
+    jsonResponse(['success' => false, 'authenticated' => false, 'message' => 'Not authenticated.'], 200);
 }
 
 $userId = (int)$_SESSION['user_id'];

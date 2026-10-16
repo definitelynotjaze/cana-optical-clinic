@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 //  CANAOPTICALCLINIC — db.js
 //  Central mock data store. No logic. No imports.
 // ================================================================
@@ -29,6 +29,7 @@ function getExamRecords() {
         patientName:       p.name,
         patientPhotoUrl:   p.photoUrl || null,
         doctor:            e.doctor || '',
+        doctorId:          e.doctorId || '',
         date:              e.date   || '',
         consultationId:    e.consultationId || '',
         diagnosis:         e.diagnosis        || '',
@@ -58,8 +59,8 @@ function getExamRecords() {
 // could never actually differ from it, so it was dropped entirely.
 var CLINIC_SERVICES = [
   { id: 1,  name: 'Comprehensive Eye Examination',             description: 'A thorough assessment of overall eye health and visual acuity, including refraction and internal/external eye evaluation.',                       status: 'active', icon: 'eye',        bookable: true,  patientVisible: true },
-  { id: 2,  name: 'Optical Frame Selection',                   description: 'Assisting patients in choosing frames that fit properly and suit their preferences.',                                                              status: 'active', icon: 'archive',    bookable: true,  patientVisible: true },
-  { id: 3,  name: 'Eyeglass/Contact Lens Fitting',              description: 'Fitting and adjustment of eyeglasses or contact lenses for proper alignment, comfort, and visual clarity.',                                        status: 'active', icon: 'award',      bookable: true,  patientVisible: true },
+  { id: 2,  name: 'Optical Frame Selection',                   description: 'Assisting patients in choosing frames that fit properly and suit their preferences.',                                                              status: 'active', icon: 'archive',    bookable: false, patientVisible: true },
+  { id: 3,  name: 'Eyeglass/Contact Lens Fitting',              description: 'Fitting and adjustment of eyeglasses or contact lenses for proper alignment, comfort, and visual clarity.',                                        status: 'active', icon: 'award',      bookable: false, patientVisible: true },
   // Staff-only — never shown to patients (booking wizard or public site),
   // but staff/admin can still select it when booking a follow-up on a
   // patient's behalf. Name intentionally kept exactly as-is (see
@@ -78,14 +79,15 @@ var CLINIC_SERVICES = [
 var _svcNextId = 11
 
 // Service types that are dispensing/administrative, not a clinical exam —
-// nothing was actually examined, so completing one of these never
-// requires a diagnosis. Everything else (Comprehensive Eye Examination,
-// Follow-up Consultation) still does — even a follow-up involves an
-// assessment of the patient's condition. Referenced by both the New
-// Examination wizard's Diagnosis step (pages.js) and saveNewExam()'s
-// save-time validation (main.js), so they can't drift out of sync with
-// each other.
-var NON_EXAM_SERVICE_TYPES = ['Eyeglass/Contact Lens Fitting', 'Optical Frame Selection']
+// completing one of these never requires a diagnosis. Empty now: the only
+// bookable services left are Comprehensive Eye Examination and Follow-up
+// Consultation, and both are clinical (even a follow-up assesses the
+// patient's condition), so every exam requires a diagnosis. The old
+// non-exam types (Optical Frame Selection, Eyeglass/Contact Lens Fitting)
+// were remapped to Follow-up Consultation — see schema.sql's migration
+// notes. Kept as a list (read by the New Examination wizard, pages.js, and
+// saveNewExam(), main.js) in case a non-exam service is ever bookable again.
+var NON_EXAM_SERVICE_TYPES = []
 
 var clinicInfo = {
   name: 'Cana Optical Clinic',
@@ -120,9 +122,9 @@ var consultationSettings = {
   afternoonEnd:   '5:00 PM',
   lunchBreak:  true,
   clinicDays:  ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
-  reminderTime:        '12:00 PM',
-  confirmDeadlineTime: '9:00 PM',
-  waitlistOfferHours:  3
+  reminderTime:        '12:00 AM',
+  followupReminderTime: '12:00 PM',
+  maxUpcomingApptsPerPatient: 1
 }
 
 // Parses consultationSettings.minAdvanceBooking ('Same day','1 day','2 days',…)
@@ -222,6 +224,9 @@ function _recomputeApptCounts() {
   window._doctorTodayCount      = appointments.filter(a => a.date === todayStr && ['approved','pending'].includes(a.status)).length
   window._doctorUpcomingCount   = appointments.filter(a => a.date > todayStr && ['approved','pending'].includes(a.status)).length
   window._doctorApptAlertCount  = window._doctorTodayCount + window._doctorUpcomingCount
+  // My Appointments > Approved / Pending (today onward).
+  window._doctorApprovedCount   = appointments.filter(a => a.date >= todayStr && a.status === 'approved').length
+  window._doctorPendingCount    = appointments.filter(a => a.date >= todayStr && a.status === 'pending').length
 }
 
 function updateAppointmentStatus(id, status) {
@@ -289,6 +294,3 @@ function removeArchivedRecord(id) {
 
 // ── Contact Messages (public contact-form submissions) ─────────
 var contactMessages = []
-
-// ── Waitlist entries (admin/staff view — active waiting/offered rows) ──
-var waitlistEntries = []

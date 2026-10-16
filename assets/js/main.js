@@ -1,8 +1,25 @@
-﻿// ================================================================
+// ================================================================
 //  CANAOPTICALCLINIC — main.js
 //  App entry point. Imports all modules, attaches globals,
 //  handles modals, QR, toasts, and action handlers.
 // ================================================================
+
+// The vendored html2pdf.bundle.min.js throws an internal, unhandled
+// "n.resolve is not a function" from its own Worker/progress-tracking
+// internals on every single PDF render — a known issue in this library
+// version, unrelated to and firing independently of our own .then()/
+// .catch()/.finally() chain around .save(), which already completes
+// successfully regardless (the "PDF downloaded successfully" toast is
+// proof the actual download worked). Confirmed harmless — filtered here
+// by exact message + a stack trace naming html2pdf specifically, so this
+// never risks swallowing a real, unrelated unhandled rejection.
+window.addEventListener('unhandledrejection', e => {
+  const msg   = e?.reason?.message || ''
+  const stack = e?.reason?.stack   || ''
+  if (msg.includes('n.resolve is not a function') && stack.includes('html2pdf')) {
+    e.preventDefault()
+  }
+})
 
 // Full display name from parts, middle name shown as an initial ("Juan D.
 // Dela Cruz") — PH official-document convention, mirrors api/helpers.php's _mi().
@@ -37,6 +54,8 @@ function icon(name, cls = 'icon') {
     calendar:      '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
     users:         '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     user:          '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    // Patient card (a person on an ID card) — the Patients sidebar item.
+    'id-card':     '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10.5" r="2.5"/><path d="M5.5 17a3.5 3.5 0 0 1 7 0"/><line x1="15" y1="9" x2="18.5" y2="9"/><line x1="15" y1="13" x2="18.5" y2="13"/>',
     'user-x':      '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="18" y1="8" x2="23" y2="13"/><line x1="23" y1="8" x2="18" y2="13"/>',
     'file-text':   '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
     settings:      '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
@@ -54,6 +73,8 @@ function icon(name, cls = 'icon') {
     'trash-2':     '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
     check:         '<polyline points="20 6 9 17 4 12"/>',
     x:             '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    'minus-circle': '<circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/>',
+    globe:         '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
     clock:         '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
     printer:       '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
     download:      '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
@@ -135,7 +156,7 @@ window.handleRegister        = handleRegister
 window.showRegister          = showRegister
 window.showLogin             = showLogin
 window._charts               = { initAppointmentsChart, initPatientGrowthChart, initReportStatusChart, initReportMonthlyChart, updateAppointmentsChart, updatePatientGrowthChart, initAnalyticsDoughnut, initAnalyticsStacked, initGenderChart, initAgeChart, initDoctorUtilChart, updateAnalyticsCharts, initStaffOverviewChart, updateStaffOverviewChart }
-window._pages                = { pageAdminDashboard, pageAdminUsers, pageAppointments, pageCreateAppointment, pageWaitlist, pagePatientList, pagePatientView, pageContactMessages, pageQRScanner, pageSchedule, pageAdminReports, pageAdminSettings, pageActivityLog, pageStaffDashboard, pageStaffSettings, pageDoctorDashboard, pageDoctorAppointments, pageDoctorSchedule, pageDoctorSettings, pageExamination, pageExamRecords, pageNewExamination, pagePatientExamHistory, pagePatientDashboard, pagePatientAppts, pagePatientConsultations, pagePatientQR, pagePatientPrescriptions, pagePatientNotifications, pagePatientSettings, pageComingSoon, pagePatientDoctorAvail, pageScanQR, pageActiveSessions }
+window._pages                = { pageAdminDashboard, pageAdminUsers, pageAppointments, pageCreateAppointment, pagePatientList, pagePatientView, pageContactMessages, pageQRScanner, pageSchedule, pageAdminReports, pageAdminSettings, pageActivityLog, pageStaffDashboard, pageStaffSettings, pageDoctorDashboard, pageDoctorAppointments, pageDoctorSchedule, pageDoctorSettings, pageExamination, pageExamRecords, pageNewExamination, pagePatientExamHistory, pagePatientDashboard, pagePatientAppts, pagePatientConsultations, pagePatientQR, pagePatientPrescriptions, pagePatientNotifications, pagePatientSettings, pageComingSoon, pagePatientDoctorAvail, pageScanQR, pageActiveSessions }
 window.toggleNotifyDropdown  = toggleNotifyDropdown
 window.toggleUserDropdown    = toggleUserDropdown
 window.closeAllDropdowns     = closeAllDropdowns
@@ -1436,9 +1457,53 @@ function _makeQRDataUrl(text, size = 90) {
   }
 }
 
+// Download-quality QR, drawn module-by-module from QRCode.js's own matrix
+// instead of exporting the on-screen canvas. That canvas had two problems
+// that made downloads hard to scan: no quiet zone (the code ran right to the
+// image edge — scanners need a white border around it, especially once the
+// PNG sits on a dark viewer or coloured print), and a 512px size that isn't
+// a multiple of the module count, so module edges came out blurred.
+// Here every module is a whole number of pixels, pure black on white, with
+// the standard 4-module quiet zone, at roughly 1000px+ overall.
+function _makeDownloadQRDataUrl(text) {
+  if (!window.QRCode || !text) return null
+  const tmp = document.createElement('div')
+  tmp.style.cssText = 'position:fixed;left:-9999px;top:-9999px'
+  document.body.appendChild(tmp)
+  try {
+    const inst = new window.QRCode(tmp, { text, width: 64, height: 64, correctLevel: window.QRCode.CorrectLevel.M })
+    const qr   = inst._oQRCode
+    if (!qr || typeof qr.getModuleCount !== 'function') return null
+    const count  = qr.getModuleCount()
+    const quiet  = 4
+    const scale  = Math.max(8, Math.ceil(1000 / (count + quiet * 2)))
+    const px     = (count + quiet * 2) * scale
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = px
+    const ctx = canvas.getContext('2d')
+    ctx.imageSmoothingEnabled = false
+    ctx.fillStyle = '#FFFFFF'
+    ctx.fillRect(0, 0, px, px)
+    ctx.fillStyle = '#000000'
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (qr.isDark(r, c)) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale)
+      }
+    }
+    return canvas.toDataURL('image/png')
+  } catch (_) {
+    return null
+  } finally {
+    tmp.remove()
+  }
+}
+
 function downloadQR(wrapperId, filename) {
   const root    = wrapperId ? document.getElementById(wrapperId) : document.body
-  const dataUrl = _getQRDataUrl(root || document.body)
+  // Rebuild from the QR's own text (data-qr on mockQRSvg()'s container) at
+  // download quality; fall back to the on-screen image only if that fails.
+  const qrText  = (root || document.body).querySelector('[data-qr]')?.getAttribute('data-qr') || ''
+  const dataUrl = _makeDownloadQRDataUrl(qrText) || _getQRDataUrl(root || document.body)
   if (!dataUrl) { toast('QR code is still loading — please wait a moment.', 'error'); return }
   const a    = document.createElement('a')
   a.download = `CANA-QR-${filename || 'patient'}.png`
@@ -1543,43 +1608,245 @@ window._printHtmlDocument = _printHtmlDocument
 // the same "content renders, layout doesn't" failure across several
 // earlier attempts at rebuilding a standalone print document on the fly.
 // wrapperClass must already have matching rules in global.css.
-function _downloadLiveContentAsPdf(bodyContent, wrapperClass, filename, btnEl, marginMm = [16, 20]) {
+// fullHtml (the same standalone document Print uses): when given, the PDF is
+// rendered from THAT document inside its own hidden iframe, with html2pdf
+// loaded into the iframe too — so it's laid out by the print document's
+// own <style> only (no app CSS like .tbl leaking in), and matches the
+// printed version's sizes and page breaks exactly. bodyContent/wrapperClass
+// (the global.css .pdf-*-doc copy) are then only a fallback.
+function _downloadLiveContentAsPdf(bodyContent, wrapperClass, filename, btnEl, marginMm = [16, 20], fullHtml = '') {
+  // html2pdf.js's bundled worker isn't safe for concurrent use — starting
+  // a second render (e.g. clicking a different record's Download button
+  // before the first one finishes) corrupts the first call's internal
+  // promise chain, surfacing as "n.resolve is not a function" from deep
+  // inside the library for BOTH calls. Each button already disables
+  // itself, but that only guards against re-clicking the SAME button —
+  // this app-wide flag is what stops two DIFFERENT download buttons from
+  // ever running html2pdf() at the same time.
+  if (window._pdfBusy) {
+    toast('A PDF is already being generated — please wait for it to finish.', 'error')
+    return
+  }
+
   const isIconOnly = !!(btnEl && btnEl.classList.contains('btn-icon'))
   const btnHtml = btnEl ? btnEl.innerHTML : ''
   const spinnerDot = size => `<span style="display:inline-block;width:${size}px;height:${size}px;border:2px solid #D1D5DB;border-top-color:#9CA3AF;border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0"></span>`
   if (btnEl) {
+    if (isIconOnly) {
+      // Never touch innerHTML here — swapping the actual icon out for a
+      // spinner element, even a same-sized one, can still shift a
+      // fixed-size button by a pixel or two depending on the browser,
+      // which is exactly what breaks a tight icon row's alignment (the
+      // Examination Records actions column, etc). The icon stays in the
+      // DOM the whole time, just hidden — see .btn-icon.is-loading in
+      // global.css, which overlays the spinner on top via ::after instead.
+      btnEl.classList.add('is-loading')
+    } else {
+      // Text button ("Download PDF" -> "Downloading…") — locking its
+      // rendered width right before swapping the label is what stops it
+      // (and, since these usually sit in a flex row alongside other
+      // buttons — a card footer's Download/Print pair) from shifting or
+      // wrapping for the duration. Released again in cleanup() below.
+      btnEl.style.width = btnEl.offsetWidth + 'px'
+      btnEl.innerHTML = `${spinnerDot(9)} Downloading…`
+    }
     btnEl.disabled = true
     btnEl.style.opacity = '.6'
-    btnEl.innerHTML = isIconOnly ? spinnerDot(12) : `${spinnerDot(9)} Downloading…`
   }
   const cleanup = () => {
-    if (btnEl) { btnEl.disabled = false; btnEl.style.opacity = ''; btnEl.innerHTML = btnHtml }
+    window._pdfBusy = false
+    if (btnEl) {
+      btnEl.disabled = false
+      btnEl.style.opacity = ''
+      if (isIconOnly) { btnEl.classList.remove('is-loading') } else { btnEl.innerHTML = btnHtml; btnEl.style.width = '' }
+    }
   }
   if (!window.html2pdf) { toast('PDF export is unavailable right now.', 'error'); cleanup(); return }
+  window._pdfBusy = true
 
   const marginH = Array.isArray(marginMm) ? (marginMm[1] ?? marginMm[0]) : marginMm
-  const contentWidthPx = Math.round((210 - marginH * 2) * 96 / 25.4)
+  // floor, like html2pdf's own page-width math — a 1px wider layout than
+  // html2pdf's container can re-wrap text and shift every page break.
+  const contentWidthPx = Math.floor((210 - marginH * 2) * 96 / 25.4)
+  const marginTop   = Array.isArray(marginMm) ? marginMm[0] : marginMm
+  const pageInnerPx = (297 - marginTop * 2) * 96 / 25.4
+  const pdfOpts = {
+    filename,
+    margin:      marginMm,
+    image:       { type: 'jpeg', quality: 1 },
+    html2canvas: { scale: 3, backgroundColor: '#ffffff', useCORS: true, windowWidth: contentWidthPx, width: contentWidthPx, x: 0, y: 0 },
+    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak:   { mode: ['css', 'legacy'] },
+  }
+  const settleImgs = root => {
+    const imgs = Array.from(root.querySelectorAll('img'))
+    return Promise.race([
+      Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(res => {
+        img.addEventListener('load',  res, { once: true })
+        img.addEventListener('error', res, { once: true })
+      }))),
+      new Promise(res => setTimeout(res, 4000)),
+    ])
+  }
+
+  const libSrc = document.querySelector('script[src*="html2pdf"]')?.src
+  if (fullHtml && libSrc) {
+    // Same width as the printed page's content box, off-screen. Not
+    // visibility:hidden — html2canvas runs inside this iframe and needs
+    // its document laid out normally.
+    const frame = document.createElement('iframe')
+    frame.setAttribute('aria-hidden', 'true')
+    frame.tabIndex = -1
+    frame.style.cssText = `position:fixed;left:-10000px;top:0;width:${contentWidthPx}px;height:1200px;border:0;opacity:0;pointer-events:none`
+    document.body.appendChild(frame)
+    const w = frame.contentWindow, d = w.document
+    d.open(); d.write(fullHtml); d.close()
+    const libReady = new Promise((res, rej) => {
+      const s = d.createElement('script')
+      s.src = libSrc; s.onload = res; s.onerror = rej
+      d.head.appendChild(s)
+    })
+    Promise.all([libReady, settleImgs(d), d.fonts ? d.fonts.ready : null])
+      .then(() => {
+        // One root element holding the whole page (html2pdf clones what it's
+        // given into its own container inside this same <body>, so body's
+        // font/colour still apply).
+        const root = d.createElement('div')
+        while (d.body.firstChild) root.appendChild(d.body.firstChild)
+        d.body.style.margin = '0'
+        root.style.width = contentWidthPx + 'px'
+        d.body.appendChild(root)
+
+        // ── Page breaks, done here instead of by html2pdf ──
+        // The PDF is one tall image cut every `pageH` px. Anything print
+        // keeps whole (break-inside:avoid in the print CSS — table rows,
+        // the charts section, boxes) plus small blocks print never splits
+        // mid-line (signature, headings, paragraphs, images) gets a spacer
+        // before it when it would straddle a cut, so it starts 1px into
+        // the next page. html2pdf's own pass pushed blocks exactly onto
+        // the cut (a top border stayed on the old page), and its spacer
+        // inside a flex/grid row sat beside the block instead of above it.
+        const pageH = Math.floor(contentWidthPx * 3 * (297 - marginTop * 2) / (210 - marginH * 2)) / 3
+        root.querySelectorAll('.sig-block, h1, h2, h3, h4, p, li, img, .chart-label, .section-header').forEach(el => {
+          if (el.offsetHeight < pageH / 3) el.style.breakInside = 'avoid'
+        })
+        // Report "Charts & Summaries" taller than a page: its two boxes flow
+        // row by row, like Chrome's print.
+        root.querySelectorAll('.charts-section').forEach(sec => {
+          if (sec.offsetHeight > pageH) sec.querySelectorAll('.chart-box').forEach(b => { b.style.breakInside = 'auto'; b.style.pageBreakInside = 'auto' })
+        })
+        const base = () => root.getBoundingClientRect().top
+        Array.from(root.querySelectorAll('*')).forEach(el => {
+          const cs = w.getComputedStyle(el)
+          if (![cs.breakInside, cs.pageBreakInside].some(v => v === 'avoid' || v === 'avoid-page')) return
+          if (/flex|grid/.test(w.getComputedStyle(el.parentElement).display)) return
+          const r = el.getBoundingClientRect(), top = r.top - base(), bottom = r.bottom - base()
+          if (!r.height || r.height > pageH || Math.floor(top / pageH) === Math.floor((bottom - 0.5) / pageH)) return
+          const gap = Math.ceil(pageH - (top % pageH)) + 1
+          let sp
+          if (el.tagName === 'TR') {
+            sp = d.createElement('tr')
+            const cols = Array.from(el.cells).reduce((n, c) => n + (c.colSpan || 1), 0) || 1
+            sp.innerHTML = `<td colspan="${cols}" style="height:${gap}px;padding:0;border:0;background:transparent"></td>`
+          } else {
+            sp = d.createElement('div')
+            sp.style.cssText = `display:block;height:${gap}px`
+          }
+          el.parentNode.insertBefore(sp, el)
+          // A table continuing on the next page repeats its header row,
+          // the same as Chrome's print does.
+          const head = el.tagName === 'TR' && el.parentElement.tagName === 'TBODY' && el.closest('table')?.tHead?.rows[0]
+          if (head) el.parentNode.insertBefore(head.cloneNode(true), el)
+        })
+
+        // Options rebuilt in the iframe's own realm — html2pdf checks
+        // `instanceof Array` on margin, which fails for a parent-page array.
+        const opts = w.JSON.parse(JSON.stringify(pdfOpts))
+        opts.pagebreak = { mode: [] }
+        return w.html2pdf().set(opts).from(root).outputPdf('blob')
+      })
+      .then(blob => {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url; a.download = filename
+        document.body.appendChild(a); a.click(); a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 2000)
+        toast('PDF downloaded successfully.', 'success')
+      })
+      .catch(() => toast('Could not generate the PDF. Try Print instead.', 'error'))
+      .finally(() => { frame.remove(); cleanup() })
+    return
+  }
 
   // Matches downloadClearancePDF()'s own wrap/content split exactly —
   // position:fixed;left:-99999px (what this used before) pushes the
   // element so far outside any plausible viewport that html2canvas
-  // captured nothing at all. absolute + top:0/left:0 + visibility:hidden
-  // on the OUTER wrapper (invisible to a human, out of normal flow so it
-  // can't push real content around, but still fully part of the render
-  // tree) with the INNER content explicitly set back to visible is the
-  // proven pattern — visibility inherits by default, but a descendant
-  // can override it back on, which is exactly what lets html2canvas
-  // still capture it. x:0, y:0 tell html2canvas to capture from the
-  // content's own top-left rather than wherever it happens to sit
-  // relative to the page/scroll position.
+  // captured nothing at all. absolute + visibility:hidden on the OUTER
+  // wrapper (invisible to a human, out of normal flow so it can't push
+  // real content around, but still fully part of the render tree) with
+  // the INNER content explicitly set back to visible is the proven
+  // pattern — visibility inherits by default, but a descendant can
+  // override it back on, which is exactly what lets html2canvas still
+  // capture it. x:0, y:0 tell html2canvas to capture from the content's
+  // own top-left rather than wherever it happens to sit relative to the
+  // page/scroll position.
+  // top:0/left:0 (what this used before) sits within actual document
+  // flow — legitimately invisible on a clean page load, but on a page
+  // scrolled anywhere near the top when the button is clicked, the
+  // "visible" inner content genuinely paints there for the ~1s render
+  // takes, flashing a full, oddly-cropped copy of the document into
+  // view. A large top offset keeps the SAME position:absolute (the part
+  // that's actually proven safe for html2canvas — only position:FIXED
+  // with a large offset broke it) while moving it far enough down the
+  // document that no realistic scroll position ever lands near it — but
+  // a HARDCODED huge offset (was top:99999px) balloons the page's total
+  // scrollable height to ~100,000px for that ~1s regardless of how short
+  // the real page actually is, visibly shrinking the vertical scrollbar
+  // thumb down to a sliver and snapping it back once removed — its own
+  // small but real "page jump." Sizing the offset to the page's actual
+  // current height instead adds only as much invisible space as it takes
+  // to clear whatever's really on screen, never more.
+  const offscreenTop = document.documentElement.scrollHeight + 200
+
+  // Even hidden, an absolutely-positioned element this wide (~700px, an A4
+  // page's worth) still expands the page's own scrollable width — on a
+  // narrow/mobile viewport that pushes the document into horizontal
+  // overscroll. Restoring scroll position after the fact (still done
+  // below, as a safety net) isn't fully reliable — timing/reflow can
+  // still leave the page visibly shifted on some browsers. The actual
+  // fix is preventing the overscroll from ever being possible: force
+  // overflow:hidden on <html> for the duration, so the wide-but-hidden
+  // element can never push the viewport sideways in the first place, then
+  // restore whatever was there before (never assume it was empty — don't
+  // clobber a value some other part of the app may have already set).
+  // Both axes, not just X: this content is also ~1000px+ tall, easily
+  // enough to push a short page past the point where a vertical
+  // scrollbar first appears — and that scrollbar's own width (~15-17px on
+  // a non-overlay/Windows scrollbar) narrows the visible content area for
+  // as long as it's showing, which reads as the whole page/table
+  // "resizing" even though nothing about the real layout changed at all.
+  const htmlEl = document.documentElement
+  const prevOverflowX = htmlEl.style.overflowX
+  const prevOverflowY = htmlEl.style.overflowY
+  htmlEl.style.overflowX = 'hidden'
+  htmlEl.style.overflowY = 'hidden'
+  const scrollX = window.scrollX, scrollY = window.scrollY
+
   const wrap = document.createElement('div')
-  wrap.style.cssText = 'position:absolute;top:0;left:0;visibility:hidden;'
+  wrap.style.cssText = `position:absolute;top:${offscreenTop}px;left:0;visibility:hidden;`
   const content = document.createElement('div')
   content.className = wrapperClass
   content.style.cssText = `width:${contentWidthPx}px;visibility:visible;`
   content.innerHTML = bodyContent
   wrap.appendChild(content)
   document.body.appendChild(wrap)
+
+  // Report "Charts & Summaries": kept whole on one page when it fits; one
+  // taller than a page goes single-column so each summary box can move to
+  // the next page by itself (see .chart-grid-stack in global.css).
+  content.querySelectorAll('.charts-section').forEach(sec => {
+    if (sec.offsetHeight > pageInnerPx) sec.querySelector('.chart-grid')?.classList.add('chart-grid-stack')
+  })
 
   // Same image-timing fix as _printHtmlDocument()'s waitForImages() —
   // html2canvas snapshots whatever's actually in the DOM at capture time,
@@ -1603,8 +1870,10 @@ function _downloadLiveContentAsPdf(bodyContent, wrapperClass, filename, btnEl, m
     .set({
       filename,
       margin:      marginMm,
-      image:       { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true, windowWidth: contentWidthPx, width: contentWidthPx, x: 0, y: 0 },
+      image:       { type: 'jpeg', quality: 1 },
+      // scale:3 (was 2) — HD output; matters most for the profile photos
+      // now embedded on these documents, which looked visibly soft at 2x.
+      html2canvas: { scale: 3, backgroundColor: '#ffffff', useCORS: true, windowWidth: contentWidthPx, width: contentWidthPx, x: 0, y: 0 },
       jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak:   { mode: ['css', 'legacy'] },
     })
@@ -1612,7 +1881,7 @@ function _downloadLiveContentAsPdf(bodyContent, wrapperClass, filename, btnEl, m
     .save()
     .then(() => toast('PDF downloaded successfully.', 'success'))
     .catch(() => toast('Could not generate the PDF. Try Print instead.', 'error'))
-    .finally(() => { wrap.remove(); cleanup() })
+    .finally(() => { wrap.remove(); cleanup(); htmlEl.style.overflowX = prevOverflowX; htmlEl.style.overflowY = prevOverflowY; window.scrollTo(scrollX, scrollY) })
   )
 }
 window._downloadLiveContentAsPdf = _downloadLiveContentAsPdf
@@ -1631,7 +1900,8 @@ window._pdfFilename = _pdfFilename
 
 function printQR(wrapperId, patientName, patientId, qrData) {
   const root    = wrapperId ? document.getElementById(wrapperId) : document.body
-  const dataUrl = _getQRDataUrl(root || document.body)
+  const qrText  = (root || document.body).querySelector('[data-qr]')?.getAttribute('data-qr') || qrData || ''
+  const dataUrl = _makeDownloadQRDataUrl(qrText) || _getQRDataUrl(root || document.body)
   _printHtmlDocument(`<!DOCTYPE html><html><head><title>QR — ${patientName || 'Patient'}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
@@ -1682,7 +1952,8 @@ window.printQR = printQR
 // permanent .pdf-dash-doc rules in global.css).
 function _buildDashboardReportHtml() {
   const role = state.role
-  if (role === 'patient') return null
+  // Report generation (Print Report / Download PDF) is admin-only.
+  if (role !== 'admin') { toast('Reports are available to administrators only.', 'error'); return null }
 
   const generated  = new Date().toLocaleString('en-PH', { year:'numeric', month:'long', day:'numeric', hour:'numeric', minute:'2-digit', hour12:true })
   const logoAbsUrl = new URL(window._clinicLogoUrl || 'assets/images/logo/clinic-logo.png', document.baseURI).href
@@ -1716,7 +1987,7 @@ function _buildDashboardReportHtml() {
     const pendingCnt   = appointments.filter(a => a.status === 'pending').length
 
     sections += table('Overview', ['Metric','Value','Note'], [
-      ['Total Patients', patients.length, `${patients.filter(p=>p.status==='active').length} active`],
+      ['Total Patients', patients.length, `${patients.filter(p => (p.registeredDate || '').slice(0, 7) === localDateStr().slice(0, 7)).length} registered this month`],
       ['Total Appointments', appointments.length, `${pendingCnt} pending`],
       ['Doctors Available', `${availDocs}/${totalDocs}`, 'Available today'],
       ["Today's Appointments", todayCnt, 'Scheduled for today'],
@@ -1881,7 +2152,7 @@ function downloadDashboardReportPDF(btnEl) {
   // global.css (same architecture as downloadExamRecordPDF()).
   const bodyMatch = built.html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
   if (!bodyMatch) { toast('Could not generate the PDF.', 'error'); return }
-  _downloadLiveContentAsPdf(bodyMatch[1], 'pdf-dash-doc', built.filename, btnEl)
+  _downloadLiveContentAsPdf(bodyMatch[1], 'pdf-dash-doc', built.filename, btnEl, undefined, built.html)
 }
 window.downloadDashboardReportPDF = downloadDashboardReportPDF
 
@@ -2405,7 +2676,7 @@ async function _apptUpdate(payload) {
     })
     const d = await r.json()
     if (!d.success) { toast(d.message || 'Update failed.', 'error'); return false }
-    return true
+    return d   // truthy — callers that need the response (e.g. "proposed") can read it
   } catch (_) {
     toast('Network error — please try again.', 'error')
     return false
@@ -2462,11 +2733,21 @@ async function cancelAppt(id, reason) {
   updateAppointmentStatus(id, 'cancelled')
   const a = appointments.find(a => a.id === id)
   if (a && reason) a.cancellationReason = reason
+  const byPatient = state.role === 'patient'
   addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
-    action: `Cancelled appointment ${id} for ${a?.patientName || 'a patient'}${reason ? `: reason given '${reason}'` : ''}`,
+    action: byPatient
+      ? `Cancelled own appointment ${id}${a?.doctorName ? ' with ' + a.doctorName : ''}${reason ? `: reason given '${reason}'` : ''}`
+      : `Cancelled appointment ${id} for ${a?.patientName || 'a patient'}${reason ? `: reason given '${reason}'` : ''}`,
     timestamp: nowTimestamp(), type:'appointment' })
-  toast('Appointment has been cancelled. The patient will be notified of the cancellation.', 'error')
-  renderPage()
+  // Who gets told depends on who cancelled — the clinic (admin/staff + the
+  // doctor) when the patient cancels, the patient when the clinic does.
+  toast(byPatient
+    ? 'Your appointment has been cancelled. The clinic has been notified.'
+    : 'Appointment cancelled. The patient has been notified.', 'success')
+  // A patient on the Approved/Pending/Today list would otherwise be left
+  // staring at an empty list — show them the Cancelled list it moved to.
+  if (byPatient && state.page === 'patient-appts') navigate('patient-appts', { filter: 'cancelled' })
+  else renderPage()
   return true
 }
 
@@ -2484,11 +2765,43 @@ async function disapproveAppt(id, reason) {
   return true
 }
 
+// True if a candidate slot overlaps any {time,duration} entry in `list` —
+// shared by the reschedule/follow-up pickers for the patient's own booked
+// times (taken.php's patientTaken: any doctor, online or clinic-booked).
+function _slotOverlapsList(list, slotTime, slotDur, defDur) {
+  const sm = _clockToMinutes(slotTime)
+  if (sm == null) return false
+  return (list || []).some(bt => {
+    const bm = _clockToMinutes(bt.time), bd = bt.duration || defDur
+    return bm != null && sm < bm + bd && sm + slotDur > bm
+  })
+}
+
+// Shared time-slot legend for the booking wizard and every reschedule/
+// follow-up picker. Small empty boxes; the unavailable ones get a line
+// drawn through the middle so they read as crossed out, like the real
+// slots. "Taken" = someone else's booking (or past / no doctor free);
+// mineLabel adds the patient's-own-booking entry (same strike, dashed
+// border — matches .time-slot.mine).
+function slotLegendHtml({ mineLabel = '', showPast = false } = {}) {
+  const box  = s => `<span style="width:14px;height:14px;border-radius:3px;display:inline-block;flex-shrink:0;box-sizing:border-box;${s}"></span>`
+  const item = (s, label) => `<div class="time-slot-legend-item">${box(s)}${label}</div>`
+  const struck = 'background:linear-gradient(#9CA3AF,#9CA3AF) center / 70% 1.5px no-repeat, #F3F4F6;'
+  return `<div class="time-slot-legend">
+    ${item('background:#fff;border:1.5px solid #e5e7eb', 'Available')}
+    ${item('background:#E8760A;border:1.5px solid #E8760A', 'Selected')}
+    ${item(struck + 'border:1.5px solid #e5e7eb', showPast ? 'Taken / past' : 'Taken')}
+    ${mineLabel ? item(struck + 'border:1.5px dashed #C4C8CE', mineLabel) : ''}
+  </div>`
+}
+window.slotLegendHtml = slotLegendHtml
+
 // Taken-slot state for the staff reschedule modal — mirrors the patient
 // reschedule modal's _rsTakenSlotTimes/_rsSlotConflicts, kept separate so
 // the two modals never share/clobber each other's fetched data.
 let _reTakenSlotTimes = []
 let _reTakenSlotDur   = 30
+let _rePatientTaken   = []   // the patient's own other appointments that date
 
 // Calendar state for the staff reschedule modal's date picker — see
 // _buildRescheduleCalCells() for the shared cell logic.
@@ -2558,10 +2871,9 @@ function _reSlotConflicts(slotTime, slotDur) {
 // actually offers shows up here, not just an arbitrary subset of them.
 function _reBuildTimeOptions(keepTime) {
   const stepMin = _durationMinutes(consultationSettings.defaultDuration)
-  const slots = consultationSettings.lunchBreak
-    ? [..._buildSessionSlots(consultationSettings.morningStart, consultationSettings.morningEnd, stepMin),
-       ..._buildSessionSlots(consultationSettings.afternoonStart, consultationSettings.afternoonEnd, stepMin)]
-    : _buildSessionSlots(consultationSettings.morningStart, consultationSettings.afternoonEnd, stepMin)
+  // Narrowed to the appointment's doctor's own hours on the picked date.
+  const reDoc   = doctors.find(d => d.id === _reCal.doctorId)
+  const slots   = _doctorDaySlots(reDoc, document.getElementById('re-date')?.value || _reCal.selectedDate, stepMin)
   // The current/requested time might fall on a mark outside the clinic's
   // normal grid (e.g. a legacy appointment) — keep it selectable regardless.
   if (keepTime && !slots.includes(keepTime)) slots.push(keepTime)
@@ -2585,10 +2897,13 @@ function _reRenderTimeSlots() {
   const slots   = _reBuildTimeOptions(current)
 
   const slotBtn = t => {
-    const taken = _reSlotConflicts(t, stepMin)
-    const isSel = t === current && !taken
-    const cls   = 'time-slot' + (taken ? ' taken' : isSel ? ' selected' : '')
-    const attrs = taken ? `disabled title="This slot is already booked for this doctor."` : `onclick="window.reSelectTime('${t}',this)"`
+    const mine  = _slotOverlapsList(_rePatientTaken, t, stepMin, _reTakenSlotDur)
+    const taken = !mine && _reSlotConflicts(t, stepMin)
+    const isSel = t === current && !taken && !mine
+    const cls   = 'time-slot' + (mine ? ' mine' : taken ? ' taken' : isSel ? ' selected' : '')
+    const attrs = mine  ? `disabled title="This patient already has an appointment at this time."`
+                : taken ? `disabled title="This time slot is already taken."`
+                : `onclick="window.reSelectTime('${t}',this)"`
     return `<button type="button" class="${cls}" ${attrs}>${t}</button>`
   }
 
@@ -2623,18 +2938,27 @@ window.reSelectTime = reSelectTime
 async function reOnDateChange(doctorId, apptId) {
   const date = document.getElementById('re-date')?.value || ''
   _reTakenSlotTimes = []
+  _rePatientTaken   = []
   _reTakenSlotDur   = _durationMinutes(consultationSettings.defaultDuration)
   if (date && doctorId) {
+    const pid = appointments.find(a => a.id === apptId)?.patientId || ''
     try {
-      const r = await fetch(`api/appointments/taken.php?doctorId=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}&excludeId=${encodeURIComponent(apptId)}`)
+      const r = await fetch(`api/appointments/taken.php?doctorId=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}&excludeId=${encodeURIComponent(apptId)}&patientId=${encodeURIComponent(pid)}`)
       const d = await r.json()
       _reTakenSlotTimes = d.taken           || []
+      _rePatientTaken   = d.patientTaken    || []
       _reTakenSlotDur   = d.defaultDuration || _reTakenSlotDur
     } catch (_) {}
   }
   _reRenderTimeSlots()
 }
 window.reOnDateChange = reOnDateChange
+
+// Whether the patient has a login account (an email on file) — only they
+// can be asked to approve a clinic-proposed reschedule.
+function _patientHasAccount(patientId) {
+  return !!(patients.find(p => p.id === patientId)?.email)
+}
 
 function rescheduleAppt(id) {
   const a = appointments.find(a => a.id === id)
@@ -2672,9 +2996,9 @@ function rescheduleAppt(id) {
         .time-slot:hover:not(.taken) { border-color:#E8760A; }
         .time-slot.selected { background:#E8760A; color:#fff; border-color:#E8760A; }
         .time-slot.taken { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; text-decoration:line-through; }
+        .time-slot.mine  { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; text-decoration:line-through; border-style:dashed; border-color:#C4C8CE; }
         .time-slot-legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; font-family:'Poppins',sans-serif; font-size:.72rem; color:#6B7280; }
         .time-slot-legend-item { display:flex; align-items:center; gap:6px; }
-        .time-slot-legend-swatch { width:10px; height:10px; border-radius:3px; display:inline-block; flex-shrink:0; }
         /* ── Mini calendar — same convention as the booking wizard's own
            amc-* classes (pages.js), copied here since modals don't share
            the wizard page's stylesheet. ── */
@@ -2733,14 +3057,31 @@ function rescheduleAppt(id) {
       </div>
       <div class="form-group"><label class="form-label">New Time</label>
         <div id="re-time-slots"></div>
-        <div class="time-slot-legend">
-          <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#fff;border:1.5px solid #e5e7eb"></span>Available</div>
-          <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#E8760A"></span>Selected</div>
-          <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#F3F4F6;border:1.5px solid #e5e7eb"></span>Booked</div>
-        </div>
+        ${slotLegendHtml({ mineLabel: "Patient already booked" })}
         <input type="hidden" id="re-time" value="${defaultTime}"></div>
-      <div class="form-group" style="margin-bottom:0"><label class="form-label">Note <span style="font-size:.75rem;color:#9CA3AF">(optional)</span></label>
-        <textarea id="re-note" class="form-textarea" rows="2" placeholder="e.g. Doctor unavailable on original date, patient requested earlier slot…" style="resize:none">${a.rescheduleNote || ''}</textarea></div>
+      <!-- Required for a clinic-initiated reschedule: the patient is moved
+           without asking, and this reason goes into their email. Optional
+           when fulfilling their own request, which already carries their
+           reason. Starts empty so a previous reschedule's reason isn't
+           silently reused. -->
+      <div class="form-group" style="margin-bottom:0"><label class="form-label">${fulfillingRequest
+          ? 'Note to Patient <span style="font-size:.75rem;color:#9CA3AF">(optional)</span>'
+          : 'Reason for Reschedule <span style="color:#DC2626">*</span>'}</label>
+        <textarea id="re-note" class="form-textarea" rows="2" placeholder="${fulfillingRequest ? 'e.g. Your preferred slot was taken, so we booked the next available time…' : 'e.g. Doctor unavailable on the original date, clinic closed for a holiday…'}" style="resize:none"></textarea></div>
+      ${!fulfillingRequest && _patientHasAccount(a.patientId) ? `
+      <!-- Clinic-initiated move of a patient with an account: they're asked
+           to accept the new schedule first (respond_reschedule), unless they
+           already agreed, e.g. over the phone. -->
+      <div class="re-approval-box">
+        <div class="re-approval-head">
+          <span class="re-approval-icon">${icon('info','icon-sm')}</span>
+          <span><strong>${esc(a.patientName)}</strong> will be asked to accept or decline the new schedule. The appointment stays on its current date until they accept.</span>
+        </div>
+        <label class="re-agree-pill" for="re-apply-now">
+          <input type="checkbox" id="re-apply-now">
+          <span>The patient already agreed, for example by phone. Apply the new schedule now.</span>
+        </label>
+      </div>` : ''}
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
@@ -2763,7 +3104,27 @@ async function doReschedule(id, fulfillRequest = false) {
   const date = document.getElementById('re-date').value
   const time = document.getElementById('re-time').value
   const note = (document.getElementById('re-note')?.value || '').trim()
-  const ok   = await _apptUpdate({ id, action: 'reschedule', date, time, rescheduleNote: note, fulfillRequest })
+  if (!fulfillRequest && !note) {
+    toast('Please enter a reason for rescheduling.', 'error')
+    document.getElementById('re-note')?.focus()
+    _btnIdle(btn)
+    return
+  }
+  const applyNow = !!document.getElementById('re-apply-now')?.checked
+  const ok   = await _apptUpdate({ id, action: 'reschedule', date, time, rescheduleNote: note, fulfillRequest, applyNow })
+  // Sent to the patient for approval instead of applied (see the server's
+  // 'reschedule' action) — the appointment keeps its current slot for now.
+  if (ok && ok.proposed) {
+    a.rescheduleProposal = { date, time, note, by: state.user.name, at: nowTimestamp().slice(0, 16) }
+    if (a.rescheduleRequest) delete a.rescheduleRequest
+    addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
+      action: `Proposed a new schedule for appointment ${id} (${a.patientName}): ${fmtDate(date)} at ${time}, awaiting the patient's approval`,
+      timestamp: nowTimestamp(), type:'appointment' })
+    closeModal()
+    toast(`New schedule sent to ${a.patientName} for approval.`)
+    renderPage()
+    return
+  }
   if (!ok) {
     // The request may have already been accepted from another session/tab —
     // re-sync so the stale "Accept & Reschedule" UI clears instead of being
@@ -2785,6 +3146,7 @@ async function doReschedule(id, fulfillRequest = false) {
   if (note) a.rescheduleNote = note
   a.rescheduledAt = new Date().toISOString()
   if (a.rescheduleRequest) delete a.rescheduleRequest
+  if (a.rescheduleProposal) delete a.rescheduleProposal
   addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
     action: `Rescheduled appointment ${id} for ${a.patientName}${diffParts.length ? ': ' + diffParts.join('; ') : ''}`,
     timestamp: nowTimestamp(), type:'appointment' })
@@ -2814,6 +3176,7 @@ window.doReschedule   = doReschedule
 // ════════════════════════════════════════════════════════════════
 let _fuTakenSlotTimes = []
 let _fuTakenSlotDur   = 30
+let _fuPatientTaken   = []   // the exam patient's own appointments that date
 let _fuCal = { doctorId: '', year: 0, month: 0, selectedDate: '' }
 
 function fuCalRender() {
@@ -2867,10 +3230,9 @@ function _fuSlotConflicts(slotTime, slotDur) {
 
 function _fuBuildTimeOptions(keepTime) {
   const stepMin = _durationMinutes(consultationSettings.defaultDuration)
-  const slots = consultationSettings.lunchBreak
-    ? [..._buildSessionSlots(consultationSettings.morningStart, consultationSettings.morningEnd, stepMin),
-       ..._buildSessionSlots(consultationSettings.afternoonStart, consultationSettings.afternoonEnd, stepMin)]
-    : _buildSessionSlots(consultationSettings.morningStart, consultationSettings.afternoonEnd, stepMin)
+  // Narrowed to the exam doctor's own hours on the picked date.
+  const fuDoc   = doctors.find(d => d.id === _fuCal.doctorId)
+  const slots   = _doctorDaySlots(fuDoc, document.getElementById('fu-date')?.value || _fuCal.selectedDate, stepMin)
   if (keepTime && !slots.includes(keepTime)) slots.push(keepTime)
   slots.sort((x, y) => _clockToMinutes(x) - _clockToMinutes(y))
   return slots
@@ -2885,10 +3247,13 @@ function _fuRenderTimeSlots() {
   const slots   = _fuBuildTimeOptions(current)
 
   const slotBtn = t => {
-    const taken = _fuSlotConflicts(t, stepMin)
-    const isSel = t === current && !taken
-    const cls   = 'time-slot' + (taken ? ' taken' : isSel ? ' selected' : '')
-    const attrs = taken ? `disabled title="This slot is already booked for this doctor."` : `onclick="window.fuSelectTime('${t}',this)"`
+    const mine  = _slotOverlapsList(_fuPatientTaken, t, stepMin, _fuTakenSlotDur)
+    const taken = !mine && _fuSlotConflicts(t, stepMin)
+    const isSel = t === current && !taken && !mine
+    const cls   = 'time-slot' + (mine ? ' mine' : taken ? ' taken' : isSel ? ' selected' : '')
+    const attrs = mine  ? `disabled title="This patient already has an appointment at this time."`
+                : taken ? `disabled title="This time slot is already taken."`
+                : `onclick="window.fuSelectTime('${t}',this)"`
     return `<button type="button" class="${cls}" ${attrs}>${t}</button>`
   }
 
@@ -2918,12 +3283,14 @@ window.fuSelectTime = fuSelectTime
 async function fuOnDateChange() {
   const date = document.getElementById('fu-date')?.value || ''
   _fuTakenSlotTimes = []
+  _fuPatientTaken   = []
   _fuTakenSlotDur   = _durationMinutes(consultationSettings.defaultDuration)
   if (date && _fuCal.doctorId) {
     try {
-      const r = await fetch(`api/appointments/taken.php?doctorId=${encodeURIComponent(_fuCal.doctorId)}&date=${encodeURIComponent(date)}`)
+      const r = await fetch(`api/appointments/taken.php?doctorId=${encodeURIComponent(_fuCal.doctorId)}&date=${encodeURIComponent(date)}&patientId=${encodeURIComponent(window._examPatientId || '')}`)
       const d = await r.json()
       _fuTakenSlotTimes = d.taken           || []
+      _fuPatientTaken   = d.patientTaken    || []
       _fuTakenSlotDur   = d.defaultDuration || _fuTakenSlotDur
     } catch (_) {}
   }
@@ -2937,7 +3304,17 @@ window.fuOnDateChange = fuOnDateChange
 // there's no doctor field to pick — same id-lookup convention used
 // elsewhere in the exam wizard to resolve the current doctor's own record.
 function openFollowUpPicker() {
-  const doc = doctors.find(d => d.id === state.user?.id)
+  // Whose availability the calendar shows: the exam's own doctor when
+  // editing, the Examining Doctor pick when an admin starts one, else the
+  // logged-in doctor. Looking up only state.user.id left an admin with no
+  // doctor at all, so every date rendered greyed out.
+  const pickedId = document.getElementById('ne-doctor')?.value || ''
+  if (state.role === 'admin' && !window._examEditDoctorId && !pickedId) {
+    toast('Please select the examining doctor first.', 'error')
+    document.getElementById('ne-doctor-trigger')?.focus()
+    return
+  }
+  const doc = doctors.find(d => d.id === (window._examEditDoctorId || pickedId || state.user?.id))
   const curDate = document.getElementById('ne-con-followup')?.value || ''
   const curTime = document.getElementById('ne-con-followup-time')?.value || ''
 
@@ -2959,9 +3336,9 @@ function openFollowUpPicker() {
         .time-slot:hover:not(.taken) { border-color:#E8760A; }
         .time-slot.selected { background:#E8760A; color:#fff; border-color:#E8760A; }
         .time-slot.taken { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; text-decoration:line-through; }
+        .time-slot.mine  { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; text-decoration:line-through; border-style:dashed; border-color:#C4C8CE; }
         .time-slot-legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; font-family:'Poppins',sans-serif; font-size:.72rem; color:#6B7280; }
         .time-slot-legend-item { display:flex; align-items:center; gap:6px; }
-        .time-slot-legend-swatch { width:10px; height:10px; border-radius:3px; display:inline-block; flex-shrink:0; }
         .appt-mini-cal { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:3px; min-width:0; }
         .amc-hdr { text-align:center; font-size:.65rem; font-weight:700; color:#9CA3AF; padding:4px 0; text-transform:uppercase; }
         .amc-day { aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:6px;
@@ -3007,11 +3384,7 @@ function openFollowUpPicker() {
       </div>
       <div class="form-group" style="margin-bottom:0"><label class="form-label">Time</label>
         <div id="fu-time-slots"></div>
-        <div class="time-slot-legend">
-          <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#fff;border:1.5px solid #e5e7eb"></span>Available</div>
-          <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#E8760A"></span>Selected</div>
-          <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#F3F4F6;border:1.5px solid #e5e7eb"></span>Booked</div>
-        </div>
+        ${slotLegendHtml({ mineLabel: "Patient already booked" })}
         <input type="hidden" id="fu-time" value="${curTime}">
       </div>
     </div>
@@ -3064,6 +3437,7 @@ window.confirmFollowUpPicker = confirmFollowUpPicker
 // ════════════════════════════════════════════════════════════════
 let _rsTakenSlotTimes = []
 let _rsTakenSlotDur   = 30
+let _rsPatientTaken   = []   // the patient's own other appointments that date
 
 function _rsSlotConflicts(slotTime, slotDur) {
   const sm = _clockToMinutes(slotTime)
@@ -3138,12 +3512,14 @@ async function rsOnDateChange(doctorId, apptId) {
   if (grp) grp.style.display = date ? '' : 'none'
 
   _rsTakenSlotTimes = []
+  _rsPatientTaken   = []
   _rsTakenSlotDur   = _durationMinutes(consultationSettings.defaultDuration)
   if (date && doctorId) {
     try {
-      const r = await fetch(`api/appointments/taken.php?doctorId=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}&excludeId=${encodeURIComponent(apptId)}`)
+      const r = await fetch(`api/appointments/taken.php?doctorId=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}&excludeId=${encodeURIComponent(apptId)}&patientId=${encodeURIComponent(state.user?.id || '')}`)
       const d = await r.json()
       _rsTakenSlotTimes = d.taken           || []
+      _rsPatientTaken   = d.patientTaken    || []
       _rsTakenSlotDur   = d.defaultDuration || _rsTakenSlotDur
     } catch (_) {}
   }
@@ -3174,12 +3550,12 @@ function rsBuildTimeSlots() {
   const _rsDoc = doctors.find(dd => dd.id === _rsCal.doctorId)
   let morning, afternoon
   if (consultationSettings.lunchBreak) {
-    const [mStart, mEnd] = _clampToDoctorHours(consultationSettings.morningStart,   consultationSettings.morningEnd,   _rsDoc?.hours)
-    const [aStart, aEnd] = _clampToDoctorHours(consultationSettings.afternoonStart, consultationSettings.afternoonEnd, _rsDoc?.hours)
+    const [mStart, mEnd] = _clampToDoctorHours(consultationSettings.morningStart,   consultationSettings.morningEnd,   doctorHoursForDate(_rsDoc, _rsCal.selectedDate))
+    const [aStart, aEnd] = _clampToDoctorHours(consultationSettings.afternoonStart, consultationSettings.afternoonEnd, doctorHoursForDate(_rsDoc, _rsCal.selectedDate))
     morning   = _buildSessionSlots(mStart, mEnd, stepMin)
     afternoon = _buildSessionSlots(aStart, aEnd, stepMin)
   } else {
-    const [fStart, fEnd] = _clampToDoctorHours(consultationSettings.morningStart, consultationSettings.afternoonEnd, _rsDoc?.hours)
+    const [fStart, fEnd] = _clampToDoctorHours(consultationSettings.morningStart, consultationSettings.afternoonEnd, doctorHoursForDate(_rsDoc, _rsCal.selectedDate))
     const allSlots = _buildSessionSlots(fStart, fEnd, stepMin)
     morning   = allSlots.filter(t => _toMin(t) < 720)
     afternoon = allSlots.filter(t => _toMin(t) >= 720)
@@ -3189,18 +3565,19 @@ function rsBuildTimeSlots() {
   const isToday = _rsCal.selectedDate === today
   const nowMin  = isToday ? new Date().getHours() * 60 + new Date().getMinutes() : -1
 
-  // Unlike the main booking wizard, a fully-booked slot here is just
-  // disabled (not selectable) — this modal only records a preferred slot
-  // for staff to review, so there's no waitlist to offer it into.
+  // A fully-booked slot is disabled (not selectable), same as the main
+  // booking wizard.
   const slotBtn = t => {
-    const isFull = _rsSlotConflicts(t, _rsTakenSlotDur)
     const isPast = isToday && _toMin(t) <= nowMin
-    const isSel  = t === _rsCal.time && !isPast
-    const cls    = 'time-slot' + (isPast || isFull ? ' taken' : isSel ? ' selected' : '')
+    const isMine = !isPast && _slotOverlapsList(_rsPatientTaken, t, _rsTakenSlotDur, _rsTakenSlotDur)
+    const isFull = !isMine && _rsSlotConflicts(t, _rsTakenSlotDur)
+    const isSel  = t === _rsCal.time && !isPast && !isMine && !isFull
+    const cls    = 'time-slot' + (isMine ? ' mine' : (isPast || isFull) ? ' taken' : isSel ? ' selected' : '')
     const tip    = isPast ? 'This time slot has already passed.'
-                 : isFull ? 'This slot is fully booked.'
+                 : isMine ? 'You already have an appointment at this time.'
+                 : isFull ? 'This time slot is already taken.'
                  : ''
-    const disabled = (isPast || isFull) ? `disabled title="${tip}"` : ''
+    const disabled = tip ? `disabled title="${tip}"` : ''
     return `<button type="button" class="${cls}" ${disabled} onclick="window.rsSelectTime('${t}',this)">${t}</button>`
   }
 
@@ -3263,9 +3640,9 @@ function requestReschedule(id) {
         .time-slot:hover:not(.taken) { border-color:#E8760A; }
         .time-slot.selected { background:#E8760A; color:#fff; border-color:#E8760A; }
         .time-slot.taken { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; text-decoration:line-through; }
+        .time-slot.mine  { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; text-decoration:line-through; border-style:dashed; border-color:#C4C8CE; }
         .time-slot-legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; font-family:'Poppins',sans-serif; font-size:.72rem; color:#6B7280; }
         .time-slot-legend-item { display:flex; align-items:center; gap:6px; }
-        .time-slot-legend-swatch { width:10px; height:10px; border-radius:3px; display:inline-block; flex-shrink:0; }
         /* ── Mini calendar — same convention as the booking wizard's own
            amc-* classes (pages.js), copied here since modals don't share
            the wizard page's stylesheet. ── */
@@ -3328,11 +3705,7 @@ function requestReschedule(id) {
       <div class="form-group" id="rs-time-group" style="display:none">
         <label class="form-label">Preferred Time <span style="color:#DC2626">*</span></label>
         <div id="rs-time-slots"></div>
-        <div class="time-slot-legend">
-          <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#fff;border:1.5px solid #e5e7eb"></span>Available</div>
-          <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#E8760A"></span>Selected</div>
-          <div class="time-slot-legend-item"><span class="time-slot-legend-swatch" style="background:#F3F4F6;border:1.5px solid #e5e7eb"></span>Unavailable</div>
-        </div>
+        ${slotLegendHtml({ mineLabel: "Booked by you", showPast: true })}
         <input type="hidden" id="rs-time" value="">
       </div>
     </div>
@@ -3368,18 +3741,152 @@ async function doRequestReschedule(id) {
   renderPage()
 }
 
-async function dismissRescheduleRequest(id) {
-  const ok = await _apptUpdate({ id, action: 'dismiss_reschedule' })
-  if (!ok) return
+// Declining a patient's reschedule request asks for a reason (same pattern
+// as Disapprove) — the patient is notified in-app and by email with it.
+function dismissRescheduleRequest(id) {
+  const a = appointments.find(a => a.id === id)
+  if (!a) return
+  const fmtD = d => { const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' }) }
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Decline Reschedule Request</div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:#FFF7ED;border:1px solid #FED7AA;color:#9A3412;border-radius:8px;padding:12px;display:flex;gap:8px;align-items:flex-start;margin-bottom:14px">
+        <span style="flex-shrink:0;display:flex;margin-top:2px">${icon('alert-circle','icon-sm')}</span>
+        <span style="font-size:.84rem;line-height:1.4">The appointment stays on its current date and time. The patient will be notified with your reason.</span>
+      </div>
+      <div style="background:#F9FAFB;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.84rem">
+        <div style="font-weight:600;color:#1a1a1a">${a.type}</div>
+        <div style="color:#6B7280;margin-top:2px">${fmtD(a.date)} at ${a.time} · ${a.doctorName || 'Doctor not yet assigned'}</div>
+        <div style="color:#6B7280;margin-top:1px">Patient: <strong>${a.patientName}</strong></div>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Reason <span style="color:#DC2626">*</span></label>
+        <textarea id="dismiss-rs-reason" class="form-textarea" rows="3" placeholder="e.g. No available slot on the preferred date, doctor unavailable…" style="resize:none"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Back</button>
+      <button class="btn-disapprove" id="dismiss-rs-btn" onclick="window.doDismissRescheduleRequest('${a.id}')">Decline Request</button>
+    </div>`)
+}
+
+async function doDismissRescheduleRequest(id) {
+  const reason = (document.getElementById('dismiss-rs-reason')?.value || '').trim()
+  if (!reason) { toast('Please provide a reason.', 'error'); return }
+  const btn = document.getElementById('dismiss-rs-btn')
+  if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = 'Declining…' }
+  const ok = await _apptUpdate({ id, action: 'dismiss_reschedule', reason })
+  if (!ok) { if (btn) { btn.disabled = false; btn.textContent = 'Decline Request' } return }
   const a = appointments.find(a => a.id === id)
   if (a) delete a.rescheduleRequest
   addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
-    action: `Dismissed reschedule request for appointment ${id}${a ? ' (' + a.patientName + ')' : ''}`,
+    action: `Declined reschedule request for appointment ${id}${a ? ' (' + a.patientName + ')' : ''}: '${reason}'`,
     timestamp: nowTimestamp(), type:'appointment' })
   closeModal()
-  toast('Reschedule request dismissed.')
+  toast('Reschedule request declined. The patient has been notified.')
   renderPage()
 }
+window.doDismissRescheduleRequest = doDismissRescheduleRequest
+
+// ── Clinic-proposed reschedule: the patient's answer ──────────────
+// (server: update.php 'respond_reschedule'). Accept moves the appointment
+// to the proposed slot; decline keeps the current one. The clinic is
+// notified either way.
+async function respondReschedule(id, accept, reason = '') {
+  const a = appointments.find(x => x.id === id)
+  if (!a || !a.rescheduleProposal) return
+  const d = await _apptUpdate({ id, action: 'respond_reschedule', accept, reason })
+  if (!d) { if (window._syncAppointments) window._syncAppointments(); return }
+  const pr = a.rescheduleProposal
+  delete a.rescheduleProposal
+  if (d.accepted) {
+    a.date = d.date; a.time = d.time
+    a.rescheduledAt = new Date().toISOString()
+    a.confirmedAt = null
+    if (pr.note) a.rescheduleNote = pr.note
+  }
+  addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: 'Patient',
+    action: accept ? `Accepted the clinic's new schedule for appointment ${id}: ${fmtDate(pr.date)} at ${pr.time}`
+                   : `Declined the clinic's proposed schedule for appointment ${id}${reason ? `: '${reason}'` : ''}`,
+    timestamp: nowTimestamp(), type:'appointment' })
+  closeModal()
+  toast(accept ? `Done — your appointment is now on ${fmtDate(pr.date)} at ${pr.time}.`
+               : 'Proposed schedule declined. Your appointment stays as it was, and the clinic has been told.')
+  renderPage()
+}
+window.respondReschedule = respondReschedule
+
+function declineRescheduleProposal(id) {
+  const a = appointments.find(x => x.id === id)
+  if (!a || !a.rescheduleProposal) return
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Decline New Schedule</div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:.85rem;color:#6B7280;line-height:1.6;margin:0 0 14px">Your appointment stays on <strong style="color:#1C1C1C">${fmtDate(a.date)} at ${esc(a.time)}</strong>. The clinic will be told you declined the new time.</p>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Reason <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
+        <textarea id="decline-prop-reason" class="form-textarea" rows="3" style="resize:none" placeholder="e.g. I can't make the new time, but the original still works for me."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.viewAppt('${id}')">Back</button>
+      <button class="btn-danger" onclick="window.respondReschedule('${id}', false, (document.getElementById('decline-prop-reason')?.value || '').trim())">Decline New Schedule</button>
+    </div>`)
+}
+window.declineRescheduleProposal = declineRescheduleProposal
+
+function withdrawRescheduleProposal(id) {
+  const a = appointments.find(x => x.id === id)
+  if (!a) return
+  showConfirm({
+    title: 'Withdraw Proposed Schedule?',
+    message: `The patient will no longer be asked to accept it, and the appointment stays on ${fmtDate(a.date)} at ${a.time}.`,
+    confirmText: 'Withdraw',
+    onConfirm: async () => {
+      const d = await _apptUpdate({ id, action: 'withdraw_reschedule_proposal' })
+      if (!d) return
+      delete a.rescheduleProposal
+      addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
+        action: `Withdrew the proposed new schedule for appointment ${id} (${a.patientName})`,
+        timestamp: nowTimestamp(), type:'appointment' })
+      closeModal()
+      toast('Proposed schedule withdrawn.')
+      renderPage()
+    }
+  })
+}
+window.withdrawRescheduleProposal = withdrawRescheduleProposal
+
+// The patient takes back their own pending reschedule request (server:
+// 'withdraw_reschedule_request') — the appointment stays as it is and the
+// held preferred slot is released. The clinic is notified.
+function withdrawMyRescheduleRequest(id) {
+  const a = appointments.find(x => x.id === id)
+  if (!a || !a.rescheduleRequest) return
+  showConfirm({
+    title: 'Withdraw Reschedule Request?',
+    message: `Your appointment will stay on ${fmtDate(a.date)} at ${a.time}. You can send a new request later if you need to.`,
+    confirmText: 'Withdraw Request',
+    onConfirm: async () => {
+      const d = await _apptUpdate({ id, action: 'withdraw_reschedule_request' })
+      if (!d) { if (window._syncAppointments) window._syncAppointments(); return }
+      delete a.rescheduleRequest
+      addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: 'Patient',
+        action: `Withdrew their reschedule request for appointment ${id}`,
+        timestamp: nowTimestamp(), type:'appointment' })
+      closeModal()
+      toast('Reschedule request withdrawn. Your appointment stays as it was.')
+      renderPage()
+    }
+  })
+}
+window.withdrawMyRescheduleRequest = withdrawMyRescheduleRequest
 
 window.requestReschedule        = requestReschedule
 window.rsOnDateChange           = rsOnDateChange
@@ -3389,13 +3896,102 @@ window.dismissRescheduleRequest = dismissRescheduleRequest
 // ════════════════════════════════════════════════════════════════
 //  VIEW APPOINTMENT DETAILS
 // ════════════════════════════════════════════════════════════════
+// "Follow-up Consultation Needed" notification clicked (bell dropdown or the
+// full Notifications page — both route here). Normally opens a pre-filled
+// New Appointment for the recommended doctor/date/time. But if the follow-up
+// has already been booked (same matching rule as the exam wizard's locked
+// follow-up box: a Follow-up Consultation for this patient after the visit,
+// within 30 days of the recommended date, not cancelled/declined/no-show),
+// say so instead of opening a second booking — and whether it matches the
+// doctor's recommendation exactly or was booked differently.
+function openFollowUpFromNotif(patientId) {
+  const p   = patients.find(pt => pt.id === patientId)
+  const con = p && (p.consultations || []).find(c => c.followUpDate)
+  if (!p || !con) {
+    // The flagged consultation can't be found anymore (e.g. later edited
+    // or removed) — land on the profile instead of a broken pre-fill.
+    navigate('patient-view', { patientId })
+    return
+  }
+  const doc = window.findDoctorByName(con.doctor, con.doctorId)
+
+  const daysApart = (a, b) => Math.abs(new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 86400000
+  const existing = appointments
+    .filter(a => a.patientId === p.id && a.type === 'Follow-up Consultation'
+      && !['cancelled', 'disapproved', 'no-show'].includes(a.status)
+      && a.date > (con.date || '') && daysApart(a.date, con.followUpDate) <= 30)
+    .sort((a, b) => daysApart(a.date, con.followUpDate) - daysApart(b.date, con.followUpDate))[0]
+
+  if (!existing) {
+    window._staffCalPrefill = {
+      doctorId: doc?.id || '', doctorName: doc?.name || con.doctor || '',
+      doctorSpec: doc?.specialization || '', date: con.followUpDate, time: con.followUpTime || '', isFollowUp: true
+    }
+    navigate('create-appointment', { patientId: p.id, patientName: p.name })
+    return
+  }
+
+  const exact = existing.date === con.followUpDate
+    && (!con.followUpTime || existing.time === con.followUpTime)
+    && (!doc || existing.doctorId === doc.id)
+  const done  = existing.status === 'completed'
+  const statusLbl = existing.status.charAt(0).toUpperCase() + existing.status.slice(1)
+  const recLbl = `${fmtDate(con.followUpDate)}${con.followUpTime ? ' at ' + con.followUpTime : ''}`
+  const row = (label, value) => `
+    <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #F3F4F6">
+      <div style="font-size:.78rem;color:#9CA3AF;width:110px;flex-shrink:0">${label}</div>
+      <div style="font-size:.84rem;color:#1F2937;font-weight:600;flex:1">${value}</div>
+    </div>`
+
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">${done ? 'Follow-up Already Completed' : 'Follow-up Already Scheduled'}</div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:10px;align-items:flex-start;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:.84rem;color:#065F46">
+        <span style="display:flex;flex-shrink:0;margin-top:1px">${icon('check-circle','icon-sm')}</span>
+        <div>${done
+          ? `<strong>${esc(p.name)}</strong> has already completed this follow-up. Nothing else needs to be booked.`
+          : exact
+            ? `<strong>${esc(p.name)}</strong>'s follow-up is already booked exactly as the doctor recommended. No need to book it again.`
+            : `<strong>${esc(p.name)}</strong>'s follow-up is already booked, though not exactly as recommended (${esc(con.doctor || '')}, ${recLbl}). No need to book it again.`}</div>
+      </div>
+      ${row('Appointment', existing.id)}
+      ${row('Doctor', esc(existing.doctorName || '—'))}
+      ${row('Date', fmtDate(existing.date))}
+      ${row('Time', esc(existing.time || '—'))}
+      ${row('Status', statusLbl)}
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Close</button>
+      <button class="btn-primary" onclick="window.viewAppt('${existing.id}')">${icon('eye','icon-sm')} View Appointment</button>
+    </div>`)
+}
+window.openFollowUpFromNotif = openFollowUpFromNotif
+
+// "Unsaved Examination" / "Examination Draft Expired" notifications: go to
+// the appointments list and open that appointment's details (Continue
+// Examination / Revert No-Show live there).
+function openApptFromNotif(apptId) {
+  const page = state.role === 'doctor' ? 'doctor-appointments' : state.role === 'patient' ? 'patient-appts' : 'appointments'
+  navigate(page, { filter: 'all' })
+  setTimeout(() => {
+    if (appointments.find(a => a.id === apptId)) viewAppt(apptId)
+    else toast('That appointment could not be found.', 'error')
+  }, 350)
+}
+window.openApptFromNotif = openApptFromNotif
+
 function viewAppt(id) {
   const a = appointments.find(a => a.id === id)
   if (!a) return
 
   const fmtD = d => { const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' }) }
-  const steps = ['Submitted','Under Review','Approved','Completed']
-  const stepIdx = { pending:1, approved:2, completed:3, cancelled:1, disapproved:1 }[a.status] ?? 1
+  // A no-show got as far as Approved; its last step reads "No-show"
+  // instead of "Completed" (it previously fell back to "Under Review").
+  const steps = ['Submitted','Under Review','Approved', a.status === 'no-show' ? 'No-show' : 'Completed']
+  const stepIdx = { pending:1, approved:2, completed:3, cancelled:1, disapproved:1, 'no-show':3 }[a.status] ?? 1
   const stepColor = i => i <= stepIdx ? '#E8760A' : '#E5E7EB'
   const textColor = i => i <= stepIdx ? '#E8760A' : '#9CA3AF'
 
@@ -3414,6 +4010,8 @@ function viewAppt(id) {
   const isPatient = state.role === 'patient'
   const isActive  = a.status === 'pending' || a.status === 'approved'
   const patientCanCancel = !isPatient || !isActive || (window.apptCancellable ? window.apptCancellable(a) : true)
+  // Reverted no-show past its date: only the exam is left to do.
+  const awaitingExam = window.apptAwaitingExam ? window.apptAwaitingExam(a) : false
   const actionBtns = (isAdmin || isDoctor) ? `
     ${a.status === 'pending' && isAdmin ? `
       ${a.doctorId
@@ -3425,18 +4023,26 @@ function viewAppt(id) {
            completes itself the moment the doctor saves an exam against it
            (see api/examinations/create.php's UPDATE ... SET status =
            "completed" WHERE id = apptId, and startExamFromAppt(), used
-           from the doctor's own "Start Consultation" button). Letting
+           from the doctor's own "Start Examination" button). Letting
            admin/staff flip this by hand risked marking a visit complete
            before any exam was actually recorded. -->
+      ${awaitingExam ? `
+      ${state.role === 'admin' ? `<button class="btn-primary" onclick="window.closeModal();window.startExamFromAppt('${a.id}')">${icon('file-text','icon-sm')} Start Examination</button>` : ''}` : `
       <button class="btn-ghost"   onclick="window.confirmMarkNoShow('${a.id}')">Mark No-Show</button>
       <button class="btn-ghost"   onclick="window.rescheduleAppt('${a.id}')">Reschedule</button>
-      <button class="btn-danger"  onclick="window.confirmCancelAppt('${a.id}')">Cancel</button>` : ''}` :
+      <button class="btn-danger"  onclick="window.confirmCancelAppt('${a.id}')">Cancel</button>`}` : ''}
+    ${a.status === 'approved' && isDoctor && (a.date === localDateStr() || awaitingExam) ? `
+      <button class="btn-primary" onclick="window.closeModal();window.startExamFromAppt('${a.id}')">${icon('file-text','icon-sm')} Start Examination</button>` : ''}
+    ${a.status === 'no-show' && (state.role === 'admin' || state.role === 'staff') ? `
+      <!-- Patient did attend, but the exam wasn't saved before the date
+           passed, so it auto-flipped to no-show (confirmRevertNoShow()). -->
+      <button class="btn-secondary btn-revert-noshow" onclick="window.confirmRevertNoShow('${a.id}')">${icon('rotate-ccw','icon-sm')} Revert No-Show</button>` : ''}` :
     isActive ? (patientCanCancel
       ? `<button class="btn-danger" onclick="window.confirmCancelAppt('${a.id}')">Cancel Appointment</button>`
       : `<button class="btn-danger" disabled style="opacity:.45;cursor:not-allowed" title="Cancellation window has passed">Cancel Appointment</button>`
     ) : ''
 
-  const badgeMap = { pending:'badge-pending', approved:'badge-approved', cancelled:'badge-cancelled', disapproved:'badge-disapproved', completed:'badge-completed' }
+  const badgeMap = { pending:'badge-pending', approved:'badge-approved', cancelled:'badge-cancelled', disapproved:'badge-disapproved', completed:'badge-completed', 'no-show':'badge-no-show' }
   const badgeHtml = `<span class="badge ${badgeMap[a.status]||''}">${a.status.charAt(0).toUpperCase()+a.status.slice(1)}</span>`
 
   showModal(`
@@ -3504,6 +4110,16 @@ function viewAppt(id) {
         <div style="font-size:.72rem;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Reschedule Note</div>
         <div style="font-size:.84rem;color:#374151;overflow-wrap:anywhere;word-break:break-word">${a.rescheduleNote}</div>
       </div>` : ''}
+      ${a.examDraftAt && a.status === 'approved' && !isPatient ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px;margin-bottom:14px;min-width:0">
+        <div style="font-size:.72rem;font-weight:700;color:#B45309;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Unsaved Examination</div>
+        <div style="font-size:.84rem;color:#374151;line-height:1.5">An examination was started for this visit${a.examDraftBy ? ' by ' + esc(a.examDraftBy) : ''} (last auto-saved ${_examDraftTime(a.examDraftAt)}) but hasn't been saved. It won't be marked a no-show while the draft exists.</div>
+        ${(state.role === 'admin' || (isDoctor && a.doctorId === state.user?.id)) ? `<button class="btn-secondary" style="margin-top:10px;padding:7px 14px;font-size:.8rem" onclick="window._examDraftAutoRestore=true;window.closeModal();window.startExamFromAppt('${a.id}')">${icon('file-text','icon-sm')} Continue Examination</button>` : ''}
+      </div>` : ''}
+      ${a.noShowRevertedAt && !isPatient ? `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:12px;margin-bottom:14px;min-width:0">
+        <div style="font-size:.72rem;font-weight:700;color:#1E40AF;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">No-Show Reverted</div>
+        <div style="font-size:.84rem;color:#374151;overflow-wrap:anywhere;word-break:break-word">${esc(a.noShowRevertReason || '')}</div>
+        ${a.status === 'approved' ? `<div style="font-size:.75rem;color:#1E40AF;margin-top:6px">Waiting for the examination to be recorded. Saving it completes this appointment.</div>` : ''}
+      </div>` : ''}
       ${isPatient && isActive && !patientCanCancel ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px;margin-bottom:14px">
         <span style="flex-shrink:0;display:flex;margin-top:2px">${icon('alert-circle','icon-sm')}</span>
         <div style="font-size:.82rem;color:#92400E;line-height:1.5">
@@ -3515,7 +4131,7 @@ function viewAppt(id) {
         <span style="flex-shrink:0;display:flex;color:#E8760A;margin-top:2px">${icon('alert-circle','icon-sm')}</span>
         <div style="font-size:.82rem;color:#92400E;line-height:1.5;flex:1;min-width:200px">
           <strong>Please confirm you'll be attending this appointment.</strong><br>
-          If we don't hear from you by ${consultationSettings.confirmDeadlineTime || '9:00 PM'} today, it will be automatically cancelled.
+          This lets the clinic know to expect you. If you can no longer make it, please cancel instead.
         </div>
         <button class="btn-primary" style="font-size:.78rem;padding:6px 14px;flex-shrink:0;align-self:center" onclick="window.confirmMyAppointment('${a.id}')">Confirm Appointment</button>
       </div>` : ''}
@@ -3525,12 +4141,37 @@ function viewAppt(id) {
         </div>
         <div style="font-size:.84rem;color:#374151;margin-bottom:6px">${a.rescheduleRequest.reason}</div>
         ${a.rescheduleRequest.preferredDate ? `<div style="font-size:.76rem;color:#6B7280">Preferred date: <strong>${(() => { const dt = new Date(a.rescheduleRequest.preferredDate); return isNaN(dt) ? a.rescheduleRequest.preferredDate : dt.toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'}) })()}</strong></div>` : ''}
+        ${a.rescheduleRequest.preferredTime ? `<div style="font-size:.76rem;color:#6B7280">Preferred time: <strong>${esc(a.rescheduleRequest.preferredTime)}</strong></div>` : ''}
         <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">Submitted: ${fmtTimestamp12h(a.rescheduleRequest.requestedAt)}</div>
         ${(isAdmin || isDoctor) ? `<div style="margin-top:10px;display:flex;gap:6px">
           <button class="btn-primary" style="font-size:.78rem;padding:5px 12px" onclick="window.rescheduleAppt('${a.id}')">Accept &amp; Reschedule</button>
-          <button class="btn-secondary" style="font-size:.78rem;padding:5px 12px" onclick="window.dismissRescheduleRequest('${a.id}')">Dismiss</button>
+          <button class="btn-secondary" style="font-size:.78rem;padding:5px 12px" onclick="window.dismissRescheduleRequest('${a.id}')">Decline</button>
+        </div>` : ''}
+        ${isPatient ? `<div style="font-size:.74rem;color:#6B7280;margin-top:8px;line-height:1.5">Waiting for the clinic to review it. Your preferred time is held for you meanwhile${a.rescheduleRequest.preferredDate ? ', and the request expires if that time passes without a response' : ''}.</div>
+        <div style="margin-top:10px">
+          <button class="btn-secondary" style="font-size:.78rem;padding:5px 12px" onclick="window.withdrawMyRescheduleRequest('${a.id}')">Withdraw Request</button>
         </div>` : ''}
       </div>` : ''}
+      ${a.rescheduleProposal ? (() => {
+        // Clinic-proposed new slot awaiting the patient's answer
+        // (respond_reschedule). Patient: accept / decline. Clinic: status +
+        // withdraw. The appointment keeps its current slot until accepted.
+        const pr = a.rescheduleProposal
+        const when = `${fmtDate(pr.date)} at ${esc(pr.time)}`
+        return `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:12px 14px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:6px;font-size:.75rem;font-weight:700;color:#1D4ED8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
+          ${icon('refresh-cw','icon-sm')} ${isPatient ? 'New Schedule Proposed by the Clinic' : 'Awaiting Patient Approval'}
+        </div>
+        <div style="font-size:.86rem;color:#1F2937">Proposed: <strong>${when}</strong> <span style="color:#6B7280">(currently ${fmtDate(a.date)} at ${esc(a.time)})</span></div>
+        ${pr.note ? `<div style="font-size:.82rem;color:#374151;margin-top:6px"><span style="color:#6B7280">Reason:</span> ${esc(pr.note)}</div>` : ''}
+        <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">Proposed${pr.by ? ' by ' + esc(pr.by) : ''}${pr.at ? ' · ' + fmtTimestamp12h(pr.at) : ''}</div>
+        ${isPatient ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn-primary" style="font-size:.78rem;padding:6px 14px" onclick="window.respondReschedule('${a.id}', true)">${icon('check','icon-sm')} Accept New Schedule</button>
+          <button class="btn-secondary" style="font-size:.78rem;padding:6px 14px" onclick="window.declineRescheduleProposal('${a.id}')">Decline</button>
+        </div>` : (isAdmin ? `<div style="margin-top:10px">
+          <button class="btn-secondary" style="font-size:.78rem;padding:5px 12px" onclick="window.withdrawRescheduleProposal('${a.id}')">Withdraw Proposal</button>
+        </div>` : '')}
+      </div>` })() : ''}
       <div>
         <div style="font-size:.68rem;color:#9CA3AF;margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Progress</div>
         <div style="display:flex;align-items:flex-start">${timelineHtml}</div>
@@ -3588,22 +4229,12 @@ function markNotifRead(id) {
   // manually. The recommended doctor + date are looked up fresh from the
   // patient's own consultation history (newest first, per the unshift()
   // in saveNewExam()) rather than the notification itself.
+  if (notif && ['exam_draft','exam_draft_expired','reschedule_proposed','reschedule_accepted','reschedule_declined'].includes(notif.type) && notif.relatedId && (state.role !== 'patient' || notif.type === 'reschedule_proposed')) {
+    openApptFromNotif(notif.relatedId)
+    return
+  }
   if (notif && notif.type === 'follow_up_needed' && notif.relatedId && state.role !== 'patient') {
-    const p = patients.find(pt => pt.id === notif.relatedId)
-    const con = p && (p.consultations || []).find(c => c.followUpDate)
-    if (p && con) {
-      const doc = doctors.find(d => d.name === con.doctor)
-      window._staffCalPrefill = {
-        doctorId: doc?.id || '', doctorName: doc?.name || con.doctor || '',
-        doctorSpec: doc?.specialization || '', date: con.followUpDate, time: con.followUpTime || '', isFollowUp: true
-      }
-      navigate('create-appointment', { patientId: p.id, patientName: p.name })
-    } else {
-      // Fallback if the flagged consultation can't be found anymore
-      // (e.g. it was later edited/removed) — land on the profile instead
-      // of a broken pre-fill.
-      navigate('patient-view', { patientId: notif.relatedId })
-    }
+    openFollowUpFromNotif(notif.relatedId)
     return
   }
   if (notif && window._notifNavTarget) {
@@ -3903,7 +4534,8 @@ async function saveUserProfile(btn) {
   const fn     = document.getElementById(`${prefix}-fname`)?.value.trim() || ''
   const mn     = document.getElementById(`${prefix}-mname`)?.value.trim() || ''
   const ln     = document.getElementById(`${prefix}-lname`)?.value.trim() || ''
-  const email  = document.getElementById(`${prefix}-email`)?.value.trim() || ''
+  // Email isn't saved here — it changes only through the OTP-verified
+  // Change Email flow (openChangeEmailModal()), same as for patients.
   const phone  = document.getElementById(`${prefix}-phone`)?.value.trim() || ''
   if (!fn || !ln) { toast('First and last name are required.', 'error'); return }
   if (phone && !window.isValidContact(phone)) { toast('Please enter a valid 11-digit contact number.', 'error'); return }
@@ -3917,7 +4549,7 @@ async function saveUserProfile(btn) {
     const r = await fetch('api/users/update_profile.php', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ firstName: fn, middleName: mn, lastName: ln, phone, email })
+      body:    JSON.stringify({ firstName: fn, middleName: mn, lastName: ln, phone })
     })
     const d = await r.json()
     if (d.success) {
@@ -3928,7 +4560,6 @@ async function saveUserProfile(btn) {
       // show exactly what changed (old -> new), not just which fields did.
       const diffParts = _logDiffParts([
         ['name', state.user?.name, fullName],
-        ['email', state.user?.email, email || state.user?.email],
         ['contact', state.user?.contact, phone],
       ])
 
@@ -3938,7 +4569,6 @@ async function saveUserProfile(btn) {
         state.user.middleName = mn
         state.user.lastName   = ln
         state.user.name       = fullName
-        if (email) state.user.email = email
         state.user.contact   = phone
       }
 
@@ -3949,20 +4579,20 @@ async function saveUserProfile(btn) {
       // Sync the in-memory mock arrays so navigating away and back shows new values
       if (role === 'doctor') {
         const entry = doctors.find(d => d.id === state.user?.id)
-        if (entry) { entry.firstName = fn; entry.middleName = mn; entry.lastName = ln; entry.name = fullName; entry.contact = phone; if (email) entry.email = email }
+        if (entry) { entry.firstName = fn; entry.middleName = mn; entry.lastName = ln; entry.name = fullName; entry.contact = phone }
       } else if (role === 'staff') {
         const entry = staff.find(s => s.id === state.user?.id)
-        if (entry) { entry.firstName = fn; entry.middleName = mn; entry.lastName = ln; entry.name = fullName; entry.contact = phone; if (email) entry.email = email }
+        if (entry) { entry.firstName = fn; entry.middleName = mn; entry.lastName = ln; entry.name = fullName; entry.contact = phone }
       } else if (role === 'admin') {
         const entry = admins.find(a => a.id === state.user?.id)
-        if (entry) { entry.firstName = fn; entry.middleName = mn; entry.lastName = ln; entry.name = fullName; entry.contact = phone; if (email) entry.email = email }
+        if (entry) { entry.firstName = fn; entry.middleName = mn; entry.lastName = ln; entry.name = fullName; entry.contact = phone }
       }
 
       // Re-render the current page so the profile banner reflects new values,
       // and re-render the sidebar so the name updates there too — this also
       // rebuilds the Save Changes button fresh (idle, enabled), so there's
       // nothing to manually restore here on the success path.
-      window.navigate(state.page, { ...state.params })
+      renderPage()
     } else {
       _btnIdle(btn)
       toast(d.message || 'Failed to update profile.', 'error')
@@ -3994,7 +4624,6 @@ async function savePatientSettings(btn) {
   const contact = document.getElementById('sett-contact')?.value.trim() || ''
   const address    = document.getElementById('sett-address')?.value.trim() || ''
   const occupation = document.getElementById('sett-occupation')?.value.trim() || ''
-  const medicalHistory = document.getElementById('sett-medical-history')?.value.trim() || ''
   const dob     = document.getElementById('sett-dob')?.value    || ''
   const gender  = document.getElementById('sett-gender')?.value || ''
   if (!fn || !ln) { toast('First and last name are required.', 'error'); return }
@@ -4007,9 +4636,11 @@ async function savePatientSettings(btn) {
     const r = await fetch('api/patients/update.php', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ action: 'profile', firstName: fn, middleName: mn, lastName: ln, phone: contact, address, occupation, medicalHistory, dob, gender })
+      body:    JSON.stringify({ action: 'profile', firstName: fn, middleName: mn, lastName: ln, phone: contact, address, occupation, dob, gender })
     })
     const d = await r.json()
+    // A rename also updates the name on this patient's appointments (server-side) — refresh them.
+    if (d.success && window._syncAppointments) window._syncAppointments()
     if (d.success) {
       toast('Profile updated successfully.', 'success')
       const fullName = fmtFullName(fn, mn, ln)
@@ -4030,7 +4661,6 @@ async function savePatientSettings(btn) {
       const otherChanged = [
         address && address !== p?.address,
         occupation !== (p?.occupation || ''),
-        medicalHistory !== (p?.medicalHistory || ''),
       ].some(Boolean)
       if (otherChanged) diffParts.push('other profile details updated')
 
@@ -4050,7 +4680,6 @@ async function savePatientSettings(btn) {
         p.contact    = contact
         p.address    = address
         p.occupation = occupation
-        p.medicalHistory = medicalHistory
         if (gender) p.gender = gender
         if (dob) { p.dob = dob; p.age = ageFromDob(dob) }
       }
@@ -4062,7 +4691,7 @@ async function savePatientSettings(btn) {
         timestamp: nowTimestamp(), type:'patient' })
       // Re-renders the page, which rebuilds Save Changes fresh (idle,
       // enabled) — nothing to manually restore here on the success path.
-      window.navigate(state.page, { ...state.params })
+      renderPage()
     } else {
       _btnIdle(btn)
       toast(d.message || 'Failed to update profile.', 'error')
@@ -4203,6 +4832,7 @@ function _setupEmailChangeOtpInputs() {
       const val = e.target.value.replace(/\D/g, '')
       e.target.value = val ? val[0] : ''
       if (val && idx < 5) inputs[idx + 1].focus()
+      window._otpAutoSubmit(inputs, window._verifyEmailChangeOtp)   // auth.js
     })
     el.addEventListener('keydown', e => {
       if (e.key === 'Backspace' && !e.target.value && idx > 0) inputs[idx - 1].focus()
@@ -4213,6 +4843,7 @@ function _setupEmailChangeOtpInputs() {
       const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '')
       ;[...pasted].slice(0, 6).forEach((ch, i) => { if (inputs[idx + i]) inputs[idx + i].value = ch })
       inputs[Math.min(idx + pasted.length, 5)].focus()
+      window._otpAutoSubmit(inputs, window._verifyEmailChangeOtp)
     })
   })
 }
@@ -4231,7 +4862,9 @@ function _startEmailChangeResendCooldown(seconds) {
   clearInterval(window._chgEmailCooldownInterval)
   const btn = document.getElementById('chg-email-resend-btn')
   if (!btn) return
-  let remaining = seconds
+  // Real-clock deadline, not a per-tick counter (background tabs slow
+  // timers down — see _evStartTimer() in auth.js).
+  const cooldownEnd = Date.now() + seconds * 1000
   const setDisabled = (is) => {
     btn.disabled      = is
     btn.style.opacity = is ? '.55' : '1'
@@ -4239,6 +4872,7 @@ function _startEmailChangeResendCooldown(seconds) {
   }
   setDisabled(true)
   const tick = () => {
+    const remaining = Math.max(0, Math.ceil((cooldownEnd - Date.now()) / 1000))
     if (remaining <= 0) {
       clearInterval(window._chgEmailCooldownInterval)
       setDisabled(false)
@@ -4247,7 +4881,6 @@ function _startEmailChangeResendCooldown(seconds) {
     }
     const m = Math.floor(remaining / 60), s = remaining % 60
     btn.textContent = `Resend in ${m}:${String(s).padStart(2, '0')}`
-    remaining--
   }
   tick()
   window._chgEmailCooldownInterval = setInterval(tick, 1000)
@@ -4319,17 +4952,20 @@ async function _verifyEmailChangeOtp() {
       return
     }
     // Sync the new email everywhere it's cached client-side.
+    // Same flow for every role now — update whichever list holds this account.
     const oldEmail = state.user?.email
     if (state.user) state.user.email = d.email
-    const p = patients.find(pt => pt.id === state.user?.id)
-    if (p) p.email = d.email
-    addActivityLog({ id:'L'+Date.now(), user: state.user?.name || 'A patient', role: 'Patient',
+    const roleList = { patient: patients, doctor: doctors, staff, admin: admins }[state.role] || []
+    const entry = roleList.find(x => x.id === state.user?.id)
+    if (entry) entry.email = d.email
+    const roleLabel = state.role ? state.role.charAt(0).toUpperCase() + state.role.slice(1) : 'User'
+    addActivityLog({ id:'L'+Date.now(), user: state.user?.name || 'A user', role: roleLabel,
       action: `Changed email from '${oldEmail || '(none)'}' to '${d.email || '(none)'}'`,
-      timestamp: nowTimestamp(), type:'patient' })
+      timestamp: nowTimestamp(), type: state.role === 'patient' ? 'patient' : 'user' })
     clearInterval(window._chgEmailCooldownInterval)
     closeModal()
     toast('Email address updated successfully.', 'success')
-    window.navigate(state.page, { ...state.params })
+    renderPage()
   } catch (_) {
     if (!document.getElementById('chg-email-verify-btn')) return
     errEl.textContent = 'Network error. Please try again.'
@@ -4389,7 +5025,7 @@ function confirmCancelAppt(id) {
     <div class="modal-body">
       <div style="background:#FEF2F2;border:1px solid #FECACA;color:#991B1B;border-radius:8px;padding:12px;display:flex;gap:8px;align-items:flex-start;margin-bottom:14px">
         <span style="flex-shrink:0;display:flex;margin-top:2px">${icon('alert-circle','icon-sm')}</span>
-        <span style="font-size:.84rem;line-height:1.4">${isPatient ? 'Are you sure you want to cancel this appointment? This action cannot be undone.' : 'Cancel this appointment? The patient will be notified of the cancellation.'}</span>
+        <span style="font-size:.84rem;line-height:1.4">${isPatient ? 'Cancel this appointment? The clinic will be notified with your reason. This can\'t be undone, but you can book a new appointment anytime.' : 'Cancel this appointment? The patient will be notified with your reason.'}</span>
       </div>
       <div style="background:#F9FAFB;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.84rem">
         <div style="font-weight:600;color:#1a1a1a">${a.type}</div>
@@ -4429,51 +5065,6 @@ async function doCancelAppt(id) {
   if (btn) { btn.disabled = false; btn.innerHTML = 'Confirm Cancellation' }
 }
 
-// ── Waitlist removal (admin/staff, e.g. a patient calls asking to be
-// taken off) — mirrors confirmCancelAppt's modal, no reason required. ──
-function confirmRemoveWaitlistEntry(id) {
-  const e = waitlistEntries.find(e => e.id === id)
-  if (!e) return
-  const fmtD = d => { const dt = new Date(d + 'T00:00:00'); return isNaN(dt) ? d : dt.toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' }) }
-  showModal(`
-    <div class="modal-header">
-      <div class="modal-title">Remove from Waitlist</div>
-      <button class="modal-close" onclick="window.closeModal()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div style="background:#FEF2F2;border:1px solid #FECACA;color:#991B1B;border-radius:8px;padding:12px;display:flex;gap:8px;align-items:flex-start">
-        <span style="flex-shrink:0;display:flex;margin-top:2px">${icon('alert-circle','icon-sm')}</span>
-        <span style="font-size:.84rem;line-height:1.4">Remove <strong>${esc(e.patientName)}</strong> from the waitlist for ${esc(e.doctorName)} on ${fmtD(e.date)} at ${e.time}?</span>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
-      <button class="btn-danger" id="waitlist-remove-confirm-btn" onclick="window.doRemoveWaitlistEntry(${e.id})">Confirm Remove</button>
-    </div>`)
-}
-window.confirmRemoveWaitlistEntry = confirmRemoveWaitlistEntry
-
-async function doRemoveWaitlistEntry(id) {
-  const btn = document.getElementById('waitlist-remove-confirm-btn')
-  if (_btnBusy(btn, 'danger', 'Removing…')) return
-  const e = waitlistEntries.find(e => e.id === id)
-  try {
-    const r = await fetch('api/waitlist/leave.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id })
-    })
-    const d = await r.json()
-    if (!d.success) { toast(d.message || 'Could not remove from waitlist.', 'error'); _btnIdle(btn); return }
-    addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
-      action: `Removed ${e?.patientName || 'a patient'} from waitlist for ${e?.doctorName || 'a doctor'}${e ? ' on ' + e.date + ' at ' + e.time : ''}`,
-      timestamp: nowTimestamp(), type:'appointment' })
-    closeModal()
-    toast('Removed from waitlist.', 'success')
-    _syncWaitlist()
-  } catch (_) { toast('Network error. Please try again.', 'error'); _btnIdle(btn) }
-}
-window.doRemoveWaitlistEntry = doRemoveWaitlistEntry
-
 // Confirmation step since this counts against the patient's no-show tally
 // and can eventually restrict their online booking — not something to
 // trigger by an accidental click.
@@ -4488,8 +5079,11 @@ function confirmMarkNoShow(id) {
     <div class="modal-body">
       <div style="background:#FEF2F2;border:1px solid #FECACA;color:#991B1B;border-radius:8px;padding:12px;display:flex;gap:8px;align-items:flex-start;margin-bottom:14px">
         <span style="flex-shrink:0;display:flex;margin-top:2px">${icon('alert-circle','icon-sm')}</span>
-        <span style="font-size:.84rem;line-height:1.4">This counts against ${a.patientName}'s no-show record and may eventually restrict their online booking. This action cannot be undone.</span>
+        <span style="font-size:.84rem;line-height:1.4">This counts against ${a.patientName}'s no-show record and may eventually restrict their online booking. If it turns out to be a mistake, admin or staff can revert it.</span>
       </div>
+      ${a.examDraftAt ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.82rem;line-height:1.5">
+        <strong>An examination was already started for this visit</strong> (unsaved draft${a.examDraftBy ? ' by ' + esc(a.examDraftBy) : ''}). The patient was most likely seen, so check before marking a no-show.
+      </div>` : ''}
       <div style="background:#F9FAFB;border-radius:8px;padding:10px 12px;font-size:.84rem">
         <div style="font-weight:600;color:#1a1a1a">${a.type}</div>
         <div style="color:#6B7280;margin-top:2px">${a.date} at ${a.time} · ${a.doctorName}</div>
@@ -4518,6 +5112,140 @@ async function markApptNoShow(id) {
   renderPage()
 }
 window.markApptNoShow = markApptNoShow
+
+// Admin only: the patient DID attend, but the doctor couldn't save the exam
+// before the appointment's date passed, so it was auto-marked a no-show.
+// Reverting puts it back to Approved (it won't auto-flip again), removes the
+// no-show from the patient's record, lifts a booking restriction it caused,
+// and notifies the patient. The exam can then be recorded against it.
+function confirmRevertNoShow(id) {
+  const a = appointments.find(a => a.id === id)
+  if (!a) return
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Revert No-Show</div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;color:#1E40AF;border-radius:8px;padding:12px;display:flex;gap:8px;align-items:flex-start;margin-bottom:14px">
+        <span style="flex-shrink:0;display:flex;margin-top:2px">${icon('info','icon-sm')}</span>
+        <span style="font-size:.84rem;line-height:1.5">Use this when <strong>${esc(a.patientName)}</strong> did attend but the examination wasn't saved in time. The appointment goes back to <strong>Approved</strong> so the exam can still be recorded, and this no-show is removed from the patient's record.</span>
+      </div>
+      <div style="background:#F9FAFB;border-radius:8px;padding:10px 12px;font-size:.84rem;margin-bottom:14px">
+        <div style="font-weight:600;color:#1a1a1a">${esc(a.type)}</div>
+        <div style="color:#6B7280;margin-top:2px">${fmtDate(a.date)} at ${esc(a.time)} · ${esc(a.doctorName || 'No doctor assigned')}</div>
+      </div>
+      <div id="revert-ns-draft"></div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Reason <span style="color:#DC2626">*</span></label>
+        <textarea id="revert-ns-reason" class="form-textarea" rows="3" style="resize:none"
+                  placeholder="e.g. Patient was seen; the doctor's exam wasn't saved because of a connection problem."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
+      <button class="btn-primary" id="revert-ns-btn" onclick="window.doRevertNoShow('${id}')">${icon('rotate-ccw','icon-sm')} Revert No-Show</button>
+    </div>`)
+  setTimeout(() => document.getElementById('revert-ns-reason')?.focus(), 50)
+
+  // Was an exam started for this visit but never saved? Its auto-saved
+  // draft (api/examinations/draft.php) is proof the patient was seen, and
+  // gets restored when the exam is started after reverting.
+  window._revertNsDraft = null
+  fetch(`api/examinations/draft.php?patientId=${encodeURIComponent(a.patientId)}&apptId=${encodeURIComponent(a.id)}`)
+    .then(r => r.json())
+    .then(d => {
+      const box = document.getElementById('revert-ns-draft')
+      if (!box || !d.success) return
+      window._revertNsDraft = d.draft || null
+      box.innerHTML = d.draft
+        ? `<div style="display:flex;gap:8px;align-items:flex-start;background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.82rem;line-height:1.5">
+             <span style="flex-shrink:0;display:flex;margin-top:2px">${icon('file-text','icon-sm')}</span>
+             <span><strong>An unsaved examination draft exists for this visit</strong> (saved ${_examDraftTime(d.draft.updatedAt)}${d.draft.savedBy ? ' by ' + esc(d.draft.savedBy) : ''}). It will be restored when ${state.role === 'staff' ? 'the doctor starts' : 'you start'} the examination.</span>
+           </div>`
+        : `<div style="font-size:.78rem;color:#9CA3AF;margin-bottom:12px">No unsaved examination draft was found for this visit, so the exam will need to be entered from the start.</div>`
+    })
+    .catch(() => {})
+}
+window.confirmRevertNoShow = confirmRevertNoShow
+
+async function doRevertNoShow(id) {
+  const reason = (document.getElementById('revert-ns-reason')?.value || '').trim()
+  if (!reason) {
+    toast('Please enter a reason for reverting this no-show.', 'error')
+    document.getElementById('revert-ns-reason')?.focus()
+    return
+  }
+  const btn = document.getElementById('revert-ns-btn')
+  if (_btnBusy(btn, 'primary', 'Reverting…')) return
+  let d
+  try {
+    const r = await fetch('api/appointments/update.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action: 'revert_no_show', reason })
+    })
+    d = await r.json()
+  } catch (_) {
+    _btnIdle(btn); toast('Network error — please try again.', 'error'); return
+  }
+  if (!d.success) { _btnIdle(btn); toast(d.message || 'Could not revert this no-show.', 'error'); return }
+
+  const a = appointments.find(x => x.id === id)
+  if (a) {
+    a.status = 'approved'
+    a.noShowRevertedAt = new Date().toISOString()
+    a.noShowRevertReason = reason
+    const p = patients.find(pt => pt.id === a.patientId)
+    if (p) {
+      p.noShowCount = Math.max(0, (p.noShowCount || 1) - 1)
+      if (d.restrictionLifted) p.bookingRestricted = false
+    }
+    addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
+      action: `Reverted no-show for appointment ${id} (${a.patientName}): '${reason}'`,
+      timestamp: nowTimestamp(), type:'appointment' })
+  }
+
+  // Staff can't record exams — the doctor is notified to do it instead.
+  if (state.role === 'staff') {
+    showModal(`
+      <div class="modal-header">
+        <div class="modal-title">No-Show Reverted</div>
+        <button class="modal-close" onclick="window.closeModal();window.renderPage()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:10px;align-items:flex-start;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;padding:12px 14px;font-size:.84rem;color:#065F46">
+          <span style="display:flex;flex-shrink:0;margin-top:1px">${icon('check-circle','icon-sm')}</span>
+          <div>${esc(a?.patientName || 'The patient')}'s appointment is back to <strong>Approved</strong> and the no-show was removed from their record.${d.restrictionLifted ? ' Their online booking restriction was lifted too.' : ''} The patient has been notified.</div>
+        </div>
+        <p style="font-size:.84rem;color:#6B7280;margin:14px 0 0">${a?.doctorName ? esc(a.doctorName) + ' has' : 'The doctor has'} been notified to record the examination${window._revertNsDraft ? ' (the unsaved draft will be restored)' : ''}. It will be dated ${a ? fmtDate(a.date) : 'on the appointment day'}, and saving it completes the appointment.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="window.closeModal();window.renderPage()">Done</button>
+      </div>`)
+    return
+  }
+
+  // Offer to record the missing exam straight away.
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">No-Show Reverted</div>
+      <button class="modal-close" onclick="window.closeModal();window.renderPage()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:10px;align-items:flex-start;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;padding:12px 14px;font-size:.84rem;color:#065F46">
+        <span style="display:flex;flex-shrink:0;margin-top:1px">${icon('check-circle','icon-sm')}</span>
+        <div>${esc(a?.patientName || 'The patient')}'s appointment is back to <strong>Approved</strong> and the no-show was removed from their record.${d.restrictionLifted ? ' Their online booking restriction was lifted too.' : ''} The patient has been notified.</div>
+      </div>
+      <p style="font-size:.84rem;color:#6B7280;margin:14px 0 0">${window._revertNsDraft
+        ? `Continue the examination now? The unsaved draft will be restored, it will be dated ${a ? fmtDate(a.date) : 'on the appointment day'}, and saving it completes the appointment.`
+        : `Record the examination now? It will be dated ${a ? fmtDate(a.date) : 'on the appointment day'}, and saving it completes the appointment.`}</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal();window.renderPage()">Later</button>
+      <button class="btn-primary" onclick="window._examDraftAutoRestore=${window._revertNsDraft ? 'true' : 'false'};window.closeModal();window.startExamFromAppt('${id}')">${icon('file-text','icon-sm')} ${window._revertNsDraft ? 'Continue Examination' : 'Start Examination'}</button>
+    </div>`)
+}
+window.doRevertNoShow = doRevertNoShow
 
 async function confirmMyAppointment(id) {
   try {
@@ -4585,8 +5313,16 @@ function openNewApptRequestNotif(id) {
 }
 window.openNewApptRequestNotif = openNewApptRequestNotif
 
-function confirmApptPrompt(id) {
-  const a = appointments.find(a => a.id === id)
+async function confirmApptPrompt(id) {
+  let a = appointments.find(a => a.id === id)
+  // The list in memory is from when the page loaded, but the reminder is
+  // sent later by the cron job — so the first click saw no reminderSentAt
+  // and wrongly said "no longer needs confirmation" (it only worked after
+  // something else reloaded the list). Reload it first, then decide.
+  if ((!a || a.status !== 'approved' || !a.reminderSentAt || !a.confirmedAt) && window._syncAppointments) {
+    try { await window._syncAppointments() } catch (_) {}
+    a = appointments.find(a => a.id === id)
+  }
   if (!a || a.status !== 'approved' || !a.reminderSentAt) {
     // Stale by the time they clicked (already handled/cancelled elsewhere) —
     // fall back to the appointments list instead of a dead-end modal.
@@ -4613,7 +5349,7 @@ function confirmApptPrompt(id) {
         <div style="font-size:.82rem;color:#6B7280;margin-top:4px">${fmtD(a.date)} at ${a.time}</div>
         <div style="font-size:.82rem;color:#6B7280">${a.type}</div>
       </div>
-      <div style="font-size:.85rem;color:#6B7280;margin-bottom:20px">Will you be attending? If we don't hear from you by ${consultationSettings.confirmDeadlineTime || '9:00 PM'} today, this appointment will be automatically cancelled.</div>
+      <div style="font-size:.85rem;color:#6B7280;margin-bottom:20px">Will you be attending? Confirming lets the clinic know to expect you.</div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
         <button class="btn-secondary" onclick="window.closeModal()">Not Now</button>
         <button class="btn-primary" onclick="window.confirmMyAppointment('${a.id}')">Yes, I'll Be There</button>
@@ -4834,6 +5570,98 @@ function _clampToDoctorHours(startStr, endStr, doctorHours) {
   }
   return [clampedStart, clampedEnd]
 }
+
+// ── Per-day doctor hours ──────────────────────────────────────────
+// doctor.dayHours (api/doctors/*.php, from doctor_days.start_time/end_time)
+// holds each working day's own hours: { Mon: {start,end}, Thu: null, … },
+// where null = the clinic's full hours that day. These return that day's
+// range in the same "9:00 AM – 12:00 PM" shape _clampToDoctorHours() takes,
+// or '' for "clinic hours". A doctor record from before per-day hours
+// (no dayHours at all) falls back to its old single `hours` range.
+const _WEEKDAY_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+function doctorHoursForDay(doc, day) {
+  const dh = doc?.dayHours
+  if (dh && typeof dh === 'object') {
+    const h = Array.isArray(dh) ? null : dh[day]
+    return h && h.start && h.end ? `${h.start} – ${h.end}` : ''
+  }
+  return doc?.hours || ''
+}
+function doctorHoursForDate(doc, dateStr) {
+  if (!doc || !dateStr) return ''
+  return doctorHoursForDay(doc, _WEEKDAY_SHORT[new Date(dateStr + 'T00:00:00').getDay()])
+}
+window.doctorHoursForDay  = doctorHoursForDay
+window.doctorHoursForDate = doctorHoursForDate
+
+// A doctor's bookable slot times on one date: the clinic's session(s),
+// narrowed to that day's own hours. Used by the staff reschedule and the
+// follow-up picker (the booking wizard / patient reschedule build their
+// morning/afternoon split inline with the same clamp).
+function _doctorDaySlots(doc, dateStr, stepMin) {
+  const hrs = doctorHoursForDate(doc, dateStr)
+  const cs  = consultationSettings
+  if (cs.lunchBreak) {
+    const [mS, mE] = _clampToDoctorHours(cs.morningStart,   cs.morningEnd,   hrs)
+    const [aS, aE] = _clampToDoctorHours(cs.afternoonStart, cs.afternoonEnd, hrs)
+    return [..._buildSessionSlots(mS, mE, stepMin), ..._buildSessionSlots(aS, aE, stepMin)]
+  }
+  const [s, e] = _clampToDoctorHours(cs.morningStart, cs.afternoonEnd, hrs)
+  return _buildSessionSlots(s, e, stepMin)
+}
+
+// A doctor's working sessions on one date as [[start, end], …]: the clinic's
+// morning/afternoon (or one continuous block with no lunch break), each
+// narrowed to that weekday's own hours; sessions the doctor doesn't cover
+// at all are dropped (e.g. a 1:00–5:00 PM day has no morning session).
+function doctorSessionsForDate(doc, dateStr) {
+  const hrs = doctorHoursForDate(doc, dateStr)
+  const cs  = consultationSettings
+  const raw = cs.lunchBreak
+    ? [[cs.morningStart, cs.morningEnd], [cs.afternoonStart, cs.afternoonEnd]]
+    : [[cs.morningStart, cs.afternoonEnd]]
+  return raw.map(([s, e]) => _clampToDoctorHours(s, e, hrs))
+    .filter(([s, e]) => _clockToMinutes(e) > _clockToMinutes(s))
+}
+window.doctorSessionsForDate = doctorSessionsForDate
+
+// Human summary of a doctor's week, each day's hours fitted to the clinic's
+// own (what can actually be booked): "9:00 AM – 5:00 PM" when every working
+// day is the same, otherwise grouped by range, e.g.
+// "Mon, Tue: 9:00 AM – 12:00 PM · Thu: 1:00 PM – 5:00 PM".
+function doctorHoursSummary(doc) {
+  const days = (doc?.availableDays || doc?.days || []).slice()
+    .sort((a, b) => ((_WEEKDAY_SHORT.indexOf(a) + 6) % 7) - ((_WEEKDAY_SHORT.indexOf(b) + 6) % 7))
+  if (!days.length) return '—'
+  const cs = consultationSettings
+  const groups = []
+  days.forEach(day => {
+    const [s, e] = _clampToDoctorHours(cs.morningStart, cs.afternoonEnd, doctorHoursForDay(doc, day))
+    const label  = `${s} – ${e}`
+    const g = groups.find(x => x.label === label)
+    if (g) g.days.push(day); else groups.push({ label, days: [day] })
+  })
+  return groups.length === 1 ? groups[0].label : groups.map(g => `${g.days.join(', ')}: ${g.label}`).join(' · ')
+}
+window.doctorHoursSummary = doctorHoursSummary
+
+// An upcoming pending/approved appointment that no longer fits its doctor's
+// weekly schedule — kept on purpose via "Save & Keep These Bookings" on Edit
+// Schedule. Returns the reason ('' = fits), for the "Outside Schedule" flag.
+function apptOutsideSchedule(a) {
+  if (!a || !['pending', 'approved'].includes(a.status) || !a.doctorId || !a.date) return ''
+  if (a.date < new Date().toLocaleDateString('en-CA')) return ''
+  const doc = doctors.find(d => d.id === a.doctorId)
+  const days = doc?.availableDays || doc?.days
+  if (!doc || !Array.isArray(days)) return ''
+  const day = _WEEKDAY_SHORT[new Date(a.date + 'T00:00:00').getDay()]
+  if (!days.includes(day)) return `The doctor no longer works on ${new Date(a.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' })}s`
+  const [s, e] = _clampToDoctorHours(consultationSettings.morningStart, consultationSettings.afternoonEnd, doctorHoursForDay(doc, day))
+  const t = _clockToMinutes(a.time)
+  if (t != null && (t < _clockToMinutes(s) || t >= _clockToMinutes(e))) return `Outside the doctor's hours that day (${s} – ${e})`
+  return ''
+}
+window.apptOutsideSchedule = apptOutsideSchedule
 
 // ── Stepper UI update ─────────────────────────────────────────────
 function wizUpdateStepper(step) {
@@ -5197,6 +6025,16 @@ function wizInitStaff(patientId, patientName) {
       }
       const fuPill = document.getElementById('wiz-followup-pill')
       if (fuPill) fuPill.style.display = (prefill.isFollowUp && dateAvailable && doctorAvailable) ? 'inline-flex' : 'none'
+
+      // Booking from a "Follow-up Consultation Needed" notice is by
+      // definition a follow-up — pre-select that type so the Type step is
+      // already filled in (staff can still pick another card). Done
+      // regardless of whether the date/doctor held up, since the type
+      // doesn't depend on either.
+      if (prefill.isFollowUp) {
+        const fuCard = document.querySelector('.appt-type-card[data-type="Follow-up Consultation"]')
+        if (fuCard) window.selectApptType('Follow-up Consultation', fuCard)
+      }
 
       const docNotice = document.getElementById('wiz-doctor-unavail-notice')
       if (docNotice) {
@@ -5679,13 +6517,10 @@ async function wizBuildDoctorCards() {
   container.innerHTML = availDocs.map(d => {
     const isFull = apptCountFor(d.id) >= maxPerDay
     const blockedReason = blockedReasonFor(d.id)
-    // Same pill language as elsewhere in the wizard (time-slot legend's
-    // "full" swatch, apptSubBadges' Confirmed/Rescheduled tags) instead of
-    // bare colored text — and the two reasons get different colors on
-    // purpose: red for a hard block (the doctor isn't working that day at
-    // all), orange for merely full (same "waitlist-able, not truly
-    // unbookable" meaning as .time-slot.full) so the two read as distinct
-    // severities at a glance, not identical red warnings.
+    // Same pill language as elsewhere in the wizard (apptSubBadges'
+    // Confirmed/Rescheduled tags) instead of bare colored text — red for a
+    // hard block (the doctor isn't working that day at all), neutral gray
+    // for merely fully booked.
     if (blockedReason) return `
       <div class="doc-card doc-card-disabled" title="Doctor unavailable: ${blockedReason.replace(/"/g,'&quot;')}">
         ${docAvatar(d)}
@@ -5701,7 +6536,7 @@ async function wizBuildDoctorCards() {
         <div style="flex:1;min-width:0">
           <div style="font-size:.9rem;font-weight:700;color:#9CA3AF">${d.name}</div>
           <div style="font-size:.78rem;color:#9CA3AF;margin-top:2px">${d.specialization}</div>
-          <span style="display:inline-flex;align-items:center;gap:4px;font-size:.7rem;font-weight:600;background:#FFF7ED;color:#C2410C;border-radius:999px;padding:2px 9px;margin-top:5px;width:fit-content">${icon('clock','icon-xs')} Fully booked on this date</span>
+          <span style="display:inline-flex;align-items:center;gap:4px;font-size:.7rem;font-weight:600;background:#F3F4F6;color:#6B7280;border-radius:999px;padding:2px 9px;margin-top:5px;width:fit-content">${icon('clock','icon-xs')} Fully booked on this date</span>
         </div>
       </div>`
     return `
@@ -5763,22 +6598,31 @@ function _slotConflicts(slotTime, slotDur) {
   })
 }
 
-// Same overlap check as _slotConflicts(), narrowed to whether the
-// CURRENT patient (not just anyone) is the one holding a conflicting
-// booking with this doctor — taken.php now carries each taken slot's
-// patientId for exactly this. Only meaningful for a patient looking at
-// their own booking wizard (state.user.id is a patient's own record id
-// there); harmless no-op otherwise since it'll just never match.
+// The patient this wizard is booking for — the logged-in patient, or the
+// one admin/staff picked in New Appointment.
+function _wizBookingPatientId() {
+  return state.role === 'patient' ? state.user?.id : _wiz.patientId
+}
+
+// Same overlap check as _slotConflicts(), narrowed to whether the patient
+// being booked already holds an appointment at this time on the selected
+// date — with ANY doctor, whether they booked it themselves or the clinic
+// booked it for them (walk-in/phone). A patient can't be in two places at
+// once, so those slots are unbookable. Checks both the patient's own
+// appointments (the client `appointments` list: a patient's own, or every
+// appointment for admin/staff) and taken.php's per-slot patientId for this
+// doctor. create.php enforces the same rule server-side.
 function _slotConflictsMine(slotTime, slotDur) {
+  const pid = _wizBookingPatientId()
   const slotMins = _clockToMinutes(slotTime)
-  if (slotMins == null) return false
-  return _takenSlotTimes.some(bt => {
-    if (bt.patientId !== state.user?.id) return false
-    const btMins = _clockToMinutes(bt.time)
-    const btDur  = bt.duration || _takenSlotDur
-    if (btMins == null) return false
-    return slotMins < btMins + btDur && slotMins + slotDur > btMins
-  })
+  if (!pid || slotMins == null) return false
+  const overlaps = (time, dur) => {
+    const m = _clockToMinutes(time)
+    return m != null && slotMins < m + dur && slotMins + slotDur > m
+  }
+  const ownAppts = appointments.some(a => a.patientId === pid && a.date === _wiz.selectedDate
+    && !['cancelled','disapproved'].includes(a.status) && overlaps(a.time, _takenSlotDur))
+  return ownAppts || _takenSlotTimes.some(bt => bt.patientId === pid && overlaps(bt.time, bt.duration || _takenSlotDur))
 }
 
 async function wizBuildTimeSlots() {
@@ -5814,12 +6658,12 @@ async function wizBuildTimeSlots() {
   const _wizDoc = doctors.find(dd => dd.id === _wiz.doctorId)
   let morning, afternoon
   if (consultationSettings.lunchBreak) {
-    const [mStart, mEnd] = _clampToDoctorHours(consultationSettings.morningStart,   consultationSettings.morningEnd,   _wizDoc?.hours)
-    const [aStart, aEnd] = _clampToDoctorHours(consultationSettings.afternoonStart, consultationSettings.afternoonEnd, _wizDoc?.hours)
+    const [mStart, mEnd] = _clampToDoctorHours(consultationSettings.morningStart,   consultationSettings.morningEnd,   doctorHoursForDate(_wizDoc, _wiz.selectedDate))
+    const [aStart, aEnd] = _clampToDoctorHours(consultationSettings.afternoonStart, consultationSettings.afternoonEnd, doctorHoursForDate(_wizDoc, _wiz.selectedDate))
     morning   = _buildSessionSlots(mStart, mEnd, stepMin)
     afternoon = _buildSessionSlots(aStart, aEnd, stepMin)
   } else {
-    const [fStart, fEnd] = _clampToDoctorHours(consultationSettings.morningStart, consultationSettings.afternoonEnd, _wizDoc?.hours)
+    const [fStart, fEnd] = _clampToDoctorHours(consultationSettings.morningStart, consultationSettings.afternoonEnd, doctorHoursForDate(_wizDoc, _wiz.selectedDate))
     const allSlots = _buildSessionSlots(fStart, fEnd, stepMin)
     morning   = allSlots.filter(t => _toMin(t) < 720)
     afternoon = allSlots.filter(t => _toMin(t) >= 720)
@@ -5840,38 +6684,24 @@ async function wizBuildTimeSlots() {
   // No more per-service duration — every appointment (any type) runs on
   // the one clinic-wide interval, already reflected in _takenSlotDur.
   const newSlotDur = _takenSlotDur
+  // A slot is unselectable when it's already passed, booked by someone
+  // else, or the patient being booked already has an appointment then
+  // (any doctor, any source — its own "Booked by you" look).
+  const _slotUnavailable = t => (isToday && parseSlotMin(t) <= nowMin) || _slotConflicts(t, newSlotDur) || _slotConflictsMine(t, newSlotDur)
+  const mineTip = state.role === 'patient'
+    ? 'You already have an appointment at this time.'
+    : 'This patient already has an appointment at this time.'
   const slotBtn = t => {
-    // A "full" slot (booked by someone else, or held by another patient's
-    // waitlist offer — both come back from taken.php) is still selectable:
-    // the patient can pick it and, if they try to submit, create.php offers
-    // them the waitlist for it. Only truly past times are unselectable.
-    // A slot that's full specifically because THIS patient already has
-    // their own appointment there is different again — joining a waitlist
-    // for a slot they already hold doesn't make sense, so that one's
-    // unselectable too, with its own "Booked by you" treatment instead of
-    // the generic waitlist-eligible one.
     const isFull   = _slotConflicts(t, newSlotDur)
-    const isMine   = state.role === 'patient' && isFull && _slotConflictsMine(t, newSlotDur)
+    const isMine   = _slotConflictsMine(t, newSlotDur)
     const isPast   = isToday && parseSlotMin(t) <= nowMin
-    const isSel    = t === _wiz.time && !isPast
-    // Built additively (not a chained ternary) so a slot that's both the
-    // current pick AND fully-booked keeps BOTH classes on every rebuild —
-    // matching wizSelectTime()'s click-time behavior, which never strips
-    // '.full' when adding '.selected'. A chained ternary would only ever
-    // apply one class, silently dropping '.full' for the selected slot
-    // every time this grid re-renders (e.g. navigating back to this step).
-    let cls = 'time-slot'
-    if (isPast) cls += ' taken'
-    else if (isMine) cls += ' mine'
-    else {
-      if (isFull) cls += ' full'
-      if (isSel)  cls += ' selected'
-    }
+    const isSel    = t === _wiz.time && !isPast && !isFull && !isMine
+    const cls = 'time-slot' + (isMine ? ' mine' : (isPast || isFull) ? ' taken' : isSel ? ' selected' : '')
     const tip      = isPast ? 'This time slot has already passed.'
-                   : isMine ? 'You already have an appointment with this doctor at this time.'
-                   : isFull ? 'This slot is fully booked. You can still select it to join the waitlist.'
+                   : isMine ? mineTip
+                   : isFull ? 'This time slot is already taken.'
                    : ''
-    const disabled = (isPast || isMine) ? `disabled title="${tip}"` : (tip ? `title="${tip}"` : '')
+    const disabled = tip ? `disabled title="${tip}"` : ''
     return `<button class="${cls}" ${disabled} onclick="window.wizSelectTime('${t}',this)">${t}</button>`
   }
 
@@ -5886,8 +6716,8 @@ async function wizBuildTimeSlots() {
       <div style="display:flex;flex-wrap:wrap;gap:8px">${afternoon.map(slotBtn).join('')}</div>
     </div>` : ''}`
 
-  // If previously selected time is now past, clear it
-  if (_wiz.time && isToday && parseSlotMin(_wiz.time) <= nowMin) {
+  // If the previously selected time is now past or booked, clear it
+  if (_wiz.time && _slotUnavailable(_wiz.time)) {
     _wiz.time = null
     const inp = document.getElementById('appt-time')
     if (inp) inp.value = ''
@@ -5901,30 +6731,13 @@ async function wizBuildTimeSlots() {
   if (lbl3) lbl3.textContent = _wiz.selectedDateShort
   const btn = document.getElementById('wiz-next-2')
   if (btn) btn.disabled = !_wiz.time
-  _wizSetFullLegend()
-}
-
-// A "full" slot means the exact same thing in both modes now — waitlist-
-// able, not truly unbookable — single-doctor (nobody free but the one
-// doctor) and any-doctor (nobody eligible free, see
-// wizBuildTimeSlotsAnyDoctor()) alike. Reset here rather than baked
-// statically into pages.js since the same wizard DOM can flip between modes
-// via wizBackToPref(), which could otherwise leave a stale legend behind.
-function _wizSetFullLegend() {
-  const txt    = document.getElementById('tsl-full-txt')
-  const swatch = document.getElementById('tsl-full-swatch')
-  if (txt)    txt.textContent = 'Fully booked (waitlist available)'
-  if (swatch) swatch.style.cssText = 'background:#FFF7ED;border:1.5px solid #FDBA74'
 }
 
 // ── Step 3 (any-doctor mode): time slots unioned across every doctor who
 // could plausibly work this date ─────────────────────────────────────
 // A slot is bookable if ANY eligible doctor is free at it — the clinic
 // assigns the actual doctor afterward (see appointments/update.php's
-// assign_doctor action). Unlike single-doctor mode, a slot with no free
-// doctor is disabled outright rather than offered as a waitlist pick —
-// the waitlist system is keyed to one specific doctor+date+time, which
-// doesn't exist yet for an unassigned request.
+// assign_doctor action). A slot with no free doctor is disabled.
 async function wizBuildTimeSlotsAnyDoctor() {
   const el = document.getElementById('appt-time-slots')
   if (el) el.innerHTML = '<div style="color:#9CA3AF;font-size:.82rem;padding:8px 0">Loading available slots…</div>'
@@ -5970,6 +6783,11 @@ async function wizBuildTimeSlotsAnyDoctor() {
     defaultDuration = d.defaultDuration || defaultDuration
   } catch (_) { /* fail open — treat as nobody booked yet */ }
   if (!document.getElementById('appt-time-slots') || _wiz.selectedDate !== requestedDate) return
+  // No single doctor here — clear the single-doctor taken list so
+  // _slotConflictsMine() doesn't read a stale one from another date; the
+  // patient's own appointments list covers every doctor anyway.
+  _takenSlotTimes = []
+  _takenSlotDur   = defaultDuration
 
   const stepMin = _durationMinutes(consultationSettings.defaultDuration)
   const _toMin = t => {
@@ -6001,6 +6819,13 @@ async function wizBuildTimeSlotsAnyDoctor() {
     const slotMins = _clockToMinutes(t)
     if (slotMins == null) return false
     return freeDocs.some(d => {
+      // That doctor's own hours this weekday must cover the slot (same
+      // rule as eligibleDoctorsForDate()'s $time check server-side).
+      const hrs = doctorHoursForDay(d, dayShort)
+      if (hrs) {
+        const [hs, he] = hrs.split('–').map(s => _clockToMinutes(s.trim()))
+        if (hs != null && he != null && (slotMins < hs || slotMins >= he)) return false
+      }
       const taken = byDoctor[d.id] || []
       return !taken.some(bt => {
         const btMins = _clockToMinutes(bt.time)
@@ -6011,26 +6836,21 @@ async function wizBuildTimeSlotsAnyDoctor() {
     })
   }
 
-  // A "full" slot (nobody eligible is free at it) is still selectable —
-  // same as the single-doctor path (_slotConflicts/wizBuildTimeSlots): the
-  // patient can pick it and, if they submit, create.php offers them the
-  // waitlist for it (tied to whichever under-cap doctor is picked server-
-  // side — see create.php's anyDoctor branch). Only truly past times are
-  // unselectable.
+  // A slot with no free eligible doctor is unselectable, same as a past
+  // one — and so is a time the patient being booked already has an
+  // appointment (any doctor, any source).
+  const _anyMine = t => _slotConflictsMine(t, newSlotDur)
   const slotBtn = t => {
     const isPast = isToday && parseSlotMin(t) <= nowMin
-    const isFull = !isPast && !slotHasFreeDoctor(t)
-    const isSel  = t === _wiz.time && !isPast
-    let cls = 'time-slot'
-    if (isPast) cls += ' taken'
-    else {
-      if (isFull) cls += ' full'
-      if (isSel)  cls += ' selected'
-    }
+    const isMine = !isPast && _anyMine(t)
+    const isFull = !isPast && !isMine && !slotHasFreeDoctor(t)
+    const isSel  = t === _wiz.time && !isPast && !isFull && !isMine
+    const cls = 'time-slot' + (isMine ? ' mine' : (isPast || isFull) ? ' taken' : isSel ? ' selected' : '')
     const tip      = isPast ? 'This time slot has already passed.'
-                   : isFull ? 'No doctor is free at this time. You can still select it to join the waitlist.'
+                   : isMine ? 'You already have an appointment at this time.'
+                   : isFull ? 'No doctor is free at this time.'
                    : ''
-    const disabled = isPast ? `disabled title="${tip}"` : (tip ? `title="${tip}"` : '')
+    const disabled = tip ? `disabled title="${tip}"` : ''
     return `<button class="${cls}" ${disabled} onclick="window.wizSelectTime('${t}',this)">${t}</button>`
   }
 
@@ -6045,10 +6865,8 @@ async function wizBuildTimeSlotsAnyDoctor() {
       <div style="display:flex;flex-wrap:wrap;gap:8px">${afternoon.map(slotBtn).join('')}</div>
     </div>` : ''}`
 
-  // Only clear a stale selection once it's actually past — same as the
-  // single-doctor path, a "full" pick stays selected since submitting it
-  // is exactly how the patient opts into the waitlist for it.
-  if (_wiz.time && isToday && parseSlotMin(_wiz.time) <= nowMin) {
+  // Clear a stale selection that's now past or has no free doctor.
+  if (_wiz.time && ((isToday && parseSlotMin(_wiz.time) <= nowMin) || !slotHasFreeDoctor(_wiz.time) || _anyMine(_wiz.time))) {
     _wiz.time = null
     const inp = document.getElementById('appt-time')
     if (inp) inp.value = ''
@@ -6062,15 +6880,10 @@ async function wizBuildTimeSlotsAnyDoctor() {
   if (lbl3) lbl3.textContent = _wiz.selectedDateShort
   const btn = document.getElementById('wiz-next-2')
   if (btn) btn.disabled = !_wiz.time
-  _wizSetFullLegend()
 }
 
 function wizSelectTime(time, btnEl) {
   _wiz.time = time
-  // Only clear 'selected' from other buttons — 'full' reflects the actual
-  // taken/held state from the server and should stay put regardless of
-  // click state, so a selected-but-full slot keeps looking distinct (see
-  // .time-slot.selected.full) instead of looking identical to a normal pick.
   document.querySelectorAll('.time-slot').forEach(b => b.classList.remove('selected'))
   btnEl.classList.add('selected')
   const inp = document.getElementById('appt-time')
@@ -6173,27 +6986,40 @@ window.syncApptSubmitState = syncApptSubmitState
 // renderTermsMarkdown() (db.js). Section 4 uses "> " so it keeps rendering
 // as the original amber callout box instead of a plain paragraph. A
 // function (not a plain const) so it always states the *current*
-// consultationSettings.reminderTime/confirmDeadlineTime — reads live off
+// consultationSettings.reminderTime/followupReminderTime — reads live off
 // that object, so once _syncClinicSettings() resolves (or an admin changes
 // the setting mid-session) this reflects the real value, not a stale
-// hardcoded "noon"/"9:00 PM".
+// hardcoded one.
 function defaultApptPolicyMd() {
-  const reminderTime        = consultationSettings.reminderTime        || '12:00 PM'
-  const confirmDeadlineTime = consultationSettings.confirmDeadlineTime || '9:00 PM'
+  const reminderTime        = consultationSettings.reminderTime        || '12:00 AM'
+  const followupTime        = consultationSettings.followupReminderTime || '12:00 PM'
+  const maxOpen             = Math.max(1, parseInt(consultationSettings.maxUpcomingApptsPerPatient, 10) || 1)
+  const upcoming            = maxOpen === 1 ? 'one upcoming appointment' : `${maxOpen} upcoming appointments`
   return `## 1. Appointment Requests
-Appointment requests submitted through this system are subject to confirmation by clinic staff based on doctor availability. The clinic reserves the right to reschedule or decline requests when necessary.
+> Appointment requests submitted through this system are subject to review and approval by clinic staff.
 
-## 2. Cancellations
+The clinic reserves the right to reschedule or decline requests when necessary.
+
+## 2. Upcoming Appointment Limit
+> You can only have ${upcoming} booked online at a time.
+
+You can book another once an appointment is completed, cancelled, or disapproved, or its date has passed. To change the date or time, use Request Reschedule on your current appointment instead of booking a new one. Appointments the clinic books for you, such as follow-ups, don't count toward this limit.
+
+## 3. Cancellations
 If you can no longer make it to your appointment, please cancel as early as possible. This keeps the slot open for someone else who may need it.
 
-## 3. Repeated No-Shows
-If you miss multiple approved appointments without cancelling, online booking may be temporarily restricted for your account. In that case, please contact the clinic directly by phone or in person to schedule your next visit.
+## 4. Repeated No-Shows
+> If you miss multiple approved appointments without cancelling, online booking may be temporarily restricted for your account.
 
-## 4. Appointment Reminders and Confirmation
-> For approved appointments, we send a reminder at ${reminderTime} the day before your visit. Please confirm you'll be attending by ${confirmDeadlineTime} that same day. If we don't hear from you by then, the appointment is automatically cancelled so the slot can be offered to another patient.
+In that case, please contact the clinic directly by phone or in person to schedule your next visit.
 
-## 5. Waitlist
-If your preferred slot is fully booked, you can join the waitlist for it. If that slot opens up, you'll be notified with a limited time to claim it. If you don't respond in time, or choose to decline, the slot is offered to the next patient in line. You can only be on one waitlist at a time.
+## 5. Appointment Reminders and Confirmation
+> For approved appointments, we send a reminder at ${reminderTime} the day before your visit, and another at ${followupTime} if you haven't confirmed yet. Please confirm that you'll be attending so the clinic can prepare for your visit. If you can no longer make it, please cancel instead so the slot can go to another patient.
+
+## 6. Arrival Time
+> Please arrive 5 to 10 minutes before your scheduled appointment time.
+
+This gives the clinic time to check you in so your consultation can start on time.
 `
 }
 
@@ -6283,8 +7109,34 @@ async function requestAppointment() {
     const d = await r.json()
     if (!d.success) {
       if (btn) { btn.disabled = false; btn.innerHTML = icon('check','icon-sm') + ' Confirm Appointment' }
-      if (d.waitlistAvailable) { promptJoinWaitlist(d); return }
-      toast(d.message || 'Could not submit appointment.', 'error'); return
+      toast(d.message || 'Could not submit appointment.', 'error')
+      // Already at the upcoming-appointment limit (e.g. booked from another
+      // tab) — refresh and show the "already have an appointment" notice.
+      if (d.upcomingLimit) {
+        if (window._syncAppointments) await window._syncAppointments()
+        renderPage()
+        return
+      }
+      // The doctor's schedule changed after this page loaded (days, hours or
+      // a blocked date) — reload it and send the patient back to re-pick:
+      // the Time step if the day still works, otherwise the Date step.
+      if (d.scheduleChanged) {
+        if (window._syncDoctors) await window._syncDoctors()
+        const doc = doctors.find(x => x.id === _wiz.doctorId)
+        const dayShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(_wiz.selectedDate + 'T00:00:00').getDay()]
+        const dayOk = doc && (doc.days || []).includes(dayShort) && !(doc.blockedDates || []).some(b => b.date === _wiz.selectedDate)
+        _wiz.time = ''
+        const st = document.getElementById('sum-time')
+        if (st) { st.textContent = 'Not selected yet'; st.classList.add('empty') }
+        if (dayOk) { _wiz.step = 2; wizShowStep(2, -1); wizBuildTimeSlots() }
+        else {
+          _wiz.selectedDate = ''
+          const sd = document.getElementById('sum-date')
+          if (sd) { sd.textContent = 'Not selected yet'; sd.classList.add('empty') }
+          _wiz.step = 0; wizShowStep(0, -1); amcRender()
+        }
+      }
+      return
     }
 
     const newId = d.id
@@ -6330,9 +7182,7 @@ window.requestAppointment = requestAppointment
 // Admin/staff equivalent of requestAppointment() — the patient is already
 // chosen (via the picker gate in pageCreateAppointment()), there's no T&C
 // checkbox to agree to, and the caller sets the initial status directly
-// instead of every request starting as 'pending'. Hitting a full/held slot
-// offers to waitlist the chosen patient, same as the patient-side flow —
-// promptJoinWaitlist() branches on d.patientId to know which case it's in.
+// instead of every request starting as 'pending'.
 async function submitStaffAppointment() {
   if (!_wiz.patientId || !_wiz.selectedDate || !_wiz.doctorId || !_wiz.time || !_wiz.type) {
     toast('Please complete all required fields.', 'error'); return
@@ -6359,7 +7209,6 @@ async function submitStaffAppointment() {
     const d = await r.json()
     if (!d.success) {
       if (btn) { btn.disabled = false; btn.innerHTML = icon('check','icon-sm') + ' Create Appointment' }
-      if (d.waitlistAvailable) { promptJoinWaitlist(d); return }
       toast(d.message || 'Could not create appointment.', 'error'); return
     }
 
@@ -6409,69 +7258,6 @@ function _filterCapPatientList(query) {
     : `<div style="padding:24px;text-align:center;font-size:.85rem;color:#9CA3AF">No matching patients found.</div>`
 }
 window._filterCapPatientList = _filterCapPatientList
-
-// Shared by both the patient's self-booking flow and the admin/staff
-// New Appointment flow — d.patientId/d.patientName are only present on the
-// admin/staff response (see create.php), which is how this tells the two
-// cases apart.
-function promptJoinWaitlist(d) {
-  const dt = new Date(d.date + 'T00:00:00')
-  const dateShort = dt.toLocaleDateString('en-PH', { month:'long', day:'numeric', year:'numeric' })
-  const esc = s => (s || '').replace(/'/g, "\\'")
-  const isStaff = !!d.patientId
-  const joinArgs = `'${d.doctorId}','${esc(d.doctorName)}','${d.date}','${d.time}','${esc(d.type)}'`
-                 + (isStaff ? `,'${d.patientId}','${esc(d.patientName)}'` : '')
-  showModal(`
-    <div class="modal-body" style="text-align:center;padding:32px 24px">
-      <div style="width:56px;height:56px;border-radius:50%;background:#FFF7ED;border:2px solid #FDBA74;
-                  display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#E8760A">
-        ${icon('alert-circle','icon-lg')}
-      </div>
-      <div style="font-size:1.05rem;font-weight:700;color:#1C1C1C;margin-bottom:8px">This Slot Is Fully Booked</div>
-      <div style="background:#F9FAFB;border-radius:10px;padding:14px 20px;margin-bottom:16px;text-align:left">
-        ${isStaff ? `<div style="font-size:.85rem;font-weight:600;color:#1C1C1C">${d.patientName}</div>` : ''}
-        <div style="font-size:.85rem;font-weight:600;color:#1C1C1C">${d.doctorName}</div>
-        <div style="font-size:.82rem;color:#6B7280;margin-top:4px">${dateShort} at ${d.time}</div>
-      </div>
-      <div style="font-size:.85rem;color:#6B7280;margin-bottom:20px">${isStaff
-        ? `Would you like to add ${d.patientName} to the waitlist? They'll be notified if this slot opens up.`
-        : `Would you like to join the waitlist? We'll notify you if this slot opens up.`}</div>
-      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-        <button class="btn-secondary" onclick="window.closeModal()">No, choose another slot</button>
-        <button class="btn-primary" onclick="window.joinWaitlist(${joinArgs})">${isStaff ? 'Yes, add to waitlist' : 'Yes, join waitlist'}</button>
-      </div>
-    </div>`)
-}
-window.promptJoinWaitlist = promptJoinWaitlist
-
-async function joinWaitlist(doctorId, doctorName, date, time, type, patientId, patientName) {
-  const isStaff = !!patientId
-  try {
-    const r = await fetch('api/waitlist/join.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        doctorId, doctorName, date, time, type, termsAgreed: true,
-        ...(isStaff ? { patientId, patientName } : {})
-      })
-    })
-    const d = await r.json()
-    if (!d.success) { toast(d.message || 'Could not join the waitlist.', 'error'); return }
-    addActivityLog({ id:'L'+Date.now(), user: isStaff ? state.user.name : (state.user?.name || patientName), role: isStaff ? state.role : 'Patient',
-      action: isStaff ? `Added ${patientName} to waitlist for ${doctorName} on ${date} at ${time}` : `Joined waitlist for ${doctorName} on ${date} at ${time}`,
-      timestamp: nowTimestamp(), type:'appointment' })
-    closeModal()
-    if (isStaff) {
-      toast(`${patientName} has been added to the waitlist.`, 'success')
-      window.navigate('waitlist')
-    } else {
-      toast("You're on the waitlist. We'll notify you if this slot opens up.", 'success')
-      window.navigate('patient-request-appt')
-    }
-  } catch (_) {
-    toast('Network error — please try again.', 'error')
-  }
-}
-window.joinWaitlist = joinWaitlist
 
 // ── Admin/staff: assign a doctor to an "any available optometrist" ──
 // request (appointments/update.php action=assign_doctor). Only doctors
@@ -6587,130 +7373,6 @@ async function _confirmAssignDoctor(apptId, doctorId) {
 }
 window._confirmAssignDoctor = _confirmAssignDoctor
 
-async function respondWaitlist(id, action) {
-  try {
-    const r = await fetch('api/waitlist/respond.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action })
-    })
-    const d = await r.json()
-    if (!d.success) { toast(d.message || 'Could not process your response.', 'error'); return }
-    addActivityLog({ id:'L'+Date.now(), user: state.user?.name || 'A patient', role: 'Patient',
-      action: action === 'claim' ? `Claimed offered waitlist slot ${id}` : `Declined offered waitlist slot ${id}`,
-      timestamp: nowTimestamp(), type:'appointment' })
-    if (action === 'claim') {
-      toast('Appointment confirmed!', 'success')
-      window.navigate('patient-appts', { filter: 'approved' })
-    } else {
-      toast("You've declined this slot.", 'info')
-      window.navigate('patient-request-appt')
-    }
-  } catch (_) {
-    toast('Network error — please try again.', 'error')
-  }
-}
-window.respondWaitlist = respondWaitlist
-
-// Declining releases the slot to the next patient in line and can't be
-// undone — worth a confirm step, unlike claiming (the wanted outcome),
-// which stays a single click.
-function confirmDeclineWaitlistOffer(id) {
-  showConfirm({
-    title: 'Choose a Different Slot?',
-    message: "This releases the offered slot to the next patient in line and you won't be able to reclaim it. You'll need to request a new appointment or rejoin the waitlist if you still want this doctor's schedule.",
-    confirmText: 'Choose Different Slot',
-    danger: true,
-    onConfirm: () => window.respondWaitlist(id, 'decline')
-  })
-}
-window.confirmDeclineWaitlistOffer = confirmDeclineWaitlistOffer
-
-async function leaveWaitlist(id) {
-  try {
-    const r = await fetch('api/waitlist/leave.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id })
-    })
-    const d = await r.json()
-    if (!d.success) { toast(d.message || 'Could not leave the waitlist.', 'error'); return }
-    addActivityLog({ id:'L'+Date.now(), user: state.user?.name || 'A patient', role: 'Patient',
-      action: `Left waitlist entry ${id}`,
-      timestamp: nowTimestamp(), type:'appointment' })
-    toast("You've left the waitlist.", 'info')
-    window.navigate('patient-request-appt')
-  } catch (_) {
-    toast('Network error — please try again.', 'error')
-  }
-}
-window.leaveWaitlist = leaveWaitlist
-
-async function loadMyWaitlistCard(emptyHtml = '') {
-  const el = document.getElementById('my-waitlist-card')
-  if (!el) return
-  try {
-    const r = await fetch('api/waitlist/index.php')
-    const d = await r.json()
-    if (!d.success) return
-    el.innerHTML = d.entry ? waitlistCardHtml(d.entry) : emptyHtml
-    if (d.entry && d.entry.status === 'offered') _startWaitlistCountdown(d.entry.offerExpiresAt)
-  } catch (_) { /* non-critical — booking wizard still works without it */ }
-}
-window.loadMyWaitlistCard = loadMyWaitlistCard
-
-function waitlistCardHtml(entry) {
-  const dt = new Date(entry.date + 'T00:00:00')
-  const dateShort = dt.toLocaleDateString('en-PH', { month:'long', day:'numeric', year:'numeric' })
-  if (entry.status === 'offered') {
-    return `
-      <div class="card" style="background:#FFF7ED;border:1.5px solid #FDBA74;margin-bottom:20px">
-        <div class="card-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-          <span style="flex-shrink:0;display:flex;color:#E8760A">${icon('alert-circle','icon-lg')}</span>
-          <div style="flex:1;min-width:220px">
-            <div style="font-weight:700;color:#1C1C1C;margin-bottom:4px">A waitlisted slot is open!</div>
-            <div style="font-size:.85rem;color:#6B7280;margin-bottom:6px">${entry.doctorName} on ${dateShort} at ${entry.time}</div>
-            <div style="font-size:.8rem;color:#C2410C;font-weight:600">Claim it in <span id="waitlist-offer-countdown"></span> or it will go to the next patient in line.</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-shrink:0">
-            <button class="btn-secondary" onclick="window.confirmDeclineWaitlistOffer(${entry.id})">Choose different slot</button>
-            <button class="btn-primary" onclick="window.respondWaitlist(${entry.id},'claim')">Claim Slot</button>
-          </div>
-        </div>
-      </div>`
-  }
-  return `
-    <div class="card" style="background:#F9FAFB;border:1.5px solid #E5E7EB;margin-bottom:20px">
-      <div class="card-body" style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
-        <span style="flex-shrink:0;display:flex;color:#6B7280">${icon('clock','icon-lg')}</span>
-        <div style="flex:1;min-width:220px">
-          <div style="font-weight:700;color:#1C1C1C;margin-bottom:4px">You're on the waitlist</div>
-          <div style="font-size:.85rem;color:#6B7280">${entry.doctorName} on ${dateShort} at ${entry.time}. We'll notify you if this slot opens up.</div>
-          ${entry.position ? `
-          <div style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;background:#FFF0DC;color:#9A3412;
-                      border-radius:6px;padding:4px 10px;font-size:.78rem;font-weight:700">
-            You're #${entry.position}${entry.totalWaiting > 1 ? ` of ${entry.totalWaiting}` : ''} in line
-          </div>` : ''}
-        </div>
-        <button class="btn-secondary" style="flex-shrink:0;align-self:center" onclick="window.leaveWaitlist(${entry.id})">Leave Waitlist</button>
-      </div>
-    </div>`
-}
-
-let _waitlistCountdownInterval = null
-function _startWaitlistCountdown(expiresAtStr) {
-  clearInterval(_waitlistCountdownInterval)
-  const expiresAt = new Date(expiresAtStr.replace(' ', 'T')).getTime()
-  function tick() {
-    const display = document.getElementById('waitlist-offer-countdown')
-    if (!display || !display.isConnected) { clearInterval(_waitlistCountdownInterval); return }
-    const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
-    const h = Math.floor(remaining / 3600), m = Math.floor((remaining % 3600) / 60), s = remaining % 60
-    display.textContent = h > 0 ? `${h}h ${m}m` : `${m}:${String(s).padStart(2,'0')}`
-    if (remaining <= 0) clearInterval(_waitlistCountdownInterval)
-  }
-  tick()
-  _waitlistCountdownInterval = setInterval(tick, 1000)
-}
-
 // keyboard nav
 document.addEventListener('keydown', e => {
   if (!document.getElementById('wiz-step-0')) return
@@ -6752,7 +7414,7 @@ function openAddUserModal() {
           <input id="nu-contact" class="form-input" inputmode="numeric" maxlength="13" onkeypress="return /[0-9]/.test(event.key)" oninput="window.formatContactInput(this)" placeholder="0912-345-6789"></div>
       </div>
       <div class="form-group"><label class="form-label">Role <span class="req">*</span></label>
-        ${window.selectFieldHtml('nu-role', { value: 'Admin', options: ['Admin','Staff','Doctor','Patient'], onchange: 'window.onAddUserRoleChange(this.value)' })}</div>
+        ${window.selectFieldHtml('nu-role', { value: 'Admin', options: ['Admin','Staff','Doctor'], onchange: 'window.onAddUserRoleChange(this.value)' })}</div>
 
       <!-- Doctor-specific fields -->
       <div id="nu-doctor-fields" style="display:none;flex-direction:column;gap:14px">
@@ -6772,7 +7434,7 @@ function openAddUserModal() {
           <div class="form-group"><label class="form-label">Date of Birth <span class="req">*</span></label>
             ${dobFieldHtml('nu-dob', { max: localDateStr() })}</div>
           <div class="form-group"><label class="form-label">Gender <span class="req">*</span></label>
-            ${window.selectFieldHtml('nu-gender', { value: '', placeholder: 'Select gender', options: ['Male','Female','Other'] })}</div>
+            ${window.selectFieldHtml('nu-gender', { value: '', placeholder: 'Select gender', options: ['Male','Female','Prefer not to say'] })}</div>
         </div>
         <div class="form-group"><label class="form-label">Occupation <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
           <input id="nu-occupation" class="form-input" placeholder="e.g. Teacher, Engineer, Student"></div>
@@ -6784,6 +7446,7 @@ function openAddUserModal() {
         </div>
       </div>
 
+      <form onsubmit="return false" style="display:contents" autocomplete="off"><input type="text" name="username" autocomplete="username" value="" tabindex="-1" aria-hidden="true" style="display:none">
       <div id="nu-pass-group">
         <div class="form-group"><label class="form-label">Temporary Password <span class="req">*</span></label>
           <div style="position:relative">
@@ -6796,6 +7459,7 @@ function openAddUserModal() {
           ${window.pwChecklistHtml('nu-pass')}
         </div>
       </div>
+      </form>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
@@ -7015,6 +7679,7 @@ function editUserModal(id, role) {
           <span id="eu-pw-chevron" style="font-size:.7rem;margin-left:2px">▸</span>
         </button>
         <div id="eu-pw-section" style="display:none;margin-top:12px">
+          <form onsubmit="return false" autocomplete="off"><input type="text" name="username" autocomplete="username" value="" tabindex="-1" aria-hidden="true" style="display:none">
           <div class="form-row-2">
             <div class="form-group"><label class="form-label">New Password</label>
               <div style="position:relative">
@@ -7033,6 +7698,7 @@ function editUserModal(id, role) {
                 </button>
               </div></div>
           </div>
+          </form>
           ${window.pwChecklistHtml('eu-new-pw')}
           <p id="eu-pw-mismatch" style="display:none;font-size:.74rem;color:#DC2626;margin:6px 0 0">Passwords do not match.</p>
           <p style="font-size:.74rem;color:#9CA3AF;margin:2px 0 0">Leave blank to keep the existing password.</p>
@@ -7138,6 +7804,8 @@ async function doEditUser(id, role) {
       body: JSON.stringify({ profileId: id, role, firstName: fn, middleName: mn, lastName: ln, email, contact, status, specialization, prcLicense, degree, secondaryCredential, secondaryPrc, ...(sortOrder !== null ? { sortOrder } : {}) })
     })
     const d = await r.json()
+    // A rename also updates the name on this patient's appointments (server-side) — refresh them.
+    if (d.success && window._syncAppointments) window._syncAppointments()
     if (!d.success) { toast(d.message || 'Failed to save changes.', 'error'); return }
     if (role === 'Doctor') {
       if (specialization) u.specialization = specialization
@@ -7303,6 +7971,8 @@ async function toggleUserStatus(id, role) {
       body: JSON.stringify({ profileId: id, role, firstName: u.firstName || u.name.split(' ')[0], lastName: u.lastName || u.name.split(' ').slice(1).join(' '), contact: u.contact || '', status: newStatus })
     })
     const d = await r.json()
+    // A rename also updates the name on this patient's appointments (server-side) — refresh them.
+    if (d.success && window._syncAppointments) window._syncAppointments()
     if (!d.success) { toast(d.message || 'Failed to update status.', 'error'); return }
     u.status = newStatus
     addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
@@ -7349,8 +8019,9 @@ function openAddPatientModal() {
         <div class="form-group"><label class="form-label">Date of Birth <span class="req">*</span></label>
           ${dobFieldHtml('ap-dob', { max: localDateStr() })}</div>
         <div class="form-group"><label class="form-label">Gender <span class="req">*</span></label>
-          ${window.selectFieldHtml('ap-gender', { value: '', placeholder: 'Select gender', options: ['Male','Female','Other'] })}</div>
+          ${window.selectFieldHtml('ap-gender', { value: '', placeholder: 'Select gender', options: ['Male','Female','Prefer not to say'] })}</div>
       </div>
+      ${patientSourceFieldsHtml('ap', 'walk-in', '')}
       <div class="form-group"><label class="form-label">Occupation <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
         <input id="ap-occupation" class="form-input" placeholder="e.g. Teacher, Engineer, Student"></div>
       <div class="form-group"><label class="form-label">Address <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
@@ -7366,6 +8037,33 @@ function openAddPatientModal() {
         Register Patient &amp; Generate QR
       </button>
     </div>`, 'modal-lg')
+}
+
+// Registration Type picker (how the patient came to the clinic) + its note (previous clinic / who referred them),
+// shared by Add Patient and Edit Patient. The note only shows for
+// Transferred and Referral.
+function patientSourceFieldsHtml(prefix, value, note) {
+  const v = PATIENT_SOURCE_META[value] ? value : 'walk-in'
+  const noteLabel = v === 'referral' ? 'Referred by' : 'Previous optical clinic'
+  return `
+      <div class="form-row-2">
+        <div class="form-group"><label class="form-label">Registration Type</label>
+          ${window.selectFieldHtml(prefix + '-source', { value: v, onchange: `window._patientSourceToggle('${prefix}')`,
+            options: Object.entries(PATIENT_SOURCE_META).map(([k, m]) => ({ value: k, label: `${m.label} · ${m.tip}` })) })}</div>
+        <div class="form-group" id="${prefix}-source-note-wrap" style="${['transferred', 'referral'].includes(v) ? '' : 'display:none'}">
+          <label class="form-label" id="${prefix}-source-note-label">${noteLabel} <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
+          <input id="${prefix}-source-note" class="form-input" maxlength="150" value="${esc(note || '')}" placeholder="${v === 'referral' ? 'e.g. Dr. Santos, a family member' : 'e.g. Sunrise Optical, Imus'}"></div>
+      </div>`
+}
+window.patientSourceFieldsHtml = patientSourceFieldsHtml
+window._patientSourceToggle = prefix => {
+  const v = document.getElementById(prefix + '-source')?.value
+  const wrap = document.getElementById(prefix + '-source-note-wrap')
+  if (wrap) wrap.style.display = ['transferred', 'referral'].includes(v) ? '' : 'none'
+  const lbl = document.getElementById(prefix + '-source-note-label')
+  if (lbl) lbl.innerHTML = (v === 'referral' ? 'Referred by' : 'Previous optical clinic') + ' <span style="font-weight:400;color:#9CA3AF">(optional)</span>'
+  const inp = document.getElementById(prefix + '-source-note')
+  if (inp) inp.placeholder = v === 'referral' ? 'e.g. Dr. Santos, a family member' : 'e.g. Sunrise Optical, Imus'
 }
 
 async function doAddPatient(btn) {
@@ -7405,6 +8103,8 @@ async function doAddPatient(btn) {
         email:          gv('ap-email'),
         address:        gv('ap-address'),
         occupation:     gv('ap-occupation'),
+        source:         gv('ap-source'),
+        sourceNote:     gv('ap-source-note'),
         medicalHistory: gv('ap-medical-history'),
       })
     })
@@ -7439,24 +8139,143 @@ async function doAddPatient(btn) {
 function openMedicalHistoryModal(patientId) {
   const p = patients.find(p => p.id === patientId)
   if (!p) return
-  const canEdit = ['admin', 'staff'].includes(state.role)
+  const canEdit = ['admin', 'staff', 'doctor'].includes(state.role)
   showModal(`
     <div class="modal-header">
       <div class="modal-title" style="display:flex;align-items:center;gap:8px">
         <span style="color:#D97706;display:flex">${icon('alert-circle','icon-sm')}</span>
-        Medical History — ${p.name}
+        Medical History — ${p.name} ${window.medHxReportedTag ? window.medHxReportedTag(p) : ""}
       </div>
       <button class="modal-close" onclick="window.closeModal()">&times;</button>
     </div>
     <div class="modal-body">
-      <div style="background:#FFFBEB;border:1.5px solid #FDE68A;border-radius:10px;padding:16px 18px;font-size:.88rem;color:#374151;line-height:1.6;white-space:pre-wrap">${p.medicalHistory ? esc(p.medicalHistory) : 'No medical history on file.'}</div>
+      <div style="background:#FFFBEB;border:1.5px solid #FDE68A;border-radius:10px;padding:16px 18px;font-size:.88rem;color:#374151;line-height:1.6;white-space:pre-wrap">${p.medicalHistory ? esc(p.medicalHistory) : (window.medHxEmptyText ? window.medHxEmptyText(p, false) : 'No medical history on file.')}</div>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="window.closeModal()">Close</button>
-      ${canEdit ? `<button class="btn-primary" onclick="window.closeModal();window.openEditPatientModal('${patientId}')">${icon('edit','icon-sm')} Edit</button>` : ''}
+      ${canEdit ? `<button class="btn-primary" onclick="window.editMedicalHistory('${patientId}')">${icon('edit','icon-sm')} Edit</button>` : ''}
     </div>`)
 }
 window.openMedicalHistoryModal = openMedicalHistoryModal
+
+// Medical-history-only editor — doctors (who take the history during a
+// consultation), admin and staff. Saves through api/patients/
+// update-medical-history.php and is written to the Activity Log.
+function editMedicalHistory(patientId) {
+  const p = patients.find(p => p.id === patientId)
+  if (!p) return
+  if (!['admin', 'staff', 'doctor'].includes(state.role)) return
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title" style="display:flex;align-items:center;gap:8px">
+        <span style="color:#D97706;display:flex">${icon('alert-circle','icon-sm')}</span>
+        ${p.medicalHistory ? 'Edit' : 'Add'} Medical History — ${p.name}
+      </div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label class="form-label" for="mh-edit-text">Medical History</label>
+      <textarea id="mh-edit-text" class="form-textarea" rows="6" maxlength="2000"
+                placeholder="Conditions, allergies, ongoing medications, past eye surgeries, family history, etc.">${esc(p.medicalHistory || '')}</textarea>
+      <div style="font-size:.72rem;color:#9CA3AF;margin-top:6px">Also visible to the patient on their profile. Changes are recorded in the Activity Log.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
+      <button class="btn-primary" id="mh-edit-save" onclick="window.saveMedicalHistory('${patientId}')">${icon('check','icon-sm')} Save</button>
+    </div>`)
+  setTimeout(() => {
+    const ta = document.getElementById('mh-edit-text')
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length) }
+  }, 50)
+}
+window.editMedicalHistory = editMedicalHistory
+
+async function saveMedicalHistory(patientId) {
+  const p = patients.find(p => p.id === patientId)
+  if (!p) return
+  const value = (document.getElementById('mh-edit-text')?.value || '').trim()
+  if (value === (p.medicalHistory || '').trim()) { closeModal(); return }
+  const btn = document.getElementById('mh-edit-save')
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…' }
+  try {
+    const r = await fetch('api/patients/update-medical-history.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ patientId, medicalHistory: value })
+    })
+    const d = await r.json()
+    if (!d.success) {
+      toast(d.message || 'Failed to save medical history.', 'error')
+      if (btn) { btn.disabled = false; btn.innerHTML = icon('check','icon-sm') + ' Save' }
+      return
+    }
+    const hadBefore = !!p.medicalHistory
+    p.medicalHistory = value
+    p.medicalHistoryByPatient = false // reviewed by the clinic now
+    addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
+      action: `${!value ? 'Cleared' : hadBefore ? 'Updated' : 'Added'} medical history for ${p.name} (${patientId})`,
+      timestamp: nowTimestamp(), type:'patient' })
+    closeModal()
+    toast('Medical history saved.', 'success')
+    // In the exam form, swap just the history box — a full re-render would
+    // wipe whatever the doctor has already typed into the exam.
+    const box = document.getElementById('ne-medhx-box')
+    if (box && window.examMedHistoryBoxHtml) box.outerHTML = window.examMedHistoryBoxHtml(p)
+    else if (window.renderPage) window.renderPage()
+  } catch (_) {
+    toast('Network error. Please try again.', 'error')
+    if (btn) { btn.disabled = false; btn.innerHTML = icon('check','icon-sm') + ' Save' }
+  }
+}
+window.saveMedicalHistory = saveMedicalHistory
+
+// Patient's ONE-TIME medical history submission (Settings > My Profile).
+// Confirms first, since it can't be changed by the patient afterwards.
+// none = true → "I have no medical history" (also a one-time answer).
+function submitPatientMedicalHistory(none = false) {
+  const value = none ? '' : (document.getElementById('pt-medhx-input')?.value || '').trim()
+  if (!none && !value) { toast('Please enter your medical history first.', 'error'); return }
+  showConfirm({
+    title: none ? 'No medical history?' : 'Submit medical history?',
+    message: none
+      ? 'We\'ll let your doctor know you have no known medical history. This is a one-time answer; if anything changes later, just tell your doctor or the clinic.'
+      : 'You can only submit this once. After saving, only your doctor or the clinic can make changes. Please make sure it\'s complete and correct.',
+    confirmText: none ? 'Confirm' : 'Submit',
+    cancelText: none ? 'Cancel' : 'Review again',
+    onConfirm: async () => {
+      const btn = document.getElementById('pt-medhx-submit')
+      if (btn) { btn.disabled = true; btn.textContent = 'Submitting…' }
+      try {
+        const r = await fetch('api/patients/submit-medical-history.php', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(none ? { none: true } : { medicalHistory: value })
+        })
+        const d = await r.json()
+        const uid = state.user?.id
+        const rec = patients.find(p => p.id === uid)
+        if (!d.success) {
+          toast(d.message || 'Failed to submit medical history.', 'error')
+          if (d.locked) { // already on file — switch to view-only
+            [rec, state.user].forEach(o => { if (o) o.medicalHistoryPatientSubmitted = true })
+            renderPage()
+          } else if (btn) { btn.disabled = false; btn.innerHTML = icon('check','icon-sm') + ' Submit Medical History' }
+          return
+        }
+        ;[rec, state.user].forEach(o => {
+          if (!o) return
+          o.medicalHistory = value
+          o.medicalHistoryByPatient = !none
+          o.medicalHistoryPatientSubmitted = true
+        })
+        toast(none ? 'Thanks! Noted that you have no known medical history.' : 'Medical history submitted. Your doctor will review it at your visit.', 'success')
+        renderPage()
+      } catch (_) {
+        toast('Network error. Please try again.', 'error')
+        if (btn) { btn.disabled = false; btn.innerHTML = icon('check','icon-sm') + ' Submit Medical History' }
+      }
+    }
+  })
+}
+window.submitPatientMedicalHistory = submitPatientMedicalHistory
 
 function openEditPatientModal(patientId) {
   const p = patients.find(p => p.id === patientId)
@@ -7481,7 +8300,7 @@ function openEditPatientModal(patientId) {
         <div class="form-group"><label class="form-label">Date of Birth</label>
           ${dobFieldHtml('ep-dob', { value: p.dob || '', max: localDateStr() })}</div>
         <div class="form-group"><label class="form-label">Gender</label>
-          ${window.selectFieldHtml('ep-gender', { value: p.gender || '', options: ['Male','Female','Other'] })}</div>
+          ${window.selectFieldHtml('ep-gender', { value: p.gender || '', options: ['Male','Female','Prefer not to say'] })}</div>
       </div>
       <p style="font-size:.74rem;color:#9CA3AF;margin:-8px 0 14px">Locked on the patient's own Settings page, only admins can update these.</p>
       <div class="form-group"><label class="form-label">Contact <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
@@ -7493,8 +8312,7 @@ function openEditPatientModal(patientId) {
       </div>
       <div class="form-group"><label class="form-label">Address <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
         <input id="ep-address" class="form-input" value="${p.address}"></div>
-      ${isAdmin ? `<div class="form-group"><label class="form-label">Status</label>
-        ${window.selectFieldHtml('ep-status', { value: p.status || 'active', options: [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }] })}</div>` : ''}
+      ${patientSourceFieldsHtml('ep', p.source, p.sourceNote)}
       ${isAdmin ? `
       <div style="background:#F9FAFB;border:1px solid #F0F0F2;border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div>
@@ -7543,6 +8361,7 @@ function openEditPatientModal(patientId) {
               <span id="ep-pw-chevron" style="font-size:.7rem;margin-left:auto;transition:transform .18s ease">▸</span>
             </button>
             <div id="ep-pw-section" style="display:none;margin-top:12px">
+              <form onsubmit="return false" autocomplete="off"><input type="text" name="username" autocomplete="username" value="" tabindex="-1" aria-hidden="true" style="display:none">
               <div class="form-row-2">
                 <div class="form-group" style="margin-bottom:0"><label class="form-label">New Password</label>
                   <div style="position:relative">
@@ -7563,6 +8382,7 @@ function openEditPatientModal(patientId) {
                     </button>
                   </div></div>
               </div>
+              </form>
               ${window.pwChecklistHtml('ep-newpass')}
               <p id="ep-pass-hint" style="margin:7px 0 0;font-size:.74rem;color:#9CA3AF">Leave blank to keep the existing password.</p>
             </div>
@@ -7608,7 +8428,6 @@ async function doEditPatient(patientId, btn) {
   // the Save button is disabled until valid — this is just a safety net.
   if ((np || np2) && (!window.pwPolicyValid(np) || np !== np2)) return
 
-  const statusEl = document.getElementById('ep-status')
   const payload = {
     id: patientId, firstName, middleName: gv('ep-middle'), lastName,
     gender: gv('ep-gender'), dob: gv('ep-dob'),
@@ -7616,7 +8435,7 @@ async function doEditPatient(patientId, btn) {
     address: gv('ep-address'),
     occupation: gv('ep-occupation'),
     medicalHistory: gv('ep-medical-history'),
-    ...(statusEl ? { status: statusEl.value } : {})
+    source: gv('ep-source'), sourceNote: gv('ep-source-note'),
   }
 
   // Disables + spins the button for the whole save, including the
@@ -7652,6 +8471,8 @@ async function doEditPatient(patientId, btn) {
         body: JSON.stringify({ profileId: patientId, role: 'Patient', newPassword: np })
       })
       const d = await r.json()
+    // A rename also updates the name on this patient's appointments (server-side) — refresh them.
+    if (d.success && window._syncAppointments) window._syncAppointments()
       if (!d.success) { toast(d.message || 'Profile saved but password could not be updated.', 'error'); _btnIdle(btn); return }
     } catch (_) {
       toast('Profile saved but password reset failed (network error).', 'error')
@@ -7671,7 +8492,7 @@ async function doEditPatient(patientId, btn) {
     ['contact', p.contact, payload.contact],
     ['gender', p.gender, payload.gender || p.gender],
     ['date of birth', p.dob, payload.dob || p.dob],
-    ['status', p.status, payload.status || p.status],
+    ['registration type', (PATIENT_SOURCE_META[p.source] || {}).label, (PATIENT_SOURCE_META[payload.source] || {}).label],
   ])
   if (grantedTempPassword) diffParts.push('login account created')
   const otherChanged = [
@@ -7694,8 +8515,9 @@ async function doEditPatient(patientId, btn) {
   if (payload.email) p.email = payload.email
   p.address       = payload.address
   p.occupation    = payload.occupation
+  if ((p.medicalHistory || '').trim() !== (payload.medicalHistory || '').trim()) p.medicalHistoryByPatient = false
   p.medicalHistory = payload.medicalHistory
-  if (payload.status) p.status = payload.status
+  if (payload.source) { p.source = payload.source; p.sourceNote = ['transferred', 'referral'].includes(payload.source) ? payload.sourceNote : '' }
 
   addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
     action: `Updated patient info: ${p.name} (${patientId})${diffParts.length ? ': ' + diffParts.join('; ') : ''}`,
@@ -8027,6 +8849,8 @@ async function togglePatientStatus(id) {
       body: JSON.stringify({ id, firstName: p.firstName || p.name.split(' ')[0], lastName: p.lastName || p.name.split(' ').slice(1).join(' '), status: newStatus })
     })
     const d = await r.json()
+    // A rename also updates the name on this patient's appointments (server-side) — refresh them.
+    if (d.success && window._syncAppointments) window._syncAppointments()
     if (!d.success) { toast(d.message || 'Failed to update status.', 'error'); return }
     p.status = newStatus
     addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
@@ -8542,6 +9366,225 @@ window.confirmPermDelete = confirmPermDelete
 window.doPermDelete      = doPermDelete
 
 // ════════════════════════════════════════════════════════════════
+//  SYSTEM BACKUP & RESTORE (Settings > Backup & Restore, admin only)
+//  Backend does all the real work (api/backup/*.php) — this is just the
+//  download trigger, the upload+review+confirm flow, and the final
+//  forced-logout handoff once a restore actually completes.
+// ════════════════════════════════════════════════════════════════
+function _bkFormatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+// Swaps the restore dropzone from its idle state to "file chosen" and
+// enables the review button — shared by both the click-to-browse input
+// and drag & drop, so either path leaves the UI in the same state.
+function _bkShowChosenFile(file) {
+  const idle   = document.getElementById('bk-restore-idle')
+  const chosen = document.getElementById('bk-restore-chosen')
+  if (idle)   idle.style.display   = 'none'
+  if (chosen) chosen.style.display = 'flex'
+  const nameEl = document.getElementById('bk-restore-filename')
+  const sizeEl = document.getElementById('bk-restore-filesize')
+  if (nameEl) nameEl.textContent = file.name
+  if (sizeEl) sizeEl.textContent = _bkFormatSize(file.size)
+  const btn = document.getElementById('bk-restore-review-btn')
+  if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = '' }
+}
+
+function _bkFileChosen(input) {
+  const file = input.files?.[0]
+  if (file) _bkShowChosenFile(file)
+}
+window._bkFileChosen = _bkFileChosen
+
+// Drag & drop onto the zone — the real <input> has no files of its own
+// yet, so it's synced via DataTransfer first (keeps inspectBackupFile()'s
+// existing document.getElementById('bk-restore-file').files[0] read
+// working unchanged regardless of which path the file came in through).
+function _bkFileDropped(file) {
+  if (!file) return
+  if (!/\.zip$/i.test(file.name)) { toast('Please choose a .zip backup file.', 'error'); return }
+  const input = document.getElementById('bk-restore-file')
+  if (input && typeof DataTransfer !== 'undefined') {
+    const dt = new DataTransfer()
+    dt.items.add(file)
+    input.files = dt.files
+  }
+  _bkShowChosenFile(file)
+}
+window._bkFileDropped = _bkFileDropped
+
+async function downloadSystemBackup(btn) {
+  const includeVideo = document.getElementById('bk-include-video')?.checked
+  if (_btnBusy(btn, 'primary', 'Building backup…')) return
+  try {
+    const r = await fetch('api/backup/export.php' + (includeVideo ? '?video=1' : ''))
+    const ct = r.headers.get('content-type') || ''
+    // A successful export streams the zip directly with no JSON envelope
+    // (the browser is meant to save it as a file) — everything else,
+    // including a rate-limit or auth failure, comes back as the normal
+    // { success:false, message } JSON body every other endpoint uses.
+    // Content-Type is how the two are told apart here.
+    if (ct.includes('zip')) {
+      const blob = await r.blob()
+      const cd = r.headers.get('content-disposition') || ''
+      const m = /filename="([^"]+)"/.exec(cd)
+      const filename = m ? m[1] : `CanaOpticalClinic-Backup-${localDateStr()}.zip`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast('Backup downloaded.', 'success')
+    } else {
+      const d = await r.json()
+      toast(d.message || 'Could not build the backup.', 'error')
+    }
+  } catch (_) {
+    toast('Network error. Could not download the backup.', 'error')
+  } finally {
+    _btnIdle(btn)
+  }
+}
+window.downloadSystemBackup = downloadSystemBackup
+
+// Step 1 of Restore — read-only. Uploads the chosen file to inspect.php,
+// which validates it's actually a backup of this app (manifest present,
+// checksums intact) and returns a summary, WITHOUT touching the
+// database. Nothing is changed by this step alone.
+async function inspectBackupFile(btn) {
+  const fileInput = document.getElementById('bk-restore-file')
+  const file = fileInput?.files?.[0]
+  if (!file) { toast('Choose a backup .zip file first.', 'error'); return }
+  if (_btnBusy(btn, 'danger', 'Checking…')) return
+  try {
+    const fd = new FormData()
+    fd.append('backup', file)
+    const r = await fetch('api/backup/inspect.php', { method: 'POST', body: fd })
+    const d = await r.json()
+    if (!d.success) { toast(d.message || 'Could not read that backup file.', 'error'); return }
+    _openRestoreConfirmModal(file, d.manifest, d.warnings || [])
+  } catch (_) {
+    toast('Network error. Could not check the backup file.', 'error')
+  } finally {
+    _btnIdle(btn)
+  }
+}
+window.inspectBackupFile = inspectBackupFile
+
+// Step 2 — shows what's actually in the file (date, who made it, record/
+// file counts) and requires BOTH typing "RESTORE" and re-entering the
+// admin's own password before the final button even enables — this is
+// the single most destructive action in the app (it replaces the whole
+// database), so it gets more friction than anything else here on
+// purpose. Holds the already-selected File object on window so the
+// final confirm step can resubmit the same file without asking the
+// admin to pick it again.
+function _openRestoreConfirmModal(file, manifest, warnings) {
+  window._pendingRestoreFile = file
+  const dateStr = manifest.createdAt
+    ? new Date(manifest.createdAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+    : 'Unknown date'
+  const tableCount = Object.keys(manifest.tables || {}).length
+
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title" style="color:#DC2626">Restore System Backup</div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+      <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:14px 16px;font-size:.85rem;color:#991B1B;line-height:1.65">
+        <strong>This replaces all current data.</strong> Every patient, appointment, account, and
+        setting currently in the system will be overwritten with the contents of this backup, and
+        everyone (including you) will be signed out. A safety copy of the current data is kept on
+        the server for this one operation, but it isn't a substitute for your own backups.
+      </div>
+      <div>
+        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:#9CA3AF;margin-bottom:6px">Backup Details</div>
+        <div style="font-size:.85rem;color:#374151;line-height:1.9">
+          <div>Created: <strong>${esc(dateStr)}</strong></div>
+          <div>By: <strong>${esc(manifest.createdBy?.name || 'Unknown')}</strong> (${esc(manifest.createdBy?.role || '—')})</div>
+          <div>Records: <strong>${manifest.totalRecords ?? '—'}</strong> across ${tableCount} table${tableCount === 1 ? '' : 's'}</div>
+          <div>Files: <strong>${manifest.fileCount ?? 0}</strong></div>
+        </div>
+      </div>
+      ${warnings.length ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px 14px;font-size:.8rem;color:#92400E;display:flex;flex-direction:column;gap:4px">
+        ${warnings.map(w => `<div>${icon('alert-triangle', 'icon-sm')} ${esc(w)}</div>`).join('')}
+      </div>` : ''}
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Type <strong>RESTORE</strong> to confirm</label>
+        <input class="form-input" id="bk-confirm-phrase" placeholder="RESTORE" autocomplete="off" oninput="window._updateRestoreGate()">
+      </div>
+      <form onsubmit="return false" autocomplete="off"><input type="text" name="username" autocomplete="username" value="${(window.state?.user?.email || '').replace(/"/g, '&quot;')}" tabindex="-1" aria-hidden="true" style="display:none">
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Your Password</label>
+        <input type="password" class="form-input" id="bk-confirm-password" placeholder="Enter your current password" autocomplete="current-password" oninput="window._updateRestoreGate()">
+      </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window._pendingRestoreFile=null;window.closeModal()">Cancel</button>
+      <button class="btn-danger" id="bk-restore-confirm-btn" disabled style="opacity:.5;cursor:not-allowed" onclick="window.executeRestore(this)">
+        ${icon('alert-triangle', 'icon-sm')} Restore Now
+      </button>
+    </div>`, 'modal-lg')
+}
+
+function _updateRestoreGate() {
+  const btn = document.getElementById('bk-restore-confirm-btn')
+  if (!btn) return
+  const phrase = (document.getElementById('bk-confirm-phrase') || {}).value || ''
+  const pass   = (document.getElementById('bk-confirm-password') || {}).value || ''
+  const ok = phrase === 'RESTORE' && pass.length > 0
+  btn.disabled     = !ok
+  btn.style.opacity = ok ? '' : '.5'
+  btn.style.cursor  = ok ? '' : 'not-allowed'
+}
+window._updateRestoreGate = _updateRestoreGate
+
+// Step 3 — the actual restore. On success, every session (including this
+// one) has already been revoked server-side, so this hands off straight
+// to the normal logout flow (logout(), auth.js) rather than trying to
+// keep the current in-memory app state around — none of it can be
+// trusted against data that was just wholesale replaced underneath it.
+async function executeRestore(btn) {
+  const file = window._pendingRestoreFile
+  if (!file) { toast('Please choose the backup file again.', 'error'); return }
+  const phrase = (document.getElementById('bk-confirm-phrase') || {}).value || ''
+  const pass   = (document.getElementById('bk-confirm-password') || {}).value || ''
+
+  if (_btnBusy(btn, 'danger', 'Restoring…')) return
+  try {
+    const fd = new FormData()
+    fd.append('backup', file)
+    fd.append('confirmPhrase', phrase)
+    fd.append('password', pass)
+    const r = await fetch('api/backup/import.php', { method: 'POST', body: fd })
+    const d = await r.json()
+    if (!d.success) { toast(d.message || 'Restore failed.', 'error'); _btnIdle(btn); return }
+
+    window._pendingRestoreFile = null
+    closeModal()
+    const dateStr = d.summary?.backupDate
+      ? new Date(d.summary.backupDate).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+      : 'the selected backup'
+    if (window.logout) {
+      await window.logout(`System restored from ${dateStr}. Please sign in again.`)
+    } else {
+      window.location.reload()
+    }
+  } catch (_) {
+    toast('Network error during restore. It may have partially completed, so log in again and check Sessions & Sign-in before retrying.', 'error')
+    _btnIdle(btn)
+  }
+}
+window.executeRestore = executeRestore
+
+// ════════════════════════════════════════════════════════════════
 //  ARCHIVES — VIEW DETAIL MODAL
 // ════════════════════════════════════════════════════════════════
 function viewArchivedRecord(id) {
@@ -8555,7 +9598,7 @@ function viewArchivedRecord(id) {
     Service:     { bg: '#FCE7F3', color: '#9D174D' }
   }
   const tc = typeColors[r.type] || { bg: '#F3F4F6', color: '#374151' }
-  const badge = `<span style="background:${tc.bg};color:${tc.color};font-size:.72rem;font-weight:700;padding:3px 12px;border-radius:20px">${r.type}</span>`
+  const badge = `<span style="background:${tc.bg};color:${tc.color};font-size:.72rem;font-weight:700;padding:3px 12px;border-radius:20px">${window.archiveTypeLabel(r)}</span>`
 
   function row(label, value) {
     if (!value) return ''
@@ -8647,79 +9690,95 @@ window.viewArchivedRecord = viewArchivedRecord
 // clicking Save. Every measurement below (grid columns, gaps, padding,
 // font sizes, icon strokes) is copied from those exact CSS rules rather
 // than approximated, so this really is the same layout, not a rough mock.
+// Drives assets/footer-preview.html's live DOM (loaded read-only inside
+// #ci-footer-preview-frame, pages.js) instead of reconstructing the
+// footer's markup/CSS by hand here — that reconstruction kept drifting
+// out of sync with the real footer (most recently: no responsive
+// breakpoints at all, so it never actually collapsed to fewer columns
+// on a narrow preview). Since the iframe loads the REAL shared
+// css/public.css, this can't drift again — there's nothing left here to
+// keep in sync except which text goes in which element, the same
+// convention public-nav.js's own applyClinicBranding() already uses on
+// every real public page (only overwrite an element when the
+// corresponding field actually has a value — an empty field leaves
+// whatever placeholder text is already there, same as production).
 function _ciUpdateFooterPreview() {
-  const box = document.getElementById('ci-footer-preview')
-  if (!box) return
+  const iframe = document.getElementById('ci-footer-preview-frame')
+  const doc = iframe?.contentDocument
+  // Iframe hasn't finished its own first load yet (or was never
+  // rendered) — its onload handler (_ciFooterFrameLoaded, wired inline
+  // in pages.js) calls this again once it has, re-reading the form
+  // fields fresh at that point, so nothing typed in the meantime is
+  // lost, just applied a beat later rather than being queued.
+  if (!doc || !doc.getElementById('footer-address')) return
+
   const gv = id => (document.getElementById(id)?.value || '').trim()
-  const name      = gv('ci-name')      || clinicInfo.name || 'Cana Optical Clinic'
+  const name      = gv('ci-name')
   const tagline   = gv('ci-tagline')
   const address   = gv('ci-address')
   const phone     = gv('ci-phone')
   const email     = gv('ci-email')
   const hours     = gv('ci-hours')
-  const copyright = gv('ci-copyright') || `© ${new Date().getFullYear()} ${esc(name)}. All rights reserved.`
+  const copyright = gv('ci-copyright') || (name ? `© ${new Date().getFullYear()} ${name}. All rights reserved.` : '')
 
-  // Same source file the real footer uses — .footer-logo-img applies no
-  // border-radius of its own; the circular look comes from the PNG itself
-  // (a white disc with the logo mark on transparent), so reproducing it
-  // here just means matching that CSS exactly, not forcing a circle.
-  // window._clinicLogoUrl first, not clinicInfo.logoUrl — every other logo
-  // reference in the app (topbar, sidebar, print letterheads) already
-  // reads that instead, since it's the one that actually gets a fresh
-  // cache-busting URL (or an instant local blob preview, mid-upload) the
-  // moment the logo changes. upload_logo.php reuses the exact same
-  // filename on every upload (clinic-logo.png stays clinic-logo.png), so
-  // reading clinicInfo.logoUrl's plain, un-busted URL here made this the
-  // one spot still showing the browser's stale cached image.
+  if (name) doc.querySelectorAll('.footer-logo-name').forEach(el => { el.textContent = name })
+  const descEl = doc.querySelector('.footer-desc'); if (descEl && tagline) descEl.textContent = tagline
+  const lineEl = doc.querySelector('.footer-line'); if (lineEl && copyright) lineEl.textContent = copyright
+  const addrEl = doc.getElementById('footer-address'); if (addrEl && address) addrEl.textContent = address
+  const phoneEl = doc.getElementById('footer-phone'); if (phoneEl && phone) phoneEl.textContent = phone
+  const emailEl = doc.getElementById('footer-email'); if (emailEl && email) emailEl.textContent = email
+  const hoursEl = doc.getElementById('footer-hours'); if (hoursEl && hours) hoursEl.textContent = hours
+
+  // window._clinicLogoUrl first, not clinicInfo.logoUrl — every other
+  // logo reference in the app already reads that instead, since it's
+  // the one that actually gets a fresh cache-busting URL (or an instant
+  // local blob preview, mid-upload) the moment the logo changes.
+  // Resolved to an ABSOLUTE url here, in the PARENT's own context —
+  // assigning a relative path straight into the iframe's DOM would
+  // resolve it against the iframe's OWN base (assets/footer-preview.html
+  // sits one directory down from app.html), silently doubling the
+  // "assets/" segment.
   const logoSrc = window._clinicLogoUrl || clinicInfo.logoUrl || 'assets/images/logo/clinic-logo.png'
+  const imgEl = doc.querySelector('.footer-logo-img')
+  if (imgEl) imgEl.src = new URL(logoSrc, document.baseURI).href
 
-  // Exact SVGs from .footer-info (index.html/pages/*.html), same stroke
-  // color (--orange, public.css) and 14px sizing.
-  const ICON = {
-    pin:   '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
-    phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.24h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.78a16 16 0 0 0 6.29 6.29l.94-.94a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
-    mail:  '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
-    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
-  }
-  const infoIcon = key => `<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#E8891C;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;margin-top:3px">${ICON[key]}</svg>`
-  const infoRow = (key, text) => text ? `<li style="display:grid;grid-template-columns:14px 1fr;gap:10px;align-items:start">${infoIcon(key)}<span style="font-size:.8rem;color:rgba(255,255,255,.55);line-height:1.55">${esc(text)}</span></li>` : ''
-
-  box.innerHTML = `
-    <div style="background:#0f0f14;border-top:1px solid rgba(255,255,255,.07)">
-      <div style="max-width:1200px;margin:0 auto;padding:52px 48px 44px;display:grid;grid-template-columns:1.6fr 1fr 1.5fr;gap:48px">
-        <div>
-          <div style="display:inline-flex;align-items:center;gap:10px;margin-bottom:14px">
-            <img src="${logoSrc}" alt="" style="height:34px;width:34px;object-fit:contain">
-            <div style="font-size:1rem;font-weight:700;color:#fff;line-height:1;letter-spacing:-.01em">${esc(name)}</div>
-          </div>
-          ${tagline ? `<p style="font-size:.8rem;color:rgba(255,255,255,.45);line-height:1.75;max-width:300px;margin:0">${esc(tagline)}</p>` : ''}
-        </div>
-        <div>
-          <div style="font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#E8891C;margin-bottom:18px">Quick Links</div>
-          <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:11px">
-            <li style="font-size:.82rem;color:rgba(255,255,255,.55)">Home</li>
-            <li style="font-size:.82rem;color:rgba(255,255,255,.55)">Services</li>
-            <li style="font-size:.82rem;color:rgba(255,255,255,.55)">Doctors</li>
-            <li style="font-size:.82rem;color:rgba(255,255,255,.55)">Contact</li>
-            <li style="font-size:.82rem"><span style="color:#E8891C">Book Now</span></li>
-          </ul>
-        </div>
-        <div>
-          <div style="font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#E8891C;margin-bottom:18px">Contact Us</div>
-          <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:13px">
-            ${infoRow('pin', address)}
-            ${infoRow('phone', phone)}
-            ${infoRow('mail', email)}
-            ${infoRow('clock', hours)}
-          </ul>
-        </div>
-      </div>
-      <div style="border-top:1px solid rgba(255,255,255,.07);padding:18px 48px;text-align:center">
-        <span style="font-size:.72rem;color:rgba(255,255,255,.3)">${copyright}</span>
-      </div>
-    </div>`
+  _ciResizeFooterFrame(iframe, doc)
 }
 window._ciUpdateFooterPreview = _ciUpdateFooterPreview
+
+// The tagline's wrap-count (and so the footer's total height) changes
+// with both the typed text and the preview's own width — the iframe
+// needs to be sized to exactly its content, no more (dead space) or
+// less (clipped — the bug this was written to fix: a hardcoded default
+// height left the Contact Us section and copyright line cut off
+// whenever the real content ended up taller, e.g. every time the
+// mobile breakpoint's single-column stacking made the footer far
+// taller than the 3-column desktop layout it started at).
+function _ciResizeFooterFrame(iframe, doc) {
+  const h = doc.documentElement.scrollHeight
+  if (h) iframe.style.height = h + 'px'
+}
+
+function _ciFooterFrameLoaded() {
+  const iframe = document.getElementById('ci-footer-preview-frame')
+  const doc = iframe?.contentDocument
+  if (!iframe || !doc) return
+  // A one-shot measurement right after the iframe's own `load` event
+  // isn't enough on its own — that event fires once the DOM+CSS have
+  // parsed, but the Google Font this preview loads can still swap in
+  // and reflow the text (different line-height/metrics) a beat later,
+  // after that single measurement already ran, leaving the iframe
+  // sized to the pre-swap layout. A ResizeObserver on the iframe's own
+  // <html> keeps re-measuring on every actual size change instead of
+  // guessing when layout has "settled" — attached once per iframe
+  // (a fresh one every time this settings page re-renders).
+  if (window.ResizeObserver && !iframe._fpResizeObserver) {
+    iframe._fpResizeObserver = new ResizeObserver(() => _ciResizeFooterFrame(iframe, doc))
+    iframe._fpResizeObserver.observe(doc.documentElement)
+  }
+  window._ciUpdateFooterPreview()
+}
+window._ciFooterFrameLoaded = _ciFooterFrameLoaded
 
 function saveClinicInfo() {
   const gv = id => (document.getElementById(id)?.value || '').trim()
@@ -8811,6 +9870,42 @@ function _mdPreviewUpdate(taId, previewId) {
 }
 window._mdPreviewUpdate = _mdPreviewUpdate
 
+// ── Terms & Policies: defaults ───────────────────────────────────
+// The built-in default of each document (same text the server serves when
+// nothing is saved). Saving text that is exactly the default stores an empty
+// value instead of a copy, so the document keeps following the default —
+// including future updates to it and, for the Appointment Policy, the live
+// reminder times and upcoming-appointment limit. A saved copy is what left
+// an outdated Terms in place before.
+function _mdDocDefault(key) {
+  if (key === 'terms')   return typeof DEFAULT_TERMS_MD   !== 'undefined' ? DEFAULT_TERMS_MD   : ''
+  if (key === 'privacy') return typeof DEFAULT_PRIVACY_MD !== 'undefined' ? DEFAULT_PRIVACY_MD : ''
+  if (key === 'policy')  return defaultApptPolicyMd()
+  return ''
+}
+const _mdNorm = s => String(s || '').replace(/\r\n/g, '\n').trim()
+function _mdSaveValue(key, value) {
+  return _mdNorm(value) === _mdNorm(_mdDocDefault(key)) ? '' : value
+}
+
+function resetMdDocToDefault(key, taId, previewId, title) {
+  const ta = document.getElementById(taId)
+  if (!ta) return
+  const def = _mdDocDefault(key)
+  if (_mdNorm(ta.value) === _mdNorm(def)) { toast(`${title} already matches the default.`, 'info'); return }
+  showConfirm({
+    title: 'Reset to Default?',
+    message: `This replaces the ${title} text in the editor with the clinic's default version. Nothing changes for patients until you click Save.`,
+    confirmText: 'Reset to Default',
+    onConfirm: () => {
+      ta.value = def
+      _mdPreviewUpdate(taId, previewId)
+      toast('Default loaded. Click Save to apply it.', 'info')
+    }
+  })
+}
+window.resetMdDocToDefault = resetMdDocToDefault
+
 function saveTermsContent() {
   const ta = document.getElementById('terms-md-input')
   const value = ta ? ta.value : ''
@@ -8820,7 +9915,7 @@ function saveTermsContent() {
 
   fetch('api/clinic/settings.php', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ termsContent: value })
+    body: JSON.stringify({ termsContent: _mdSaveValue('terms', value) })
   }).catch(() => {})
 
   addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
@@ -8840,7 +9935,7 @@ function savePrivacyContent() {
 
   fetch('api/clinic/settings.php', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ privacyContent: value })
+    body: JSON.stringify({ privacyContent: _mdSaveValue('privacy', value) })
   }).catch(() => {})
 
   addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
@@ -8868,7 +9963,7 @@ window.savePrivacyContent = savePrivacyContent
 function _sessionTimeAgo(ts) {
   const diff = Date.now() - new Date(ts.replace(' ', 'T')).getTime()
   const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'Active now'
+  if (mins < 1) return 'just now'
   if (mins < 60) return `${mins} min ago`
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs} hour${hrs > 1 ? 's' : ''} ago`
@@ -8883,11 +9978,13 @@ async function loadActiveSessionsPage() {
   const wrap = document.getElementById('active-sessions-groups')
   if (!wrap) return
   try {
+    // Make sure this device's own name is up to date before listing.
+    await window._reportDeviceInfo?.()
     const r = await fetch('api/auth/sessions.php')
     const d = await r.json()
-    if (!d.success) { wrap.innerHTML = `<div class="card" style="padding:40px 24px;text-align:center;color:#9CA3AF;font-size:.85rem">Could not load active sessions.</div>`; return }
+    if (!d.success) { wrap.innerHTML = `<div class="card" style="padding:40px 24px;text-align:center;color:#9CA3AF;font-size:.85rem">Could not load your devices.</div>`; return }
     const sessions = d.sessions || []
-    if (!sessions.length) { wrap.innerHTML = `<div class="card" style="padding:40px 24px;text-align:center;color:#9CA3AF;font-size:.85rem">No active sessions found.</div>`; return }
+    if (!sessions.length) { wrap.innerHTML = `<div class="card" style="padding:40px 24px;text-align:center;color:#9CA3AF;font-size:.85rem">No devices found.</div>`; return }
 
     // Group by OS + device type together, preserving first-seen order —
     // sessions already arrive newest-first from listSessions()
@@ -8905,9 +10002,9 @@ async function loadActiveSessionsPage() {
     const groupIcon = type => type === 'tablet' ? 'tablet' : type === 'phone' ? 'smartphone' : 'monitor'
     const osLabel = g => {
       const many = g.sessions.length > 1
-      if (g.type === 'tablet') return g.os === 'iOS' ? (many ? 'iPads' : 'iPad') : `${g.os} tablet${many ? 's' : ''}`
-      if (g.type === 'phone')  return `${g.os} phone${many ? 's' : ''}`
-      return `${g.os} computer${many ? 's' : ''}`
+      if (g.type === 'tablet') return g.os === 'iOS' ? (many ? 'iPads' : 'iPad') : `${g.os} Tablet${many ? 's' : ''}`
+      if (g.type === 'phone')  return `${g.os} Phone${many ? 's' : ''}`
+      return `${g.os} Computer${many ? 's' : ''}`
     }
 
     wrap.innerHTML = groups.map(g => `
@@ -8917,19 +10014,42 @@ async function loadActiveSessionsPage() {
             ${icon(groupIcon(g.type), 'icon')}
           </div>
           <div>
-            <div style="font-size:.95rem;font-weight:700;color:#1C1C1C">${g.sessions.length} session${g.sessions.length > 1 ? 's' : ''} on ${osLabel(g)}</div>
+            <div style="font-size:.95rem;font-weight:700;color:#1C1C1C">${g.sessions.length} Device${g.sessions.length > 1 ? 's' : ''} on ${osLabel(g)}</div>
             <div style="font-size:.78rem;color:#9CA3AF;margin-top:2px">${g.os}</div>
           </div>
         </div>
-        ${g.sessions.map((s, i) => `
-        <div style="display:flex;align-items:center;gap:12px;padding:16px 24px;${i < g.sessions.length - 1 ? 'border-bottom:1px solid #F3F4F6' : ''}">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:.87rem;font-weight:600;color:#1C1C1C">${s.browser || s.device}</div>
-            <div style="font-size:.78rem;color:#9CA3AF;margin-top:2px">${s.ip ? s.ip + ' &bull; ' : ''}${s.lastActive ? _sessionTimeAgo(s.lastActive) : ''}</div>
-            ${s.isCurrent ? `<div style="display:flex;align-items:center;gap:5px;font-size:.78rem;color:#059669;font-weight:600;margin-top:6px">${icon('check-circle','icon-sm')} Your current session</div>` : ''}
+        ${g.sessions.map(s => {
+          // Title Case for every label: "Active Now", "Signed Out 19 Min Ago"
+          const tc = str => str.replace(/\b([a-z])/g, c => c.toUpperCase())
+          const ago = s.lastActive ? _sessionTimeAgo(s.lastActive) : ''
+          // Sentence case: "Active now", "Active 5 min ago", "Signed out 19 min ago"
+          const activity = s.status === 'signed_out'
+            ? 'Signed out' + (ago ? ' ' + ago : '')
+            : (!ago || ago === 'just now' ? 'Active now' : 'Active ' + ago)
+          const since = s.createdAt ? new Date(String(s.createdAt).replace(' ', 'T')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+          const status = s.isCurrent
+            ? `<span class="dev-pill is-current">${icon('check-circle')}<span class="dev-pill-label">This Device</span></span>`
+            : s.status === 'signed_out'
+              ? `<span class="dev-pill is-out"><span class="dev-pill-dot"></span><span class="dev-pill-label">Signed Out</span></span>`
+              : `<span class="dev-pill is-active"><span class="dev-pill-dot"></span><span class="dev-pill-label">Signed In</span></span>`
+          const meta = (ic, text, title) => `<span class="dev-meta-item" title="${title}">${icon(ic)}<span>${text}</span></span>`
+          return `
+        <div class="dev-row">
+          <div class="dev-row-main">
+            <div class="dev-row-title">
+              <span class="dev-row-name">${esc(s.name || s.device || s.browser)}</span>
+              ${status}
+            </div>
+            <div class="dev-meta">
+              ${s.browser ? meta(groupIcon(s.type), `${esc(s.browser)} on ${esc(s.os)}`, 'Browser') : ''}
+              ${s.ip ? meta('globe', s.ip, 'IP Address') : ''}
+              ${meta('clock', activity, s.status === 'signed_out' ? 'Last Signed Out' : 'Last Activity')}
+              ${since ? meta('calendar', 'Since ' + since, 'First Signed In On This Device') : ''}
+            </div>
           </div>
-          ${!s.isCurrent ? `<button class="btn-secondary" style="font-size:.78rem;padding:6px 14px;flex-shrink:0;align-self:center;color:#DC2626;border-color:#FECACA" onmouseover="this.style.background='#FEF2F2'" onmouseout="this.style.background=''" onclick="window.revokeSession('${s.id}', this)">Sign Out</button>` : ''}
-        </div>`).join('')}
+          ${!s.isCurrent ? `<button type="button" class="dev-remove-btn" onclick="window.revokeSession('${s.id}', this, '${s.status === 'signed_out' ? 'remove' : 'signout'}')">${icon('trash')} Remove Device</button>` : ''}
+        </div>`
+        }).join('')}
       </div>`).join('')
   } catch (_) {
     wrap.innerHTML = `<div class="card" style="padding:40px 24px;text-align:center;color:#9CA3AF;font-size:.85rem">Could not load active sessions.</div>`
@@ -8937,8 +10057,23 @@ async function loadActiveSessionsPage() {
 }
 window.loadActiveSessionsPage = loadActiveSessionsPage
 
-async function revokeSession(id, btnEl) {
-  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Signing out…' }
+// "Sign Out" (signed-in device) / "Remove" (signed-out device) on another
+// device: ends its session and forgets it as trusted — it drops off the
+// list and needs the emailed verification code on its next sign-in.
+function revokeSession(id, btnEl, kind = 'signout') {
+  const isRemove = kind === 'remove'
+  showConfirm({
+    title: 'Remove This Device?',
+    message: (isRemove ? 'It will be removed from your account. ' : 'It will be signed out and removed from your account. ')
+      + 'Signing in on it again will require a verification code sent to your email.',
+    confirmText: 'Remove Device',
+    danger: true,
+    onConfirm: () => _doRevokeSession(id, btnEl, isRemove)
+  })
+}
+async function _doRevokeSession(id, btnEl, isRemove) {
+  const restHtml = icon('trash') + ' Remove Device'
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Removing…' }
   try {
     const r = await fetch('api/auth/sessions-revoke.php', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -8947,7 +10082,7 @@ async function revokeSession(id, btnEl) {
     const d = await r.json()
     if (!d.success) {
       toast(d.message || 'Could not sign out that device.', 'error')
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Sign Out' }
+      if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = restHtml }
       return
     }
     // revokeSessionByShortId() (api/helpers.php) also sweeps any other
@@ -8957,11 +10092,13 @@ async function revokeSession(id, btnEl) {
     // only ever hides those from the list, never deletes them). Reflect
     // that in the toast when it actually cleaned up more than one row.
     const n = d.revokedCount || 1
-    toast(n > 1 ? `That device has been signed out (${n} sessions cleared).` : 'That device has been signed out.', 'success')
+    toast(d.removedDevice
+      ? 'Device removed. It will need a verification code to sign in again.'
+      : (n > 1 ? `That device has been signed out (${n} sessions cleared).` : 'That device has been signed out.'), 'success')
     loadActiveSessionsPage()
   } catch (_) {
     toast('Network error. Please try again.', 'error')
-    if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Sign Out' }
+    if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = restHtml }
   }
 }
 window.revokeSession = revokeSession
@@ -8974,7 +10111,7 @@ function saveAppointmentPolicyContent() {
 
   fetch('api/clinic/settings.php', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ appointmentPolicyContent: value })
+    body: JSON.stringify({ appointmentPolicyContent: _mdSaveValue('policy', value) })
   }).catch(() => {})
 
   addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
@@ -8994,9 +10131,18 @@ function saveSchedulingRules() {
   const newAdvMax      = gv('cs-adv-max')   || consultationSettings.maxAdvanceBooking
   const newAdvMin      = gv('cs-adv-min')   || consultationSettings.minAdvanceBooking
   const newMaxAppt     = parseInt(gv('cs-max-appt')) || consultationSettings.maxApptsPerDoctorPerDay
+  const newMaxPatient  = Math.min(10, Math.max(1, parseInt(gv('cs-max-patient-appt')) || consultationSettings.maxUpcomingApptsPerPatient || 1))
   const newReminder    = gv('cs-reminder-time')    || consultationSettings.reminderTime
-  const newDeadline    = gv('cs-confirm-deadline') || consultationSettings.confirmDeadlineTime
-  const newWaitlistHrs = parseInt(gv('cs-waitlist-hours')) || consultationSettings.waitlistOfferHours
+  const newFollowup    = gv('cs-followup-time')    || consultationSettings.followupReminderTime
+
+  // Both reminders go out the day before; the second only to anyone who
+  // got the first earlier that day and hasn't confirmed. If it's not later
+  // than the first, the cron never sends it (appointment_reminders.php).
+  if (_clockToMinutes(newFollowup) <= _clockToMinutes(newReminder)) {
+    toast('The Second Reminder Time must be later than the Reminder Send Time (both are sent the day before the appointment).', 'error')
+    document.getElementById('cs-followup-time-trigger')?.focus()
+    return
+  }
 
   // Snapshotted before overwriting consultationSettings below, so the log
   // line can show exactly what changed (old -> new).
@@ -9005,18 +10151,18 @@ function saveSchedulingRules() {
     ['max advance booking', consultationSettings.maxAdvanceBooking, newAdvMax],
     ['min advance booking', consultationSettings.minAdvanceBooking, newAdvMin],
     ['max appointments/doctor/day', consultationSettings.maxApptsPerDoctorPerDay, newMaxAppt],
+    ['max upcoming appointments/patient', consultationSettings.maxUpcomingApptsPerPatient, newMaxPatient],
     ['reminder time', consultationSettings.reminderTime, newReminder],
-    ['confirm deadline', consultationSettings.confirmDeadlineTime, newDeadline],
-    ['waitlist offer hours', consultationSettings.waitlistOfferHours, newWaitlistHrs],
+    ['second reminder time', consultationSettings.followupReminderTime, newFollowup],
   ])
 
   consultationSettings.defaultDuration         = newDuration
   consultationSettings.maxAdvanceBooking        = newAdvMax
   consultationSettings.minAdvanceBooking        = newAdvMin
   consultationSettings.maxApptsPerDoctorPerDay  = newMaxAppt
+  consultationSettings.maxUpcomingApptsPerPatient = newMaxPatient
   consultationSettings.reminderTime             = newReminder
-  consultationSettings.confirmDeadlineTime      = newDeadline
-  consultationSettings.waitlistOfferHours       = newWaitlistHrs
+  consultationSettings.followupReminderTime     = newFollowup
 
   fetch('api/clinic/settings.php', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -9025,11 +10171,24 @@ function saveSchedulingRules() {
       maxAdvanceBooking: consultationSettings.maxAdvanceBooking,
       minAdvanceBooking: consultationSettings.minAdvanceBooking,
       maxApptsPerDoctorPerDay: consultationSettings.maxApptsPerDoctorPerDay,
+      maxUpcomingApptsPerPatient: consultationSettings.maxUpcomingApptsPerPatient,
       reminderTime: consultationSettings.reminderTime,
-      confirmDeadlineTime: consultationSettings.confirmDeadlineTime,
-      waitlistOfferHours: consultationSettings.waitlistOfferHours
+      followupReminderTime: consultationSettings.followupReminderTime
     })
-  }).catch(() => {})
+  })
+    .then(r => r.json())
+    .then(d => {
+      // settings.php rewrites the Appointment Policy's Section 4 times
+      // server-side when the reminder/deadline times change — pull that
+      // synced text back so Terms & Policies and the booking wizard's
+      // policy modal don't keep showing the old times until a reload.
+      if (d && d.success && d.settings && d.settings.appointmentPolicyContent != null) {
+        clinicInfo.appointmentPolicyContent = d.settings.appointmentPolicyContent
+        const ta = document.getElementById('policy-md-input')
+        if (ta) ta.value = clinicInfo.appointmentPolicyContent
+      }
+    })
+    .catch(() => {})
 
   addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
     action: diffParts.length ? `Updated scheduling rules: ${diffParts.join('; ')}` : 'Updated scheduling rules',
@@ -9443,11 +10602,15 @@ function showQRResult(p) {
           <span style="font-size:.68rem;font-weight:700;font-family:monospace;color:#9A3412;background:#FFF1E0;border:1px solid #FED7AA;border-radius:5px;padding:2px 7px">${p.id}</span>
           <span style="font-size:.68rem;font-weight:600;color:#374151;background:#F3F4F6;border-radius:5px;padding:2px 7px">${p.gender || '—'}</span>
           <span style="font-size:.68rem;font-weight:600;color:#374151;background:#F3F4F6;border-radius:5px;padding:2px 7px">${p.age ? p.age + ' yrs' : '—'}</span>
+          ${window.patientStageTag ? window.patientStageTag(p, 'sm') : ''}
         </div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:6px;font-size:.76rem;color:#9CA3AF;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #F3F4F6">
-      ${icon('clock','icon-sm')} Last visit: <span style="color:#374151;font-weight:600">${lastVisitStr}</span>
+      ${window.isNewPatient && window.isNewPatient(p)
+        // A new patient has no last visit yet — show their first visit instead.
+        ? window.patientStageChip(p)
+        : `${icon('clock','icon-sm')} Last visit: <span style="color:#374151;font-weight:600">${lastVisitStr}</span>`}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
       <div style="background:#F9FAFB;border:1px solid #F3F4F6;border-radius:8px;padding:10px 12px">
@@ -9470,11 +10633,9 @@ function showQRResult(p) {
               onclick="window.navigate('patient-view',{patientId:'${p.id}',patientName:'${p.name}'})">
         ${icon('eye','icon-sm')} View Profile
       </button>
-      ${state.role === 'doctor' ? `<button class="btn-secondary" style="flex:1;justify-content:center;min-width:120px"
-              onclick="window.navigate('new-examination',{patientId:'${p.id}'})">
-        ${icon('eye','icon-sm')} Start Consultation
-      </button>` : ''}
-      <button class="btn-ghost" style="flex:1;justify-content:center;min-width:120px"
+      <!-- No Start Examination here: an exam starts from an approved
+           appointment (New Examination), not from a bare QR scan. -->
+      <button class="btn-secondary" style="flex:1;justify-content:center;min-width:120px"
               onclick="window.navigate('create-appointment',{patientId:'${p.id}',patientName:'${(p.name||'').replace(/'/g,"\\'")}'})">
         ${icon('calendar','icon-sm')} New Appointment
       </button>
@@ -9540,17 +10701,81 @@ window.selectPatientResult = selectPatientResult
 // ════════════════════════════════════════════════════════════════
 //  DOCTOR SCHEDULE MODAL
 // ════════════════════════════════════════════════════════════════
-function openSetScheduleModal(doctorId) {
-  const d = doctorId ? doctors.find(doc => doc.id === doctorId) : null
-  const allDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+// Each working day has its own hours (doctor_days.start_time/end_time) —
+// one row per weekday: a checkbox for whether the doctor works it, then
+// that day's start/end. A day saved without hours (null = full clinic
+// hours), or with hours partly outside the clinic's own (e.g. saved before
+// the clinic hours changed), is shown fitted to the clinic's hours — the
+// only window bookings can use anyway (_clampToDoctorHours() never widens).
+const _SCHED_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+const _SCHED_DAY_FULL = { Mon:'Monday', Tue:'Tuesday', Wed:'Wednesday', Thu:'Thursday', Fri:'Friday', Sat:'Saturday', Sun:'Sunday' }
 
-  function buildDayChecks(doc) {
-    const activeDays = doc ? (doc.availableDays || doc.days || []) : []
-    return allDays.map(day => `
-      <label style="cursor:pointer;display:flex;align-items:center;gap:6px;font-size:.85rem;padding:6px 10px;border:1px solid #E5E7EB;border-radius:6px">
-        <input type="checkbox" class="sched-day-cb chk" value="${day}" ${activeDays.includes(day) ? 'checked' : ''}> ${day}
-      </label>`).join('')
-  }
+function _schedDayValues(doc, day) {
+  const opens  = consultationSettings.morningStart
+  const closes = consultationSettings.afternoonEnd
+  const [s, e] = _clampToDoctorHours(opens, closes, doc ? doctorHoursForDay(doc, day) : '')
+  const opts   = doctorScheduleTimeOpts()
+  return [opts.includes(s) ? s : opens, opts.includes(e) ? e : closes]
+}
+
+function _schedDayRowsHtml(doc) {
+  const activeDays = doc ? (doc.availableDays || doc.days || []) : []
+  const opts       = doctorScheduleTimeOpts()
+  const clinicDays = consultationSettings.clinicDays || []
+  // Compact pickers (40px, not the 52px form default) so a working day's
+  // row is the same height as a day-off row; every row has a fixed
+  // min-height, so the list reads as an even table either way.
+  const pickerStyle = 'height:40px;padding:0 12px;font-size:.84rem'
+  const rows = _SCHED_DAYS.map((day, i) => {
+    const on = activeDays.includes(day)
+    const [s, e] = _schedDayValues(doc, day)
+    const closed = clinicDays.length && !clinicDays.includes(_SCHED_DAY_FULL[day])
+    return `
+    <div id="sched-row-${day}" style="display:flex;align-items:center;gap:12px;min-height:58px;padding:9px 14px;flex-wrap:wrap;background:${on ? '#fff' : '#FAFAFA'};${i ? 'border-top:1px solid #F0F0F2;' : ''}transition:background-color .15s">
+      <label style="display:flex;align-items:center;gap:10px;width:76px;flex-shrink:0;font-size:.85rem;font-weight:600;color:${on ? '#1C1C1C' : '#9CA3AF'};cursor:pointer" id="sched-lbl-${day}">
+        <input type="checkbox" class="sched-day-cb chk" value="${day}" ${on ? 'checked' : ''} onchange="window._schedToggleDay('${day}')"> ${day}
+      </label>
+      <div id="sched-times-${day}" style="display:${on ? 'flex' : 'none'};align-items:center;gap:10px;flex:1;min-width:240px">
+        <div style="flex:1;min-width:0">${window.timeFieldHtml(`sched-start-${day}`, { value: s, options: opts, minWidth: 130, style: pickerStyle })}</div>
+        <span style="color:#C4C8CE;flex-shrink:0;font-size:.85rem">&ndash;</span>
+        <div style="flex:1;min-width:0">${window.timeFieldHtml(`sched-end-${day}`, { value: e, options: opts, minWidth: 130, style: pickerStyle })}</div>
+        <button type="button" class="btn-icon" title="Apply ${day}'s hours to all working days" aria-label="Apply ${day}'s hours to all working days"
+                style="flex-shrink:0;width:36px;height:36px" onclick="window._schedCopyDay('${day}')">${icon('copy','icon-sm')}</button>
+      </div>
+      <div id="sched-off-${day}" style="display:${on ? 'none' : 'flex'};flex:1">
+        <span style="font-size:.7rem;font-weight:600;color:#9CA3AF;background:#F3F4F6;padding:3px 10px;border-radius:20px">${closed ? 'Clinic closed' : 'Not working'}</span>
+      </div>
+    </div>`
+  }).join('')
+  return `<div style="border:1px solid #E5E7EB;border-radius:10px;overflow:hidden">${rows}</div>`
+}
+
+// List of upcoming appointments a schedule change / blocked date / "not
+// available" would affect (from the server's conflict check). Rendered
+// inside the open modal so staff keep their edits while they review it.
+function affectedApptsHtml(conflicts, intro) {
+  const rows = (conflicts || []).map(c => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #FDE2C3;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <div style="font-size:.82rem;font-weight:600;color:#1C1C1C">${esc(c.patientName || 'Patient')} <span style="font-weight:400;color:#9CA3AF">· ${esc(c.id)}</span></div>
+        <div style="font-size:.74rem;color:#6B7280">${fmtDate(c.date)} at ${esc(c.time)} · ${esc(c.why || '')}</div>
+      </div>
+      <span class="badge badge-${c.status}" style="flex-shrink:0">${c.status.charAt(0).toUpperCase() + c.status.slice(1)}</span>
+    </div>`).join('')
+  return `
+    <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;padding:12px 14px;margin-bottom:14px">
+      <div style="display:flex;gap:8px;align-items:flex-start;font-size:.82rem;color:#9A3412;line-height:1.5;margin-bottom:6px">
+        <span style="flex-shrink:0;display:flex;margin-top:2px">${icon('alert-triangle','icon-sm')}</span>
+        <span>${intro}</span>
+      </div>
+      <div style="max-height:220px;overflow-y:auto">${rows}</div>
+    </div>`
+}
+window.affectedApptsHtml = affectedApptsHtml
+
+function openSetScheduleModal(doctorId) {
+  window._schedForceArmed = false
+  const d = doctorId ? doctors.find(doc => doc.id === doctorId) : null
 
   showModal(`
     <div class="modal-header">
@@ -9558,76 +10783,122 @@ function openSetScheduleModal(doctorId) {
       <button class="modal-close" onclick="window.closeModal()">&times;</button>
     </div>
     <div class="modal-body">
+      <div id="sched-conflicts"></div>
       <div class="form-group"><label class="form-label">Doctor</label>
         ${window.selectFieldHtml('sched-doc', { value: doctorId, options: doctors.map(doc => ({ value: doc.id, label: doc.name })), onchange: 'window._schedDocChange(this.value)' })}</div>
-      <div class="form-group"><label class="form-label">Available Days</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px" id="sched-days-wrap">
-          ${buildDayChecks(d)}
-        </div></div>
-      <div class="form-row-2">
-        <div class="form-group"><label class="form-label">Start Time</label>
-          ${window.timeFieldHtml('sched-start', { value: d ? (d.hours || '8:00 AM – 5:00 PM').split('–')[0].trim() : '8:00 AM', options: window.doctorScheduleTimeOpts() })}</div>
-        <div class="form-group"><label class="form-label">End Time</label>
-          ${window.timeFieldHtml('sched-end', { value: d ? ((d.hours || '8:00 AM – 5:00 PM').split('–')[1]?.trim() ?? '5:00 PM') : '5:00 PM', options: window.doctorScheduleTimeOpts() })}</div>
+      <div class="form-group">
+        <div style="margin-bottom:10px">
+          <label class="form-label" style="margin:0">Working Days &amp; Hours</label>
+          <div style="font-size:.72rem;color:#9CA3AF;margin-top:2px">Clinic hours: ${consultationSettings.morningStart} &ndash; ${consultationSettings.afternoonEnd}. Use <span style="display:inline-flex;vertical-align:-2px">${icon('copy','icon-xs')}</span> on a day to apply its hours to every working day.</div>
+        </div>
+        <div id="sched-days-wrap">${_schedDayRowsHtml(d)}</div>
       </div>
-      <div class="form-group" style="display:flex;align-items:center;justify-content:space-between">
-        <label class="form-label" style="margin:0">Mark as Available</label>
+      <label for="sched-avail" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid #E5E7EB;border-radius:10px;cursor:pointer;margin:0">
+        <span>
+          <span class="form-label" style="margin:0;display:block">Mark as Available</span>
+          <span style="font-size:.72rem;color:#9CA3AF">Shows this doctor as available on dashboards and doctor lists.</span>
+        </span>
         <input id="sched-avail" type="checkbox" class="chk" ${!d || d.available ? 'checked' : ''}>
-      </div>
+      </label>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
       <button class="btn-primary" id="doc-sched-save-btn" onclick="window.doSaveSchedule()">Save Schedule</button>
-    </div>`)
+    </div>`, 'modal-lg')
+  // Days, hours or the Available toggle changed → check appointments again on save.
+  document.querySelector('.modal-box')?.addEventListener('change', e => { if (e.target.id !== 'sched-doc') _schedDisarm() })
+}
+
+// Any edit after the affected-appointments review means the server must
+// check again — drop the "Save Anyway" state.
+function _schedDisarm() {
+  if (!window._schedForceArmed) return
+  window._schedForceArmed = false
+  const cBox = document.getElementById('sched-conflicts'); if (cBox) cBox.innerHTML = ''
+  const sBtn = document.getElementById('doc-sched-save-btn'); if (sBtn) sBtn.textContent = 'Save Schedule'
+}
+window._schedDisarm = _schedDisarm
+
+window._schedToggleDay = function(day) {
+  const on = document.querySelector(`.sched-day-cb[value="${day}"]`)?.checked
+  const times = document.getElementById(`sched-times-${day}`)
+  const off   = document.getElementById(`sched-off-${day}`)
+  if (times) times.style.display = on ? 'flex' : 'none'
+  if (off)   off.style.display   = on ? 'none' : 'flex'
+  const row = document.getElementById(`sched-row-${day}`)
+  const lbl = document.getElementById(`sched-lbl-${day}`)
+  if (row) row.style.background = on ? '#fff' : '#FAFAFA'
+  if (lbl) lbl.style.color      = on ? '#1C1C1C' : '#9CA3AF'
+}
+
+// Copies one day's hours (the row's own copy button) onto every other
+// checked day — for a doctor who keeps the same hours all week, from
+// whichever day is already set the way they want.
+window._schedCopyDay = function(fromDay) {
+  const s = document.getElementById(`sched-start-${fromDay}`)?.value
+  const e = document.getElementById(`sched-end-${fromDay}`)?.value
+  const others = Array.from(document.querySelectorAll('.sched-day-cb:checked')).map(cb => cb.value).filter(d => d !== fromDay)
+  if (!others.length) { toast('Check the other working days first.', 'error'); return }
+  others.forEach(day => {
+    window.setSelectFieldValue(`sched-start-${day}`, s)
+    window.setSelectFieldValue(`sched-end-${day}`,   e)
+  })
+  toast(`${fromDay}'s hours (${s} – ${e}) applied to all working days.`)
 }
 
 window._schedDocChange = function(id) {
-  const doc = doctors.find(d => d.id === id)
-  const allDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
-  const activeDays = doc ? (doc.availableDays || doc.days || []) : []
+  // A different doctor — any earlier "affected appointments" review no longer applies.
+  window._schedForceArmed = false
+  const cBox = document.getElementById('sched-conflicts'); if (cBox) cBox.innerHTML = ''
+  const sBtn = document.getElementById('doc-sched-save-btn'); if (sBtn) sBtn.textContent = 'Save Schedule'
+  const doc  = doctors.find(d => d.id === id)
   const wrap = document.getElementById('sched-days-wrap')
-  if (wrap) {
-    wrap.innerHTML = allDays.map(day => `
-      <label style="cursor:pointer;display:flex;align-items:center;gap:6px;font-size:.85rem;padding:6px 10px;border:1px solid #E5E7EB;border-radius:6px">
-        <input type="checkbox" class="sched-day-cb chk" value="${day}" ${activeDays.includes(day) ? 'checked' : ''}> ${day}
-      </label>`).join('')
-  }
+  if (wrap) wrap.innerHTML = _schedDayRowsHtml(doc)
   const availEl = document.getElementById('sched-avail')
-  if (doc) {
-    const parts = (doc.hours || '8:00 AM – 5:00 PM').split('–')
-    // sched-start/sched-end are now timeFieldHtml() custom selects, not
-    // plain inputs — setting .value directly only updates the hidden
-    // field, not the visible trigger label, so this needs the same
-    // setter the select's own picker uses.
-    window.setSelectFieldValue('sched-start', parts[0]?.trim() || '8:00 AM')
-    window.setSelectFieldValue('sched-end',   parts[1]?.trim() || '5:00 PM')
-    if (availEl) availEl.checked = doc.available !== false
-  }
+  if (doc && availEl) availEl.checked = doc.available !== false
 }
 
 async function doSaveSchedule() {
   const docId   = document.getElementById('sched-doc')?.value
-  const startT  = document.getElementById('sched-start')?.value?.trim() || '8:00 AM'
-  const endT    = document.getElementById('sched-end')?.value?.trim()   || '5:00 PM'
   const isAvail = document.getElementById('sched-avail')?.checked ?? true
   const selDays = Array.from(document.querySelectorAll('.sched-day-cb:checked')).map(cb => cb.value)
   const doc     = doctors.find(d => d.id === docId)
 
   if (!docId) { toast('No doctor selected.', 'error'); return }
 
+  // Per-day hours. A day left at the clinic's full hours is sent as null so
+  // it keeps following Consultation Settings if the clinic hours change.
+  const opens  = consultationSettings.morningStart
+  const closes = consultationSettings.afternoonEnd
+  const dayHours = {}
+  for (const day of selDays) {
+    const s = document.getElementById(`sched-start-${day}`)?.value || opens
+    const e = document.getElementById(`sched-end-${day}`)?.value   || closes
+    if (_clockToMinutes(e) <= _clockToMinutes(s)) {
+      toast(`${day}: end time must be later than the start time.`, 'error')
+      document.getElementById(`sched-end-${day}-trigger`)?.focus()
+      return
+    }
+    dayHours[day] = (s === opens && e === closes) ? null : { start: s, end: e }
+  }
+
   const saveBtn = document.getElementById('doc-sched-save-btn')
   if (_btnBusy(saveBtn, 'primary', 'Saving…')) return
 
   // Snapshotted before the fetch resolves, so the log line can show
   // exactly what changed (old -> new) instead of just the new days list.
-  const oldDays  = (doc?.availableDays || doc?.days || []).join(', ')
-  const newDays  = selDays.join(', ')
-  const newHours = `${startT} – ${endT}`
+  const oldDays    = (doc?.availableDays || doc?.days || []).join(', ')
+  const newDays    = selDays.join(', ')
+  const oldSummary = doc ? doctorHoursSummary(doc) : ''
+  const newSummary = doctorHoursSummary({ availableDays: selDays, dayHours })
   const diffParts = _logDiffParts([
     ['days', oldDays, newDays],
-    ['hours', doc?.hours, newHours],
+    ['hours', oldSummary, newSummary],
     ['accepting patients', doc?.available !== false ? 'yes' : 'no', isAvail ? 'yes' : 'no'],
   ])
+  // doctors.work_hours is only a short display summary now (VARCHAR(100));
+  // the real per-day hours travel in dayHours.
+  const workHours = newSummary.includes('·') ? 'Varies by day' : newSummary
 
   try {
     const r = await fetch('api/doctors/update.php', {
@@ -9636,12 +10907,31 @@ async function doSaveSchedule() {
       body:    JSON.stringify({
         doctorId:  docId,
         days:      selDays,
-        workHours: newHours,
+        dayHours,
+        workHours,
         available: isAvail,
+        // Second click after reviewing the affected appointments.
+        force: !!window._schedForceArmed,
       }),
     })
     const d = await r.json()
+    // Upcoming appointments would be affected — show them inside this modal
+    // (edits stay as they are) and turn the button into "Save Anyway".
+    if (!d.success && d.needsConfirm) {
+      const box = document.getElementById('sched-conflicts')
+      const one = (d.conflicts || []).length === 1
+      if (box) box.innerHTML = affectedApptsHtml(d.conflicts, one
+        ? `<strong>${d.message}</strong> If you save, the doctor will still see this patient on their booked date, and new bookings will follow the new schedule. It'll be flagged <strong>Outside Schedule</strong> in Appointments. To move it instead, reschedule or cancel it first.`
+        : `<strong>${d.message}</strong> If you save, the doctor will still see these patients on their booked dates, and new bookings will follow the new schedule. They'll be flagged <strong>Outside Schedule</strong> in Appointments. To move them instead, reschedule or cancel them first.`)
+      box?.closest('.modal-body')?.scrollTo({ top: 0, behavior: 'smooth' })
+      window._schedForceArmed = true
+      _btnIdle(saveBtn)
+      if (saveBtn) saveBtn.innerHTML = `${icon('alert-triangle','icon-sm')} Save &amp; Keep ${one ? 'This Booking' : 'These Bookings'}`
+      toast(d.message, 'error')
+      return
+    }
     if (!d.success) { toast(d.message || 'Could not save schedule.', 'error'); return }
+    window._schedForceArmed = false
 
     addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
       action: `Updated schedule for ${doc?.name || 'doctor'}${diffParts.length ? ': ' + diffParts.join('; ') : ''}`,
@@ -9677,7 +10967,74 @@ function examWizInit() {
   examWizRender(1, null)
 }
 
+// ── Required exam fields ─────────────────────────────────────────
+// Returns the missing ones as [{ id, label }], optionally only those on one
+// wizard step. Clinical fields apply to real examinations (not the
+// dispensing-only visit types, NON_EXAM_SERVICE_TYPES); prescription and
+// dispensing fields only when a prescription is being issued; follow-up
+// date & time only when "Need Follow-up" is Yes.
+function _examMissingFields(stepOnly) {
+  const val = id => (document.getElementById(id)?.value || '').trim()
+  const linkedAppt = window._examApptId ? appointments.find(a => a.id === window._examApptId) : null
+  const examId = state.params?.examId
+  const editCon = (!linkedAppt && examId)
+    ? (patients.find(p => p.id === state.params?.patientId)?.consultations || []).find(c => c.examId === examId) : null
+  const apptType = linkedAppt?.type || editCon?.type || 'Comprehensive Eye Examination'
+  const clinical = !NON_EXAM_SERVICE_TYPES.includes(apptType)
+  const issuing  = !!document.getElementById('r-issue-yes')?.checked
+  const out = []
+  const need = (id, label) => { if (document.getElementById(id) && !val(id)) out.push({ id, label }) }
+
+  if (clinical) {
+    need('ne-con-complaint', 'Chief complaint')
+    need('ne-od-va-un', 'OD visual acuity (uncorrected)')
+    need('ne-os-va-un', 'OS visual acuity (uncorrected)')
+    need('ne-diagnosis', 'Diagnosis')
+  }
+  // A cylinder without an axis isn't a valid refraction.
+  if (val('ne-od-cyl') && !val('ne-od-axis')) out.push({ id: 'ne-od-axis', label: 'OD axis (a cylinder is entered)' })
+  if (val('ne-os-cyl') && !val('ne-os-axis')) out.push({ id: 'ne-os-axis', label: 'OS axis (a cylinder is entered)' })
+  if (document.getElementById('r-followup-yes')?.checked && document.getElementById('r-followup-no')
+      && (!val('ne-con-followup') || !val('ne-con-followup-time'))) {
+    out.push({ id: 'ne-followup-picker-btn', label: 'Follow-up date & time' })
+  }
+  if (issuing) {
+    need('ne-od-sph', 'OD sphere')
+    need('ne-os-sph', 'OS sphere')
+    // PD's group is hidden for a contact-lens prescription, where it doesn't apply.
+    if (document.getElementById('ne-pd-group')?.style.display !== 'none') need('ne-pd', 'Pupillary distance (PD)')
+    need('ne-total', 'Total amount')
+    need('ne-dispensed-date', 'Dispensed date')
+    need('ne-received-by', 'Received by')
+  }
+  if (!stepOnly) return out
+  return out.filter(f => document.getElementById(f.id)?.closest('[id^="wiz-step-"]')?.id === 'wiz-step-' + stepOnly)
+}
+
+// Outlines the missing fields in red (cleared as soon as they're edited),
+// opens the step holding the first one and says what's missing.
+function _examFlagMissing(missing) {
+  missing.forEach(f => {
+    const el = document.getElementById(f.id + '-trigger') || document.getElementById(f.id)
+    if (!el) return
+    el.classList.add('error')
+    el.addEventListener('input',  () => el.classList.remove('error'), { once: true })
+    el.addEventListener('change', () => el.classList.remove('error'), { once: true })
+  })
+  const step = document.getElementById(missing[0].id)?.closest('[id^="wiz-step-"]')
+  const n = step ? parseInt(step.id.replace('wiz-step-', ''), 10) : null
+  if (n && n !== _wizStep) examWizRender(n, n > _wizStep ? 1 : -1)
+  const labels = missing.map(f => f.label)
+  toast(labels.length === 1 ? `Please fill in: ${labels[0]}.` : `Please fill in: ${labels.slice(0, 3).join(', ')}${labels.length > 3 ? ` and ${labels.length - 3} more` : ''}.`, 'error')
+  setTimeout(() => (document.getElementById(missing[0].id + '-trigger') || document.getElementById(missing[0].id))?.focus({ preventScroll: false }), 320)
+}
+
 function examWizGo(dir) {
+  // Moving forward checks the current step's required fields first.
+  if (dir > 0) {
+    const missing = _examMissingFields(_wizStep)
+    if (missing.length) { _examFlagMissing(missing); return }
+  }
   var next = _wizStep + dir
   if (next < 1 || next > _wizTotal) return
   examWizRender(next, dir)
@@ -9685,6 +11042,15 @@ function examWizGo(dir) {
 
 function examWizJump(n) {
   if (n === _wizStep) return
+  // Jumping ahead via the stepper checks every step being passed over, same
+  // as clicking Next through them; stops on the first step with a gap.
+  // Going back is always allowed.
+  if (n > _wizStep) {
+    for (let s = _wizStep; s < n; s++) {
+      const missing = _examMissingFields(s)
+      if (missing.length) { _examFlagMissing(missing); return }
+    }
+  }
   examWizRender(n, n > _wizStep ? 1 : -1)
 }
 
@@ -9793,7 +11159,7 @@ window.examWizJump = examWizJump
 window._examApptId     = null   // tracks which appointment triggered this exam
 window._examApptDoctor = null   // admin-side: doctor from appointment
 
-// Examinations always trace back to a confirmed appointment — no walk-in
+// Examinations always trace back to an approved appointment — no walk-in
 // path that skips it, so the clinic's booking/approval process can't be
 // bypassed by starting a consultation for a patient with no appointment record.
 function startExamFromAppt(apptId) {
@@ -9801,7 +11167,7 @@ function startExamFromAppt(apptId) {
   if (!appt) return
   window._examApptId     = apptId
   window._examApptDoctor = appt.doctorName || null
-  toast('Starting consultation for ' + appt.patientName + '…', 'info')
+  toast('Starting examination for ' + appt.patientName + '…', 'info')
   navigate('new-examination', { patientId: appt.patientId })
 }
 window.startExamFromAppt = startExamFromAppt
@@ -9819,9 +11185,20 @@ async function saveNewExam(patientId) {
   document.querySelectorAll('[id^="ne-coat-"]:checked').forEach(cb => coatings.push(cb.value))
 
   const date = gv('ne-date') || localDateStr()
-  const doctorName = (window._examApptDoctor && state.role === 'admin') ? window._examApptDoctor : state.user.name
-  const issuePrescription = !!document.getElementById('r-issue-yes')?.checked
   const examId = state.params?.examId || null
+  // Admin-started exam: recorded under the doctor chosen in the Examining
+  // Doctor field (pageNewExamination), not the admin themself.
+  const adminDoctor = (state.role === 'admin' && !examId)
+    ? doctors.find(d => d.id === gv('ne-doctor')) || null
+    : null
+  if (state.role === 'admin' && !examId && !adminDoctor) {
+    toast('Please select the examining doctor for this exam.', 'error')
+    document.getElementById('ne-doctor-trigger')?.focus()
+    return
+  }
+  const doctorName = adminDoctor ? adminDoctor.name
+    : (window._examApptDoctor && state.role === 'admin') ? window._examApptDoctor : state.user.name
+  const issuePrescription = !!document.getElementById('r-issue-yes')?.checked
 
   // Appointment Type and Status used to be re-entered here by hand, but
   // they're already captured earlier in the visit's lifecycle — Type at
@@ -9846,9 +11223,10 @@ async function saveNewExam(patientId) {
   // startExamFromAppt()), and it hard-blocked on this field regardless of
   // what the visit actually was.
   const diagnosis = gv('ne-diagnosis')
-  if (!NON_EXAM_SERVICE_TYPES.includes(appointmentType) && !diagnosis) {
-    toast('Please enter a diagnosis.', 'error'); return
-  }
+  // Every required field across all steps (diagnosis included) — the step
+  // holding the first missing one opens, with the fields outlined.
+  const missing = _examMissingFields()
+  if (missing.length) { _examFlagMissing(missing); return }
 
   // One visit, three payloads — matches the field boundaries in
   // api/examinations/create.php (consultation narrative / exam
@@ -9913,7 +11291,9 @@ async function saveNewExam(patientId) {
       const oldExam = p.examinations.find(ex => ex.id === examId)
       const diagChanged = oldExam && oldExam.diagnosis !== diagnosis
       const updatedExam = {
-        id: examId, date, doctor: doctorName,
+        // An edit never changes who performed the exam — matters when an
+        // admin edits another doctor's record (doctorName would be theirs).
+        id: examId, date, doctor: oldExam?.doctor || doctorName,
         od, os, iop, pd,
         externalFindings: payload.externalFindings,
         diagnosis, testResults: payload.testResults, remarks: payload.remarks,
@@ -9934,16 +11314,21 @@ async function saveNewExam(patientId) {
     }
 
     const apptId = window._examApptId || null
+    // No draft writes while saving (create.php deletes the draft once the
+    // exam is saved; a late auto-save mustn't bring it back).
+    window._examDraftPause = true
     const r = await fetch('api/examinations/create.php', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ patientId, apptId, ...payload })
+      body:    JSON.stringify({ patientId, apptId, ...payload, ...(adminDoctor ? { doctorId: adminDoctor.id } : {}) })
     })
     const d = await r.json()
     if (!d.success) {
+      window._examDraftPause = false
       toast(d.message || 'Failed to save examination.', 'error')
       return
     }
+    window.examDraftStop?.()
 
     addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
       action: `Saved optical examination ${d.id} for ${p.name} (${patientId})`,
@@ -9986,6 +11371,10 @@ async function saveNewExam(patientId) {
 
     if (apptId) {
       updateAppointmentStatus(apptId, 'completed')
+      // Mirror create.php: a doctor-less appointment gets the doctor the
+      // admin chose for this exam.
+      const _a = appointments.find(a => a.id === apptId)
+      if (_a && adminDoctor && !_a.doctorId) { _a.doctorId = adminDoctor.id; _a.doctorName = adminDoctor.name }
       window._examApptId     = null
       window._examApptDoctor = null
     }
@@ -9993,12 +11382,229 @@ async function saveNewExam(patientId) {
     toast('Examination record saved successfully.', 'success')
     navigate('patient-view', { patientId, patientName: p.name })
   } catch (_) {
+    window._examDraftPause = false   // keep auto-saving the draft — the exam didn't save
     toast('Network error. Please try again.', 'error')
   } finally {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = window.icon('check','icon-sm') + ' ' + (examId ? 'Save Changes' : 'Save Examination') }
   }
 }
 window.saveNewExam = saveNewExam
+
+// ════════════════════════════════════════════════════════════════
+//  OPTICAL EXAMINATION — AUTO-SAVED DRAFTS (api/examinations/draft.php)
+//  A new exam auto-saves to the server shortly after the doctor stops
+//  typing (and when the tab is hidden/closed), one draft per patient +
+//  appointment. Reopening that exam — on any device, by the doctor or an
+//  admin — offers it back. This is the safety net for an exam that never
+//  got saved: if the appointment was auto-marked a no-show the next day,
+//  an admin reverts it (confirmRevertNoShow()) and the draft is restored
+//  when the exam is started. Saving the exam deletes the draft
+//  (api/examinations/create.php). Not used when editing a saved exam.
+// ════════════════════════════════════════════════════════════════
+const _examDraft = { patientId: '', apptId: '', timer: null, lastJson: '', dirty: false }
+
+// Every real field of the wizard (plus the admin's Examining Doctor pick),
+// skipping the custom select/date widgets' own display elements.
+function _examDraftFields() {
+  const root = document.getElementById('wiz-steps-container')
+  if (!root) return null
+  const els = [...root.querySelectorAll('input[id], textarea[id], select[id]')]
+  const docPick = document.getElementById('ne-doctor')
+  if (docPick) els.push(docPick)
+  return els.filter(el => !/-(text|trigger|mirror|mask)$/.test(el.id) && !['file', 'button', 'submit'].includes(el.type))
+}
+
+function _examDraftCollect() {
+  const els = _examDraftFields()
+  if (!els) return null
+  const data = {}
+  els.forEach(el => { data[el.id] = (el.type === 'checkbox' || el.type === 'radio') ? !!el.checked : el.value })
+  return data
+}
+
+function _examDraftApply(data) {
+  _examDraft.applying = true
+  try { _examDraftApplyFields(data) } finally { _examDraft.applying = false }
+}
+
+function _examDraftApplyFields(data) {
+  const entries = Object.entries(data || {})
+  // Radios/checkboxes first (they show/hide and enable dependent fields,
+  // e.g. Issue Prescription → the Rx fields), then the values.
+  entries.forEach(([id, v]) => {
+    const el = document.getElementById(id)
+    if (!el || (el.type !== 'checkbox' && el.type !== 'radio')) return
+    if (el.type === 'radio') {
+      if (v && !el.checked) { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })) }
+    } else if (el.checked !== !!v) {
+      el.checked = !!v; el.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+  })
+  entries.forEach(([id, v]) => {
+    const el = document.getElementById(id)
+    if (!el || el.type === 'checkbox' || el.type === 'radio') return
+    const wrap = document.getElementById(id + '-wrap')
+    if (wrap?.classList.contains('cust-select')) { window.setSelectFieldValue(id, v); return }
+    if (wrap?.classList.contains('dob-picker'))  { window.setDateFieldValue(id, v); return }
+    el.value = v ?? ''
+    el.dispatchEvent(new Event('input',  { bubbles: true }))
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  // The follow-up picker's visible label is drawn from its hidden fields.
+  const fuDate = document.getElementById('ne-con-followup')?.value
+  const fuLbl  = document.getElementById('ne-followup-picker-label')
+  if (fuDate && fuLbl) {
+    const fuTime = document.getElementById('ne-con-followup-time')?.value || ''
+    fuLbl.textContent = new Date(fuDate + 'T00:00:00').toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' }) + (fuTime ? ` at ${fuTime}` : '')
+    fuLbl.style.color = '#1C1C1C'
+  }
+}
+
+// Small right-aligned status pill above the current step: 'ok' (saved,
+// green), 'warn' (couldn't save, amber), 'info' (restored, blue).
+function _examDraftStatus(html, tone = 'ok') {
+  const el = document.getElementById('exam-draft-status')
+  if (el) el.innerHTML = html ? `<span class="exam-draft-pill is-${tone}">${html}</span>` : ''
+}
+
+function _examDraftTime(ts) {
+  const d = ts ? new Date(String(ts).replace(' ', 'T')) : new Date()
+  return isNaN(d) ? '' : d.toLocaleString('en-PH', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })
+}
+
+async function _examDraftSave(keepalive = false) {
+  clearTimeout(_examDraft.timer)
+  if (!_examDraft.patientId || !_examDraft.dirty || window._examDraftPause) return
+  const data = _examDraftCollect()
+  if (!data) return
+  const json = JSON.stringify(data)
+  if (json === _examDraft.lastJson) return
+  _examDraft.lastJson = json
+  try {
+    const r = await fetch('api/examinations/draft.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive,
+      body: JSON.stringify({ patientId: _examDraft.patientId, apptId: _examDraft.apptId, data })
+    })
+    const d = await r.json()
+    if (d.success) _examDraftStatus(`${icon('check-circle','icon-xs')} Draft saved ${_examDraftTime()}`)
+    else _examDraft.lastJson = ''
+  } catch (_) {
+    _examDraft.lastJson = ''
+    _examDraftStatus(`${icon('alert-circle','icon-xs')} Couldn't auto-save the draft. Check your connection.`, 'warn')
+  }
+}
+
+function _examDraftOnEdit(e) {
+  if (!_examDraft.patientId || _examDraft.applying) return   // restoring a draft isn't an edit
+  if (!document.getElementById('wiz-steps-container')) { examDraftStop(); return }  // left the wizard
+  const t = e.target
+  if (!t?.id || !(t.closest('#wiz-steps-container') || t.id === 'ne-doctor')) return
+  _examDraft.dirty = true
+  clearTimeout(_examDraft.timer)
+  _examDraft.timer = setTimeout(() => _examDraftSave(), 2000)
+}
+
+function _examDraftOnHide() {
+  if (document.visibilityState === 'hidden') _examDraftSave(true)
+}
+
+// Called from pageNewExamination()'s afterRender (new exams only).
+async function examDraftInit(patientId) {
+  examDraftStop()
+  _examDraft.patientId = patientId
+  _examDraft.apptId    = window._examApptId || ''
+  _examDraft.lastJson  = ''
+  _examDraft.dirty     = false
+  window._examDraftPause = false
+
+  const container = document.getElementById('wiz-steps-container')
+  if (!container) return
+  container.insertAdjacentHTML('beforebegin', `
+    <div id="exam-draft-banner"></div>
+    <div id="exam-draft-status" class="exam-draft-status"></div>`)
+
+  document.addEventListener('input',  _examDraftOnEdit, true)
+  document.addEventListener('change', _examDraftOnEdit, true)
+  document.addEventListener('visibilitychange', _examDraftOnHide)
+  window.addEventListener('pagehide', _examDraftOnHide)
+
+  let draft = null
+  try {
+    const r = await fetch(`api/examinations/draft.php?patientId=${encodeURIComponent(patientId)}&apptId=${encodeURIComponent(_examDraft.apptId)}`)
+    const d = await r.json()
+    draft = d.success ? d.draft : null
+  } catch (_) {}
+  if (!draft || !document.getElementById('exam-draft-banner') || _examDraft.patientId !== patientId) return
+
+  const when = _examDraftTime(draft.updatedAt)
+  // Coming from Revert No-Show → Start Examination: restore straight away.
+  if (window._examDraftAutoRestore) {
+    window._examDraftAutoRestore = false
+    _examDraftApply(draft.data)
+    _examDraft.dirty = true
+    _examDraftStatus(`${icon('rotate-ccw','icon-xs')} Restored the draft saved ${when}${draft.savedBy ? ' by ' + esc(draft.savedBy) : ''}`, 'info')
+    toast('Unsaved examination draft restored.', 'success')
+    return
+  }
+  // Same notice-card pattern as the rest of the app: round icon badge, a
+  // bold title over a muted detail line, equal-height actions on the right
+  // (they wrap under the text on narrow screens).
+  document.getElementById('exam-draft-banner').innerHTML = `
+    <div class="exam-draft-card">
+      <div class="exam-draft-icon">${icon('rotate-ccw','icon-sm')}</div>
+      <div class="exam-draft-text">
+        <div class="exam-draft-title">Unsaved draft found</div>
+        <div class="exam-draft-sub">Saved ${when}${draft.savedBy ? ' by ' + esc(draft.savedBy) : ''}. Restore it to continue where it left off.</div>
+      </div>
+      <div class="exam-draft-actions">
+        <button type="button" class="btn-secondary" onclick="window.examDraftDiscard()">Discard</button>
+        <button type="button" class="btn-secondary btn-revert-noshow" onclick="window.examDraftRestore()">${icon('rotate-ccw','icon-sm')} Restore Draft</button>
+      </div>
+    </div>`
+  _examDraft.pending = draft
+}
+
+function examDraftRestore() {
+  const draft = _examDraft.pending
+  if (!draft) return
+  _examDraftApply(draft.data)
+  _examDraft.dirty = true
+  _examDraft.pending = null
+  const banner = document.getElementById('exam-draft-banner')
+  if (banner) banner.innerHTML = ''
+  _examDraftStatus(`${icon('rotate-ccw','icon-xs')} Restored the draft saved ${_examDraftTime(draft.updatedAt)}`, 'info')
+  toast('Draft restored.', 'success')
+}
+
+async function examDraftDiscard() {
+  _examDraft.pending = null
+  const banner = document.getElementById('exam-draft-banner')
+  if (banner) banner.innerHTML = ''
+  try {
+    await fetch('api/examinations/draft.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', patientId: _examDraft.patientId, apptId: _examDraft.apptId })
+    })
+  } catch (_) {}
+  toast('Draft discarded.')
+}
+
+// Stops auto-saving (after a successful save, or when the wizard re-inits).
+function examDraftStop() {
+  clearTimeout(_examDraft.timer)
+  document.removeEventListener('input',  _examDraftOnEdit, true)
+  document.removeEventListener('change', _examDraftOnEdit, true)
+  document.removeEventListener('visibilitychange', _examDraftOnHide)
+  window.removeEventListener('pagehide', _examDraftOnHide)
+  _examDraft.patientId = ''
+  _examDraft.dirty     = false
+}
+
+window.examDraftInit    = examDraftInit
+window.examDraftRestore = examDraftRestore
+window.examDraftDiscard = examDraftDiscard
+window.examDraftStop    = examDraftStop
+window._examDraftSave   = _examDraftSave
 
 // ════════════════════════════════════════════════════════════════
 //  OPTICAL EXAMINATION — PRINT WIZARD DRAFT (Step 6)
@@ -10016,7 +11622,14 @@ function printNewExamDraft(patientId) {
   const gv = id => (document.getElementById(id)?.value || '').trim()
   const coatings = []
   document.querySelectorAll('[id^="ne-coat-"]:checked').forEach(cb => coatings.push(cb.value))
-  const doctor = (window._examApptDoctor && state.role === 'admin') ? window._examApptDoctor : (state.user?.name || '—')
+  // Admin: the doctor chosen in Examining Doctor (new exam) or the exam's
+  // own doctor (editing) — never the admin's name.
+  const _editExamId = state.params?.examId
+  const doctor = state.role === 'admin'
+    ? (_editExamId
+        ? ((p.examinations || []).find(e => e.id === _editExamId)?.doctor || '—')
+        : (doctors.find(d => d.id === gv('ne-doctor'))?.name || window._examApptDoctor || '—'))
+    : (state.user?.name || '—')
   const date = gv('ne-date') || localDateStr()
   const expiryDate = new Date(date + 'T00:00:00')
   expiryDate.setFullYear(expiryDate.getFullYear() + 1)
@@ -10026,7 +11639,7 @@ function printNewExamDraft(patientId) {
     date,
     expiryDate: localDateStr(expiryDate),
     status:   'valid',
-    prcLicense: window.state?.doctorPrcLicense || '',
+    prcLicense: (state.role === 'admin' ? window.findDoctorByName(doctor)?.prcLicense : window.state?.doctorPrcLicense) || '',
     doctor,
     od:       { sph: gv('ne-od-sph'), cyl: gv('ne-od-cyl'), axis: gv('ne-od-axis'), add: gv('ne-od-add') },
     os:       { sph: gv('ne-os-sph'), cyl: gv('ne-os-cyl'), axis: gv('ne-os-axis'), add: gv('ne-os-add') },
@@ -10191,9 +11804,9 @@ function viewExamDetail(patientId, examId) {
 
   const examDate = new Date(e.date.includes('T') ? e.date : e.date + 'T00:00:00')
   const examDateStr = examDate.toLocaleDateString('en-PH', {year:'numeric',month:'long',day:'numeric'})
-  const docRecord = doctors.find(d => d.name === e.doctor)
+  const docRecord = window.findDoctorByName(e.doctor, e.doctorId)
   const docPhoto  = docRecord?.photoUrl || null
-  const docInits  = (e.doctor||'Dr').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
+  const docInits  = (e.doctor||'Dr').replace(/^Dr\.?\s+/i, '').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
   const patInits  = (p.name||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
 
   const eyeField = (label, val, isLast) => `
@@ -10246,10 +11859,10 @@ function viewExamDetail(patientId, examId) {
               <div style="font-size:.85rem;font-weight:700;color:#111">${e.doctor}</div>
               <div style="font-size:.72rem;color:#6B7280;margin-top:2px">${examDateStr}</div>
             </div>
-            ${docPhoto
-              ? `<div class="rx-doc-avatar" style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${docPhoto}" alt="${e.doctor}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block"></div>`
-              : `<div class="rx-doc-avatar" style="width:36px;height:36px;border-radius:50%;background:#1C1C1C;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;color:#E8760A;flex-shrink:0;letter-spacing:.02em">${docInits}</div>`
-            }
+            <div class="rx-doc-avatar" style="width:36px;height:36px;border-radius:50%;background:#E8760A;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;color:#fff;flex-shrink:0;position:relative;overflow:hidden">
+              ${docInits}
+              ${docPhoto ? `<img src="${docPhoto}" alt="${e.doctor}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.remove()">` : ''}
+            </div>
           </div>
         </div>
       </div>
@@ -10481,93 +12094,12 @@ function downloadExamRecordPDF(examId, btnEl) {
   // the permanent .pdf-exam-doc rules in global.css.
   const bodyMatch = built.html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
   if (!bodyMatch) { toast('Could not generate the PDF.', 'error'); return }
-  _downloadLiveContentAsPdf(bodyMatch[1], 'pdf-exam-doc', built.filename, btnEl)
+  _downloadLiveContentAsPdf(bodyMatch[1], 'pdf-exam-doc', built.filename, btnEl, undefined, built.html)
 }
 window.downloadExamRecordPDF = downloadExamRecordPDF
 
-// ════════════════════════════════════════════════════════════════
-//  OPTICAL EXAMINATION — ARCHIVE
-// ════════════════════════════════════════════════════════════════
-// Archives the exam rather than deleting it outright — same two-step
-// pattern as patients/accounts/services (see confirmArchivePatient):
-// archive first (reversible, shows up under Settings > Archives), then
-// permanently delete later from there if it's really no longer needed
-// (that permanent path cascades to the linked consultation/prescription —
-// see api/archive/delete.php's Examination branch).
-function confirmDeleteExam(examId, patientId, patientName) {
-  showModal(`
-    <div class="modal-header">
-      <div class="modal-title" style="display:flex;align-items:center;gap:10px">
-        <div style="width:32px;height:32px;border-radius:50%;background:#fef3c7;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#d97706">
-          ${icon('archive','icon-sm')}
-        </div>
-        Archive Examination Record
-      </div>
-      <button class="modal-close" onclick="window.closeModal()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <p style="font-size:.88rem;color:#6b7280;margin-bottom:16px">Are you sure you want to archive examination <strong>${examId}</strong> for <strong>${patientName}</strong>? It will be removed from active records but can be restored, or permanently deleted, from Settings &gt; Archives.</p>
-      <div class="form-group" style="margin:0">
-        <label class="form-label">Reason for Archiving <span class="req">*</span></label>
-        <textarea id="exam-archive-reason" class="form-textarea" style="border-radius:8px;min-height:80px"
-                  placeholder="Please provide a reason for archiving…"
-                  oninput="document.getElementById('exam-archive-btn').disabled=!this.value.trim()"></textarea>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
-      <button id="exam-archive-btn" class="btn-primary" disabled
-              onclick="window.doDeleteExam('${examId}','${patientId}','${patientName.replace(/'/g,"\\'")}')">
-        ${icon('archive','icon-sm')}<span>Archive</span>
-      </button>
-    </div>`)
-  setTimeout(() => {
-    const ta = document.getElementById('exam-archive-reason')
-    const btn = document.getElementById('exam-archive-btn')
-    if (ta && btn) ta.addEventListener('input', () => { btn.disabled = !ta.value.trim() })
-  }, 50)
-}
-window.confirmDeleteExam = confirmDeleteExam
-
-async function doDeleteExam(examId, patientId, patientName) {
-  const btn = document.getElementById('exam-archive-btn')
-  const reason = (document.getElementById('exam-archive-reason') || {}).value?.trim() || 'No reason provided'
-  if (_btnBusy(btn, 'primary', 'Archiving…')) return
-  try {
-    const r = await fetch('api/archive/create.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profileId: examId, type: 'Examination', name: patientName, reason, archivedBy: state.user.name })
-    })
-    const d = await r.json()
-    if (!d.success) { toast(d.message || 'Failed to archive examination.', 'error'); _btnIdle(btn); return }
-    archivedRecords.push(d.record)
-  } catch (_) {
-    toast('Network error. Examination not archived.', 'error')
-    _btnIdle(btn)
-    return
-  }
-
-  // Keep local state consistent with the backend's cascade — drop the exam
-  // AND the same visit's consultation/prescription from the active lists,
-  // so the whole visit disappears from every tab together instead of
-  // leaving stale consultation/prescription rows behind until a reload.
-  const p = patients.find(pt => pt.id === patientId)
-  if (p) {
-    p.examinations  = (p.examinations  || []).filter(e => e.id !== examId)
-    p.consultations = (p.consultations || []).filter(c => c.examId !== examId)
-    p.prescriptions = (p.prescriptions || []).filter(rx => rx.examId !== examId)
-  }
-
-  addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
-    action: `Archived examination ${examId} for ${patientName} — Reason: ${reason}`,
-    timestamp: nowTimestamp(), type:'examination' })
-
-  closeModal()
-  toast('Examination record archived. It can be restored from Settings > Archives.', 'success')
-  renderPage()
-}
-window.doDeleteExam = doDeleteExam
+// Examination records can't be archived or deleted — they're permanent
+// medical records (api/archive/create.php and delete.php refuse them too).
 
 function generateClearanceFromRecord(examId) {
   const e = getExamRecords().find(r => r.id === examId)
@@ -10598,7 +12130,7 @@ function generateClearance(patientId, examId) {
   // title, and every license number must always reflect whatever's
   // actually on file (Settings > User Management), or say so plainly
   // rather than guess.
-  const realDoc = doctors.find(d => d.name === e.doctor)
+  const realDoc = window.findDoctorByName(e.doctor, e.doctorId)
   const doc = {
     name:  (realDoc?.name || e.doctor || 'DOCTOR').toUpperCase(),
     title: (realDoc?.specialization || 'Optometrist').toUpperCase(),
@@ -10620,6 +12152,9 @@ function generateClearance(patientId, examId) {
   // Pronoun based on gender
   const g    = (p.gender || '').toLowerCase()
   const pronoun = g === 'female' ? 'She' : g === 'male' ? 'He' : 'He/She'
+  const objPronoun = g === 'female' ? 'her' : g === 'male' ? 'him' : 'him/her'
+  // "MR. SAMUEL BAYBAY" / "MS. …", as on the clinic's signed certificate.
+  const honorific = g === 'female' ? 'MS. ' : g === 'male' ? 'MR. ' : ''
 
   // RX prescription string builder
   const rxStr = eye => {
@@ -10631,8 +12166,11 @@ function generateClearance(patientId, examId) {
   }
 
   // Field values — NVA/NNVA may not be stored in older records; fallback to dash
-  const nvaOD  = e.od?.nva  || e.nva  || '\u2014'
-  const nvaOS  = e.os?.nva  || e.nva  || '\u2014'
+  // NVA = naked (uncorrected) visual acuity \u2014 what the exam wizard records
+  // as "VA Uncorrected"; it printed a dash before because only a separate
+  // nva field (never filled) was read.
+  const nvaOD  = e.od?.nva  || e.od?.vaUncorrected || e.nva || '\u2014'
+  const nvaOS  = e.os?.nva  || e.os?.vaUncorrected || e.nva || '\u2014'
   const nnvaOD = e.od?.nnva || e.nnva || '\u2014'
   const nnvaOS = e.os?.nnva || e.nnva || '\u2014'
   const fvaOD  = e.od?.va   || '\u2014'
@@ -10641,8 +12179,13 @@ function generateClearance(patientId, examId) {
   const rxOS   = rxStr(e.os)
 
   // Default editable text blocks
-  const remarks1 = `Such condition requires the patient to wear eyeglasses for correctional purposes so as to eliminate symptoms like blurring of vision at far, headaches or nausea which are usually associated with Errors of Refraction.`
-  const remarks2 = `This certificate is being issued upon the request of the said patient for whatever purpose it would serve him/her.`
+  // The eyeglasses paragraph only fits when there's an actual correction;
+  // for a plano result (e.g. Emmetropia) it would contradict the diagnosis.
+  const hasRx = [e.od, e.os].some(eye => eye && ['sph', 'cyl'].some(k => eye[k] && parseFloat(eye[k]) !== 0))
+  const remarks1 = hasRx
+    ? `Such condition requires the patient to wear eyeglasses for correctional purposes so as to eliminate symptoms like blurring of vision at far, headaches or nausea which are usually associated with Errors of Refraction.`
+    : `The patient's vision is within normal limits and does not require corrective lenses at this time.`
+  const remarks2 = `This certificate is being issued upon the request of the said patient for whatever purpose it would serve ${objPronoun}.`
 
   // Remove any existing overlay
   const existing = document.getElementById('clearance-overlay')
@@ -10680,9 +12223,7 @@ function generateClearance(patientId, examId) {
               </div>
             </div>
             <div style="font-family:Arial,sans-serif;font-size:.68rem;text-transform:uppercase;letter-spacing:.03em;color:#222;line-height:1.5;">
-              <div>MAIN: UNIT 3, PASEO DE CARMONA, CARMONA, CAVITE</div>
-              <div>BRANCH 1: 46 STA. ANASTACIA, STO. TOMAS, BATANGAS</div>
-              <div>BRANCH 2: DOÑA SOLEDAD AVE., BETTER LIVING SUBD., PARAÑAQUE</div>
+              <div>UNIT 3, PASEO DE CARMONA, CARMONA, CAVITE</div>
             </div>
           </div>
           <div class="clearance-mobile-bar" style="background:#E8760A;color:#fff;font-family:Arial,sans-serif;font-size:.73rem;font-weight:700;padding:6px 12px;">MOBILE NUMBER: 09952376617 / 09296636080</div>
@@ -10706,7 +12247,7 @@ function generateClearance(patientId, examId) {
 
         <!-- BODY PARAGRAPH -->
         <p style="font-size:.95rem;line-height:1.7;text-indent:3em;margin:0 0 0;color:#111;">
-          This is to certify that <strong style="text-transform:uppercase;font-weight:700;letter-spacing:.02em;">${p.name.toUpperCase()}</strong> has undergone a complete eye examination dated ${fmtDate(e.date)}. ${pronoun} was diagnosed as stated below :
+          This is to certify that <strong style="text-transform:uppercase;font-weight:700;letter-spacing:.02em;">${honorific}${p.name.toUpperCase()}</strong> has undergone a complete eye examination dated <strong style="font-weight:700;">${fmtDate(e.date).toUpperCase()}</strong>. ${pronoun} was diagnosed as stated below :
         </p>
 
         <!-- DATA SECTION: NVA / NNVA / RX / FVA -->
@@ -10764,14 +12305,17 @@ function generateClearance(patientId, examId) {
         <!-- SIGNATURE — right-aligned -->
         <div style="margin-top:28px;text-align:right;">
           <div style="font-family:Arial,sans-serif;font-size:.88rem;font-weight:700;text-transform:uppercase;color:#111;margin-bottom:36px;">SIGNED :</div>
-          <div style="display:inline-block;text-align:center;min-width:260px;">
+          <!-- Left-aligned stack of bold lines under the signature line, as on
+               the clinic's signed certificate: name, title, PRC license,
+               then the second credential and its number. -->
+          <div style="display:inline-block;text-align:left;min-width:260px;font-family:Arial,sans-serif;font-size:.8rem;font-weight:700;text-transform:uppercase;color:#111;line-height:1.55;">
             <div style="border-bottom:1px solid #111;margin-bottom:8px;"></div>
-            <div style="font-family:Arial,sans-serif;font-size:.85rem;font-weight:700;text-transform:uppercase;color:#111;">${doc.name}</div>
-            <div style="font-family:Arial,sans-serif;font-size:.78rem;color:#111;margin-top:2px;">${doc.title}</div>
-            <div style="font-family:Arial,sans-serif;font-size:.78rem;color:#111;">${doc.prc}</div>
+            <div>${doc.name}</div>
+            <div>${doc.title}</div>
+            <div>${doc.prc}</div>
             ${doc.secondaryCredential && doc.secondaryPrc ? `
-            <div style="font-family:Arial,sans-serif;font-size:.78rem;color:#111;margin-top:6px;">${doc.secondaryCredential.toUpperCase()}</div>
-            <div style="font-family:Arial,sans-serif;font-size:.78rem;color:#111;">${doc.secondaryPrc}</div>` : ''}
+            <div>${doc.secondaryCredential.toUpperCase()}</div>
+            <div>${doc.secondaryPrc}</div>` : ''}
           </div>
         </div>
 
@@ -10810,12 +12354,24 @@ window.generateClearance = generateClearance
 // Renders the open clearance certificate (.clearance-document) to a real
 // PDF file and triggers a download, via the locally-vendored html2pdf.js.
 function downloadClearancePDF(patientName, examId) {
+  // See _downloadLiveContentAsPdf()'s own comment — html2pdf.js's bundled
+  // worker isn't safe for two concurrent renders, so this shares the same
+  // app-wide guard rather than only disabling its own button.
+  if (window._pdfBusy) {
+    toast('A PDF is already being generated — please wait for it to finish.', 'error')
+    return
+  }
+
   const src = document.querySelector('.clearance-document')
   if (!src || !window.html2pdf) { toast('PDF export is unavailable right now.', 'error'); return }
+  window._pdfBusy = true
 
   const btn = document.getElementById('clearance-dl-btn')
   const btnHtml = btn ? btn.innerHTML : ''
-  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; btn.innerHTML = `<span style="display:inline-block;width:9px;height:9px;border:2px solid #D1D5DB;border-top-color:#9CA3AF;border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0"></span> Downloading…` }
+  // See _downloadLiveContentAsPdf()'s own comment — locks the button's
+  // rendered width before swapping to the "Downloading…" label, so it
+  // (and whatever sits next to it) never shifts/wraps for the duration.
+  if (btn) { btn.style.width = btn.offsetWidth + 'px'; btn.disabled = true; btn.style.opacity = '.6'; btn.innerHTML = `<span style="display:inline-block;width:9px;height:9px;border:2px solid #D1D5DB;border-top-color:#9CA3AF;border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0"></span> Downloading…` }
 
   // html2canvas (used under the hood) can't rasterize live <textarea> values,
   // so capture from a detached clone with the textareas swapped for plain
@@ -10837,8 +12393,27 @@ function downloadClearancePDF(patientName, examId) {
   clone.style.boxSizing  = 'border-box'
   clone.style.background = '#fff'
 
+  // See _downloadLiveContentAsPdf()'s own comment on this same pattern —
+  // forcing overflow-x:hidden on <html> for the duration is what actually
+  // prevents the overscroll (restoring scroll position after the fact
+  // isn't fully reliable on its own), kept below as a safety net too.
+  // Offset sized to the page's actual current height (not a hardcoded
+  // huge constant) keeps this below any realistic scroll position without
+  // ballooning total scrollable height and visibly disrupting the
+  // scrollbar thumb — see _downloadLiveContentAsPdf()'s fuller comment.
+  const offscreenTop = document.documentElement.scrollHeight + 200
+  // Both axes — see _downloadLiveContentAsPdf()'s fuller comment: a
+  // vertical scrollbar appearing/disappearing narrows the visible content
+  // area just as much as horizontal overscroll would.
+  const htmlEl = document.documentElement
+  const prevOverflowX = htmlEl.style.overflowX
+  const prevOverflowY = htmlEl.style.overflowY
+  htmlEl.style.overflowX = 'hidden'
+  htmlEl.style.overflowY = 'hidden'
+  const scrollX = window.scrollX, scrollY = window.scrollY
+
   const wrap = document.createElement('div')
-  wrap.style.cssText = 'position:absolute;top:0;left:0;visibility:hidden;'
+  wrap.style.cssText = `position:absolute;top:${offscreenTop}px;left:0;visibility:hidden;`
   clone.style.visibility = 'visible'
   wrap.appendChild(clone)
   document.body.appendChild(wrap)
@@ -10862,8 +12437,8 @@ function downloadClearancePDF(patientName, examId) {
     .set({
       margin:      pdfMarginMm,
       filename,
-      image:       { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true, windowWidth: contentWidthPx, width: contentWidthPx, x: 0, y: 0 },
+      image:       { type: 'jpeg', quality: 1 },
+      html2canvas: { scale: 3, backgroundColor: '#ffffff', useCORS: true, windowWidth: contentWidthPx, width: contentWidthPx, x: 0, y: 0 },
       jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
     })
     .from(clone)
@@ -10872,7 +12447,11 @@ function downloadClearancePDF(patientName, examId) {
     .catch(() => toast('Could not generate the PDF. Try Print instead.', 'error'))
     .finally(() => {
       wrap.remove()
-      if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = btnHtml }
+      window._pdfBusy = false
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = btnHtml; btn.style.width = '' }
+      htmlEl.style.overflowX = prevOverflowX
+      htmlEl.style.overflowY = prevOverflowY
+      window.scrollTo(scrollX, scrollY)
     })
 }
 window.downloadClearancePDF = downloadClearancePDF
@@ -10891,6 +12470,18 @@ window.downloadClearancePDF = downloadClearancePDF
 function _buildExamRecordHtml(p, e) {
   const _inits  = name => (name||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
   const _fmtDt  = d => d ? new Date(d.includes('T') ? d : d+'T00:00:00').toLocaleDateString('en-PH',{year:'numeric',month:'long',day:'numeric'}) : '—'
+  // Same doctors[]-lookup pattern _buildRxRecordHtml() already uses —
+  // this document only ever carries the doctor's name as plain text
+  // (e.doctor), so their photo has to be looked up the same way.
+  const docRecord = window.findDoctorByName(e.doctor, e.doctorId)
+  // Absolute, not relative — same reason logoAbsUrl below is absolutized:
+  // a relative path can fail to resolve inside the print flow's hidden
+  // iframe (_printHtmlDocument()), which doesn't reliably share the main
+  // page's base URL. The clinic logo already gets this treatment; the
+  // doctor's photo silently didn't, which is exactly why it would show
+  // correctly in the on-screen modal (real page context) but not in Print.
+  const docPhoto   = docRecord?.photoUrl ? new URL(docRecord.photoUrl, document.baseURI).href : null
+  const docInits   = (e.doctor||'Dr').replace(/^Dr\.?\s+/i, '').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
   const eyeRow  = (lbl, od, os) => `
     <tr>
       <td style="padding:6px 10px;font-size:11px;color:#555;font-weight:600;border-bottom:1px solid #eee">${lbl}</td>
@@ -10909,6 +12500,11 @@ function _buildExamRecordHtml(p, e) {
   // iframe via document.write(), where relative paths can't be trusted
   // to resolve against the app's own origin.
   const logoAbsUrl = new URL(window._clinicLogoUrl || 'assets/images/logo/clinic-logo.png', document.baseURI).href
+  // Same reasoning as logoAbsUrl above — p.photoUrl already degrades
+  // gracefully via its onerror fallback if this ever fails, but there's
+  // no reason to let a fixable relative-path issue force that fallback
+  // when the real photo would otherwise load fine.
+  const patPhoto = p.photoUrl ? new URL(p.photoUrl, document.baseURI).href : null
   const qrDataUrl = _makeQRDataUrl(p.qrData, 90)
   const preparedByLabel = { admin:'Administrator', staff:'Staff', doctor:'Doctor' }[state.role] || state.role || ''
 
@@ -10943,6 +12539,19 @@ function _buildExamRecordHtml(p, e) {
        removes that whole class of quirk — the margin the old .pg-inner
        padding gave now comes from @page above instead, which (unlike body
        padding) actually repeats on every page a document spans. */
+    /* Chrome's print pipeline drops every CSS background-color by default
+       unless "Background graphics" is manually checked under the print
+       dialog's More Settings — real <img> content (photos, the clinic
+       logo) prints fine regardless, since that setting only strips CSS
+       backgrounds specifically, which is exactly what every colored
+       fallback avatar (.avatar, .iss-avatar with no photo) and status
+       pill on this document is built from. Forcing color-adjust here
+       makes them print correctly by default, rather than depending on
+       every doctor/staff member remembering to enable a checkbox neither
+       Download PDF nor the app itself is ever subject to (html2canvas
+       rasterizes pixels directly — this only ever affected real Print).
+       Standard property first, -webkit- prefix for older Chrome/Safari. */
+    * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 14px; line-height: 1.65; background: #fff; }
     table { width: 100%; border-collapse: collapse; }
     .clinic-hdr  { display: flex; align-items: center; gap: 14px; border-bottom: 3px solid #E8760A; padding-bottom: 14px; margin-bottom: 20px; }
@@ -10959,11 +12568,12 @@ function _buildExamRecordHtml(p, e) {
     .pt-meta   { display: flex; flex-wrap: wrap; gap: 5px 14px; }
     .pt-meta span { font-size: 11px; color: #555; }
     .pt-addr   { font-size: 11px; color: #999; margin-top: 3px; }
-    .issuer    { text-align: right; flex-shrink: 0; min-width: 160px; }
+    .issuer    { display: flex; align-items: center; justify-content: flex-end; gap: 10px; text-align: right; flex-shrink: 0; min-width: 160px; }
     .iss-lbl   { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #bbb; margin-bottom: 3px; }
     .iss-name  { font-size: 15px; font-weight: 700; color: #111; }
     .iss-date  { font-size: 11px; color: #888; }
     .iss-id    { font-size: 10px; font-family: monospace; color: #bbb; margin-top: 2px; }
+    .iss-avatar{ width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; overflow: hidden; }
     .tbl-hdr th { background: #f5f5f5; padding: 9px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
     .tbl-border { border: 1px solid #eee; border-radius: 10px; overflow: hidden; margin-bottom: 16px; }
     /* min-width:0 overrides a CSS grid item's default min-width:auto —
@@ -11007,7 +12617,7 @@ function _buildExamRecordHtml(p, e) {
     <div class="clinic-hdr-text">
       <div class="clinic-name">Cana Optical Clinic</div>
       <div class="clinic-sub">Optical Examination Record</div>
-      <div class="clinic-doc">Confidential Medical Document</div>
+      <div class="clinic-doc">Exam No. ${e.id}</div>
     </div>
   </div>
 
@@ -11016,7 +12626,7 @@ function _buildExamRecordHtml(p, e) {
   <div class="patient-block">
     <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0">
       ${p.photoUrl
-        ? `<div class="avatar" style="padding:0;overflow:hidden;background:transparent"><img src="${p.photoUrl}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="${window.avatarFallbackAttr(p.name)}"></div>`
+        ? `<div class="avatar" style="padding:0;overflow:hidden;background:transparent"><img src="${patPhoto}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="${window.avatarFallbackAttr(p.name)}"></div>`
         : `<div class="avatar">${_inits(p.name)}</div>`}
       ${qrDataUrl ? `<img src="${qrDataUrl}" alt="Patient QR" style="width:52px;height:52px">` : ''}
     </div>
@@ -11034,10 +12644,16 @@ function _buildExamRecordHtml(p, e) {
       ${p.address ? `<div class="pt-addr">${p.address}</div>` : ''}
     </div>
     <div class="issuer">
-      <div class="iss-lbl">Examined By</div>
-      <div class="iss-name">${e.doctor||'—'}</div>
-      <div class="iss-date">${examDate}</div>
-      <div class="iss-id">${e.id}</div>
+      <div>
+        <div class="iss-lbl">Examined By</div>
+        <div class="iss-name">${e.doctor||'—'}</div>
+        <div class="iss-date">${examDate}</div>
+        <div class="iss-id">Exam No. ${e.id}</div>
+      </div>
+      <div class="iss-avatar" style="background:#E8760A;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:800;color:#fff;position:relative">
+        ${docInits}
+        ${docPhoto ? `<img src="${docPhoto}" alt="${e.doctor||''}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.remove()">` : ''}
+      </div>
     </div>
   </div>
 
@@ -11091,17 +12707,16 @@ function _buildExamRecordHtml(p, e) {
   ${testResultsPlain     ? secLbl('Test Results')       + noteBox(testResultsPlain)      : ''}
   ${e.remarks ? `<div class="remarks-block">"${e.remarks}"<br><span style="font-size:10px;color:#aaa;font-style:normal">by ${e.doctor}</span></div>` : ''}
 
-  <!-- SIGNATURES -->
+  <!-- SIGNATURE — the examining doctor's only. A clinical record is signed
+       by the doctor; patient sign-off isn't part of it (receipt of eyewear
+       is already captured as "Received By" in Dispensing). Empty first
+       column keeps the block on the right, at half width. -->
   <div class="sig-grid">
+    <div></div>
     <div>
       <div style="height:32px"></div>
       <div class="sig-line">${e.doctor||'Examining Doctor'}</div>
       <div class="sig-sub">Optometrist / Examining Doctor</div>
-    </div>
-    <div>
-      <div style="height:32px"></div>
-      <div class="sig-line">${p.name}</div>
-      <div class="sig-sub">Patient Signature &amp; Date</div>
     </div>
   </div>
 
@@ -11145,11 +12760,23 @@ function _buildRxRecordHtml(p, rx) {
   const dob       = _fmtDt(p.dob)
   const expiry    = rx.expiryDate ? new Date(rx.expiryDate.includes('T') ? rx.expiryDate : rx.expiryDate+'T00:00:00')
                     : (() => { const d = new Date(rx.date.includes('T') ? rx.date : rx.date+'T00:00:00'); d.setFullYear(d.getFullYear()+1); return d })()
-  const isExpired = (rx.status === 'expired') || (rx.status !== 'superseded' && expiry < new Date())
-  const statusLabel = rx.status === 'superseded' ? 'Superseded' : (isExpired ? 'Expired' : 'Valid')
+  const isExpired = (rx.status === 'expired') || expiry < new Date()
+  const statusLabel = isExpired ? 'Expired' : 'Valid'
   const expiryStr = _fmtDt(localDateStr(expiry))
   const generated = new Date().toLocaleDateString('en-PH',{year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})
   const logoAbsUrl = new URL(window._clinicLogoUrl || 'assets/images/logo/clinic-logo.png', document.baseURI).href
+  // Same reasoning as logoAbsUrl above — p.photoUrl already degrades
+  // gracefully via its onerror fallback if this ever fails, but there's
+  // no reason to let a fixable relative-path issue force that fallback
+  // when the real photo would otherwise load fine.
+  const patPhoto = p.photoUrl ? new URL(p.photoUrl, document.baseURI).href : null
+  // Same doctors[] lookup _buildExamRecordHtml() uses — rx.doctor carries
+  // only the formatted name ("Dr. First M. Last", built identically to
+  // doctors[].name in api/doctors/index.php), so the photo is looked up.
+  // Absolutized for the same reason as logoAbsUrl above.
+  const docRecord = window.findDoctorByName(rx.doctor, rx.doctorId)
+  const docPhoto  = docRecord?.photoUrl ? new URL(docRecord.photoUrl, document.baseURI).href : null
+  const docInits  = (rx.doctor||'Dr').replace(/^Dr\.?\s+/i, '').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
   const qrDataUrl = _makeQRDataUrl(p.qrData, 90)
   const preparedByLabel = { admin:'Administrator', staff:'Staff', doctor:'Doctor' }[state.role] || state.role || ''
 
@@ -11191,6 +12818,11 @@ function _buildRxRecordHtml(p, rx) {
        Trimmed margins/padding/line-height throughout claws that back
        without needing to shrink any actual value text — the numbers
        patients and staff actually read stay the same size. */
+    /* See _buildExamRecordHtml()'s matching comment — forces CSS
+       background-colors (fallback avatars, status pills) to actually
+       print instead of silently depending on the print dialog's
+       "Background graphics" checkbox. */
+    * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 14px; line-height: 1.5; background: #fff; }
     table { width: 100%; border-collapse: collapse; }
     .clinic-hdr  { display: flex; align-items: center; gap: 14px; border-bottom: 3px solid #E8760A; padding-bottom: 10px; margin-bottom: 14px; }
@@ -11206,7 +12838,8 @@ function _buildRxRecordHtml(p, rx) {
     .pt-id     { font-size: 11px; font-family: monospace; color: #aaa; margin-bottom: 4px; }
     .pt-meta   { display: flex; flex-wrap: wrap; gap: 4px 14px; }
     .pt-meta span { font-size: 11px; color: #555; }
-    .issuer    { text-align: right; flex-shrink: 0; min-width: 160px; }
+    .issuer    { display: flex; align-items: center; justify-content: flex-end; gap: 10px; text-align: right; flex-shrink: 0; min-width: 160px; }
+    .iss-avatar{ width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; overflow: hidden; }
     .iss-lbl   { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #bbb; margin-bottom: 3px; }
     .iss-name  { font-size: 14px; font-weight: 700; color: #111; }
     .iss-date  { font-size: 11px; color: #888; }
@@ -11256,7 +12889,7 @@ function _buildRxRecordHtml(p, rx) {
   <div class="patient-block">
     <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0">
       ${p.photoUrl
-        ? `<div class="avatar" style="padding:0;overflow:hidden;background:transparent"><img src="${p.photoUrl}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="${window.avatarFallbackAttr(p.name)}"></div>`
+        ? `<div class="avatar" style="padding:0;overflow:hidden;background:transparent"><img src="${patPhoto}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="${window.avatarFallbackAttr(p.name)}"></div>`
         : `<div class="avatar">${_inits(p.name)}</div>`}
       ${qrDataUrl ? `<img src="${qrDataUrl}" alt="Patient QR" style="width:52px;height:52px">` : ''}
     </div>
@@ -11273,13 +12906,19 @@ function _buildRxRecordHtml(p, rx) {
       </div>` : ''}
     </div>
     <div class="issuer">
-      <div class="iss-lbl">Issued By</div>
-      <div class="iss-name">${rx.doctor||'—'}</div>
-      ${rx.prcLicense ? `<div class="iss-date">PRC License No. ${rx.prcLicense}</div>` : ''}
-      <div class="iss-date">${rxDate}</div>
-      <div class="iss-id">Rx No. ${rx.id}</div>
-      <div class="valid-pill" style="${statusLabel === 'Valid' ? 'background:#ECFDF5;color:#059669' : (statusLabel === 'Superseded' ? 'background:#F3F4F6;color:#6B7280' : 'background:#FEE2E2;color:#DC2626')}">
-        ${statusLabel === 'Valid' ? 'Valid until ' + expiryStr : statusLabel}
+      <div>
+        <div class="iss-lbl">Issued By</div>
+        <div class="iss-name">${rx.doctor||'—'}</div>
+        ${rx.prcLicense ? `<div class="iss-date">PRC License No. ${rx.prcLicense}</div>` : ''}
+        <div class="iss-date">${rxDate}</div>
+        <div class="iss-id">Rx No. ${rx.id}</div>
+        <div class="valid-pill" style="${statusLabel === 'Valid' ? 'background:#ECFDF5;color:#059669' : 'background:#FEE2E2;color:#DC2626'}">
+          ${statusLabel === 'Valid' ? 'Valid until ' + expiryStr : statusLabel}
+        </div>
+      </div>
+      <div class="iss-avatar" style="background:#E8760A;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:800;color:#fff;position:relative">
+        ${docInits}
+        ${docPhoto ? `<img src="${docPhoto}" alt="${rx.doctor||''}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.remove()">` : ''}
       </div>
     </div>
   </div>
@@ -11333,17 +12972,15 @@ function _buildRxRecordHtml(p, rx) {
     ${rx.receivedBy ? `<div class="info-box"><div class="ib-lbl">Received By</div><div class="db-val" style="font-size:14px">${rx.receivedBy}</div></div>` : ''}
   </div>` : ''}
 
-  <!-- SIGNATURES -->
+  <!-- SIGNATURE — the prescribing optometrist's only (name, signature and
+       PRC no. are what make a prescription valid; a patient signature
+       isn't). Empty first column keeps the block on the right. -->
   <div class="sig-grid">
+    <div></div>
     <div>
       <div style="height:32px"></div>
       <div class="sig-line">${rx.doctor||'Examining Doctor'}</div>
       <div class="sig-sub">Optometrist / Examining Doctor${rx.prcLicense ? ' (PRC ' + rx.prcLicense + ')' : ''}</div>
-    </div>
-    <div>
-      <div style="height:32px"></div>
-      <div class="sig-line">${p.name}</div>
-      <div class="sig-sub">Patient Signature &amp; Date</div>
     </div>
   </div>
 
@@ -11386,7 +13023,7 @@ function downloadRxRecordPDF(patientId, rxId, btnEl) {
   // global.css (same architecture as downloadExamRecordPDF()).
   const bodyMatch = built.html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
   if (!bodyMatch) { toast('Could not generate the PDF.', 'error'); return }
-  _downloadLiveContentAsPdf(bodyMatch[1], 'pdf-rx-doc', built.filename, btnEl)
+  _downloadLiveContentAsPdf(bodyMatch[1], 'pdf-rx-doc', built.filename, btnEl, undefined, built.html)
 }
 window.downloadRxRecordPDF = downloadRxRecordPDF
 
@@ -11411,11 +13048,11 @@ function viewPrescriptionDetail(patientId, rxId) {
   const expiryDate = rx.expiryDate ? new Date(rx.expiryDate.includes('T') ? rx.expiryDate : rx.expiryDate+'T00:00:00')
                      : (() => { const d = new Date(rxDate); d.setFullYear(d.getFullYear()+1); return d })()
   const expiryStr = expiryDate.toLocaleDateString('en-PH', {year:'numeric',month:'long',day:'numeric'})
-  const statusLabel = rx.status === 'superseded' ? 'Superseded' : (rx.status === 'expired' || expiryDate < new Date() ? 'Expired' : 'Valid')
-  const statusColor = statusLabel === 'Valid' ? { bg:'#ECFDF5', fg:'#059669' } : (statusLabel === 'Superseded' ? { bg:'#F3F4F6', fg:'#6B7280' } : { bg:'#FEE2E2', fg:'#DC2626' })
-  const docRecord = doctors.find(d => d.name === rx.doctor)
-  const docPhoto  = docRecord?.photoUrl || null
-  const docInits  = (rx.doctor||'Dr').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
+  const statusLabel = (rx.status === 'expired' || expiryDate < new Date()) ? 'Expired' : 'Valid'
+  const statusColor = statusLabel === 'Valid' ? { bg:'#ECFDF5', fg:'#059669' } : { bg:'#FEE2E2', fg:'#DC2626' }
+  const docRecord = window.findDoctorByName(rx.doctor, rx.doctorId)
+  const docPhoto  = docRecord?.photoUrl ? new URL(docRecord.photoUrl, document.baseURI).href : null
+  const docInits  = (rx.doctor||'Dr').replace(/^Dr\.?\s+/i, '').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()
 
   const eyeField = (label, val, isLast) => `
     <div style="padding:11px 8px;${isLast ? '' : 'border-right:1px solid #F3F4F6;'}text-align:center;flex:1;min-width:0">
@@ -11448,7 +13085,7 @@ function viewPrescriptionDetail(patientId, rxId) {
         <div class="rx-pd-block" style="display:flex;align-items:flex-start;gap:14px;padding:14px 16px;background:#F9FAFB;border:1px solid #F3F4F6;border-radius:10px">
           <div class="rx-patient-row" style="display:flex;align-items:center;gap:14px;flex:1;min-width:0">
             ${p.photoUrl
-              ? `<div class="rx-pat-avatar" style="width:46px;height:46px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${p.photoUrl}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="var w=this.parentElement;if(w){w.style.cssText='width:46px;height:46px;border-radius:50%;background:#E8760A;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:#fff;flex-shrink:0';w.className='rx-pat-avatar';w.textContent='${(p.name||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase().replace(/'/g,"\\'")}'}"></div>`
+              ? `<div class="rx-pat-avatar" style="width:46px;height:46px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${patPhoto}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="var w=this.parentElement;if(w){w.style.cssText='width:46px;height:46px;border-radius:50%;background:#E8760A;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:#fff;flex-shrink:0';w.className='rx-pat-avatar';w.textContent='${(p.name||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase().replace(/'/g,"\\'")}'}"></div>`
               : `<div class="rx-pat-avatar" style="width:46px;height:46px;border-radius:50%;background:#E8760A;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;color:#fff;flex-shrink:0">${(p.name||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()}</div>`
             }
             <div style="flex:1;min-width:0">
@@ -11473,10 +13110,10 @@ function viewPrescriptionDetail(patientId, rxId) {
               </span>
               </div>
             </div>
-            ${docPhoto
-              ? `<div class="rx-doc-avatar" style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${docPhoto}" alt="${rx.doctor}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block"></div>`
-              : `<div class="rx-doc-avatar" style="width:36px;height:36px;border-radius:50%;background:#1C1C1C;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;color:#E8760A;flex-shrink:0;letter-spacing:.02em">${docInits}</div>`
-            }
+            <div class="rx-doc-avatar" style="width:36px;height:36px;border-radius:50%;background:#E8760A;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;color:#fff;flex-shrink:0;position:relative;overflow:hidden">
+              ${docInits}
+              ${docPhoto ? `<img src="${docPhoto}" alt="${rx.doctor}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.remove()">` : ''}
+            </div>
           </div>
         </div>
 
@@ -11660,7 +13297,7 @@ function updateAdminDashboard() {
 
   // ── Update stat cards ─────────────────────────────────────────
   const el = id => document.getElementById(id)
-  if (el('admin-stat-patients'))  { el('admin-stat-patients').textContent  = patients.length; const pdelta = el('admin-stat-patients').closest('.stat-info')?.querySelector('.stat-delta'); if (pdelta) pdelta.textContent = patients.filter(p=>p.status==='active').length + ' active' }
+  if (el('admin-stat-patients'))  { el('admin-stat-patients').textContent  = patients.length; const pdelta = el('admin-stat-patients').closest('.stat-info')?.querySelector('.stat-delta'); if (pdelta) pdelta.textContent = patients.filter(p => (p.registeredDate || '').slice(0, 7) === localDateStr().slice(0, 7)).length + ' registered this month' }
   if (el('admin-stat-appts'))     { el('admin-stat-appts').textContent     = appointments.length; const d = el('admin-stat-appts').closest('.stat-info')?.querySelector('.stat-delta'); if (d) d.textContent = pendingCnt + ' pending' }
   if (el('admin-stat-doctors'))     el('admin-stat-doctors').textContent   = availDocs + '/' + totalDocs
   if (el('admin-stat-today'))       el('admin-stat-today').textContent     = todayCnt
@@ -11801,11 +13438,22 @@ function buildCalCells(year, month, docDays, docId) {
     if (blockedReason) cls = (isToday ? 'today date-blocked' : 'date-blocked')
     else if (isHoliday) cls = (isToday ? 'today cal-holiday' : 'cal-holiday')
     if (isSel) cls += ' cal-selected'
+    // Past days on the Doctor Schedule page can't be blocked/unblocked
+    // (see `clickable` below) — muted + disabled look so they don't read
+    // as clickable green working days.
+    if (docId && isPast) cls += ' cal-past'
     const tip = !isHoliday && dayAppts.length
       ? `onmouseenter="window.showCalTip(this,'${JSON.stringify(dayAppts.map(a=>({time:a.time,patientName:a.patientName,status:a.status}))).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}')" onmouseleave="window.hideCalTip()"`
       : ''
-    const titleAttr = blockedReason ? `title="Blocked: ${blockedReason.replace(/"/g,'&quot;')}"` :
-                      isHoliday ? `title="PH Holiday: ${holidayName.replace(/"/g,'&quot;')}"` : ''
+    // Tooltip says why a day is (or isn't) interactive on the Doctor
+    // Schedule page; unchanged elsewhere.
+    const dayFullName = ['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'][dow]
+    const titleText = blockedReason   ? `Blocked: ${blockedReason}${docId && isPast ? ' (past date)' : ''}`
+                    : isHoliday       ? `PH Holiday: ${holidayName}`
+                    : docId && isPast ? 'Past date. Can\'t be blocked.'
+                    : docId && !avail ? `Not a working day for this doctor (no ${dayFullName}).`
+                    : docId           ? 'Click to block this date.' : ''
+    const titleAttr = titleText ? `title="${titleText.replace(/"/g,'&quot;')}"` : ''
     const inner = isHoliday ? `${d}<span class="cal-holiday-lbl">${holidayName}</span>` : String(d)
     // Click-to-select is scoped to the admin/staff Doctor Schedule page
     // (docId present) — a day the doctor is normally available on (so
@@ -11962,16 +13610,17 @@ function docSchedClickDay(dateStr, availStr, dayAbb, cellEl) {
     return
   }
 
+  // This doctor's real hours for this date: the clinic's session(s) (morning
+  // / afternoon around lunch), narrowed to that weekday's own hours.
+  const sessions = doctorSessionsForDate(doc, dateStr)
   const hoursBlock = `
     <div style="padding:14px 20px;border-bottom:1px solid #F3F4F6">
       <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:#9CA3AF;font-weight:700;margin-bottom:8px">Consultation Hours</div>
       <div style="display:flex;flex-direction:column;gap:5px">
+        ${sessions.length ? sessions.map(([s, e]) => `
         <div style="display:flex;align-items:center;gap:7px;font-size:.82rem;color:#374151">
-          ${icon('clock','icon-sm')} 8:00 AM – 12:00 PM
-        </div>
-        <div style="display:flex;align-items:center;gap:7px;font-size:.82rem;color:#374151">
-          ${icon('clock','icon-sm')} 1:00 PM – 5:00 PM
-        </div>
+          ${icon('clock','icon-sm')} ${s} – ${e}
+        </div>`).join('') : `<div style="font-size:.82rem;color:#9CA3AF">No hours within clinic hours this day.</div>`}
       </div>
     </div>`
 
@@ -12116,6 +13765,31 @@ function schedCalCloseBanner(docId) {
 }
 window.schedCalCloseBanner = schedCalCloseBanner
 
+// A date can't be blocked while it still has pending/approved appointments.
+// Shows which ones: inside the Block Date modal (above its list) when
+// $anchorId is given, otherwise in its own modal over the schedule page.
+function _showBlockDateConflicts(conflicts, anchorId = '') {
+  const n = conflicts.length
+  const intro = `<strong>This date has ${n} pending or approved appointment${n === 1 ? '' : 's'}.</strong> Reschedule or cancel ${n === 1 ? 'it' : 'them'} first, then block the date.`
+  toast(`This date has ${n} appointment${n === 1 ? '' : 's'} to move first.`, 'error')
+  const anchor = anchorId && document.getElementById(anchorId)
+  if (anchor) {
+    document.getElementById('block-date-conflicts')?.remove()
+    anchor.insertAdjacentHTML('beforebegin', `<div id="block-date-conflicts">${affectedApptsHtml(conflicts, intro)}</div>`)
+    return
+  }
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Can't Block This Date Yet</div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">${affectedApptsHtml(conflicts, intro)}</div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="window.closeModal()">OK</button>
+    </div>`)
+}
+window._showBlockDateConflicts = _showBlockDateConflicts
+
 async function schedCalBlockDate(docId, dateStr) {
   const reasonEl = document.getElementById('sched-cal-reason-' + docId)
   const reason   = reasonEl?.value?.trim() || ''
@@ -12123,9 +13797,9 @@ async function schedCalBlockDate(docId, dateStr) {
 
   // Same snappy client-side pre-check as doBlockDate() — the real,
   // unbypassable enforcement happens server-side in block-date.php.
-  const conflicting = appointments.filter(a => a.doctorId === docId && a.date === dateStr && a.status === 'approved')
+  const conflicting = appointments.filter(a => a.doctorId === docId && a.date === dateStr && (a.status === 'approved' || a.status === 'pending'))
   if (conflicting.length) {
-    toast(`This date already has ${conflicting.length} approved appointment${conflicting.length === 1 ? '' : 's'}. Cancel or reschedule ${conflicting.length === 1 ? 'it' : 'them'} before blocking this date.`, 'error')
+    _showBlockDateConflicts(conflicting.map(a => ({ id: a.id, patientName: a.patientName, date: a.date, time: a.time, status: a.status, why: 'Booked on this date' })))
     return
   }
 
@@ -12140,7 +13814,11 @@ async function schedCalBlockDate(docId, dateStr) {
       body:    JSON.stringify({ doctorId: docId, date: dateStr, reason, blockedBy: state.user?.name || '' }),
     })
     const d = await r.json()
-    if (!d.success) { toast(d.message || 'Could not block date.', 'error'); _btnIdle(btn); return }
+    if (!d.success) {
+      if (d.conflicts) _showBlockDateConflicts(d.conflicts)
+      else toast(d.message || 'Could not block date.', 'error')
+      _btnIdle(btn); return
+    }
 
     if (doc) {
       doc.blockedDates = doc.blockedDates || []
@@ -12275,9 +13953,9 @@ async function doBlockDate(doctorId, doctorName) {
   // Client-side pre-check purely for snappy UI (no round trip needed for
   // the common case) — the real, unbypassable enforcement happens server-
   // side in block-date.php against the database.
-  const conflicting = appointments.filter(a => a.doctorId === doctorId && a.date === date && a.status === 'approved')
+  const conflicting = appointments.filter(a => a.doctorId === doctorId && a.date === date && (a.status === 'approved' || a.status === 'pending'))
   if (conflicting.length) {
-    toast(`This date already has ${conflicting.length} approved appointment${conflicting.length === 1 ? '' : 's'}. Cancel or reschedule ${conflicting.length === 1 ? 'it' : 'them'} before blocking this date.`, 'error')
+    _showBlockDateConflicts(conflicting.map(a => ({ id: a.id, patientName: a.patientName, date: a.date, time: a.time, status: a.status, why: 'Booked on this date' })), 'block-date-list')
     return
   }
 
@@ -12291,7 +13969,11 @@ async function doBlockDate(doctorId, doctorName) {
       body:    JSON.stringify({ doctorId, date, reason, blockedBy: state.user?.name || '' }),
     })
     const d = await r.json()
-    if (!d.success) { toast(d.message || 'Could not block date.', 'error'); return }
+    if (!d.success) {
+      if (d.conflicts) _showBlockDateConflicts(d.conflicts, 'block-date-list')
+      else toast(d.message || 'Could not block date.', 'error')
+      return
+    }
 
     addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
       action: `Blocked ${date} for ${doctorName}${reason ? ': ' + reason : ''}`,
@@ -12558,7 +14240,7 @@ async function removeProfilePhoto(btn, avatarId, name) {
     // Re-renders the current page (rebuilding the avatar editor fresh, so
     // this remove button itself disappears) and the sidebar, so every
     // on-screen copy of the photo reverts to initials together.
-    window.navigate(state.page, { ...state.params })
+    renderPage()
     if (window.renderSidebar) window.renderSidebar()
   } catch (_) {
     toast('Network error — could not remove photo.', 'error')
@@ -12871,7 +14553,7 @@ function _uploadPhotoBlob(blob, avatarId) {
       // cache-busting query string (upload_photo.php appends one) rather
       // than staying on the local blob preview URL, which was never a
       // real, reloadable image location.
-      window.navigate(state.page, { ...state.params })
+      renderPage()
     })
     .catch(() => { URL.revokeObjectURL(previewUrl); toast('Upload failed. Please try again.', 'error') })
 }
@@ -13230,7 +14912,7 @@ function loadServicesAdmin() {
       <div style="font-size:.8rem;font-weight:700;color:#1C1C1C;line-height:1.3">${s.name}</div>
       <div style="display:flex;gap:4px;flex-wrap:wrap">
         <span style="font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:20px;${s.bookable ? 'background:#ECFDF5;color:#059669' : 'background:#F3F4F6;color:#6B7280'}">${s.bookable ? 'Bookable' : 'Display Only'}</span>
-        ${s.bookable && !s.patientVisible ? `<span style="font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:20px;background:#FFF7ED;color:#C2410C">Staff Only</span>` : ''}
+        ${s.bookable && !s.patientVisible ? `<span style="font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:20px;background:#FFF7ED;color:#C2410C">Staff/Admin Only</span>` : ''}
       </div>
       <div style="font-size:.7rem;color:#6B7280;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1">${s.description || ''}</div>
       <div class="svc-actions" style="display:flex;gap:4px;margin-top:4px;transition:opacity .15s">
@@ -13259,7 +14941,7 @@ function loadServicesAdmin() {
             onmouseover="this.style.background='#FEF3C7'" onmouseout="this.style.background='none'">Select all</button>
     <button id="svc-sel-delete" onclick="window.svcDeleteSelected()"
             style="font-size:.72rem;gap:5px;display:inline-flex;align-items:center;padding:5px 12px;border-radius:7px;border:none;cursor:pointer;font-family:inherit;font-weight:500;background:#3B82F6;color:#fff;transition:background .15s"
-            onmouseover="this.style.background='#2563EB'" onmouseout="this.style.background='#3B82F6'">
+            onmouseover="this.style.opacity='.88'" onmouseout="this.style.opacity='1'">
       ${icon('archive','icon-sm')} Archive selected
     </button>`
 
@@ -14199,6 +15881,110 @@ function viewActivityLogDetail(id) {
 }
 window.viewActivityLogDetail = viewActivityLogDetail
 
+// Opens on clicking a Patient Visit History report row — same read-only
+// modal layout as viewActivityLogDetail() above. Also the one place the
+// visit's diagnosis is shown, now that the report table has no column for it.
+function viewVisitDetail(apptId) {
+  const a = appointments.find(x => x.id === apptId)
+  if (!a) return
+  const pt = patients.find(p => p.id === a.patientId)
+  const rec = pt ? ((pt.consultations || []).find(c => c.date === a.date && c.diagnosis)
+                 || (pt.examinations || []).find(e => e.date === a.date && e.diagnosis)) : null
+  const lbl = t => `<div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#9CA3AF;margin-bottom:4px">${t}</div>`
+  const val = v => `<div style="font-size:.84rem;color:#1C1C1C">${esc(v || '—')}</div>`
+  const box = (title, text, tone) => `
+      <div>
+        ${lbl(title)}
+        <div style="background:${tone === 'red' ? '#FEF2F2' : '#F9FAFB'};border:1px solid ${tone === 'red' ? '#FECACA' : '#F0F0F2'};border-radius:10px;padding:14px 16px;font-size:.88rem;color:#374151;line-height:1.6;white-space:pre-wrap;word-break:break-word">${esc(text)}</div>
+      </div>`
+  const safeName = String(a.patientName || '').replace(/'/g, "\\'")
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Visit Details</div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;align-items:center;gap:10px">
+        ${avatar(a.patientName || '?', 'patient-avatar', pt?.photoUrl || null)}
+        <div style="min-width:0">
+          <div style="font-size:.92rem;font-weight:700;color:#1C1C1C">${esc(a.patientName || '—')}</div>
+          <div style="font-size:.75rem;color:#6b7280;margin-top:1px">${esc(a.patientId || '')} &nbsp;·&nbsp; ${esc(a.id)}</div>
+        </div>
+        <div style="margin-left:auto">${badge(a.status)}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>${lbl('Date')}${val(fmtDate(a.date))}</div>
+        <div>${lbl('Time')}${val(a.time)}</div>
+        <div>${lbl('Doctor')}${val(a.doctorName || 'Not yet assigned')}</div>
+        <div>${lbl('Booked Via')}${val(a.source === 'walk-in' ? 'Walk-in' : 'Online')}</div>
+        <div style="grid-column:1 / -1">${lbl('Service')}${val(a.type)}</div>
+      </div>
+      ${rec ? box('Diagnosis', rec.diagnosis) : ''}
+      ${a.notes ? box('Patient Notes', a.notes) : ''}
+      ${a.cancellationReason ? box('Cancellation Reason', a.cancellationReason, 'red') : ''}
+      ${a.disapprovalReason ? box('Disapproval Reason', a.disapprovalReason, 'red') : ''}
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Close</button>
+      ${pt ? `<button class="btn-primary" onclick="window.closeModal();window.navigate('patient-view',{patientId:'${a.patientId}',patientName:'${safeName}'})">${icon('user','icon-sm')} View Patient Record</button>` : ''}
+    </div>`)
+}
+window.viewVisitDetail = viewVisitDetail
+
+// Opens on clicking a Diagnosis History report row — the visits behind
+// that row's count (same read-only modal layout as viewVisitDetail()).
+// Each visit opens that patient's record.
+function viewDiagnosisDetail(idx) {
+  const r = (window._rptDiagnosisRows || [])[idx]
+  if (!r) return
+  const patientsCount = new Set(r.visits.map(v => v.pid)).size
+  const lbl = t => `<div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#9CA3AF;margin-bottom:4px">${t}</div>`
+  const visitRow = v => {
+    const safeName = String(v.patient || '').replace(/'/g, "\\'")
+    return `
+      <button type="button" onclick="window.closeModal();window.navigate('patient-view',{patientId:'${v.pid}',patientName:'${safeName}'})"
+              title="Open ${esc(v.patient)}'s record"
+              onmouseover="this.style.background='#FFF7ED'" onmouseout="this.style.background='#fff'"
+              onfocus="this.style.background='#FFF7ED'" onblur="this.style.background='#fff'"
+              style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border:0;border-bottom:1px solid #F0F0F2;background:#fff;
+                     font-family:inherit;text-align:left;cursor:pointer;transition:background .15s ease">
+        ${avatar(v.patient || '?', 'patient-avatar', v.photoUrl)}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.84rem;font-weight:600;color:#1C1C1C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(v.patient)}</div>
+          <div style="font-size:.74rem;color:#6B7280">${esc(v.pid)}${v.doctor ? ' &nbsp;·&nbsp; ' + esc(v.doctor) : ''}</div>
+        </div>
+        <div style="font-size:.78rem;color:#374151;white-space:nowrap">${fmtDate(v.date)}</div>
+        <span style="color:#C4C8CE;display:flex">${icon('chevron-right','icon-sm')}</span>
+      </button>`
+  }
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title">Diagnosis Details</div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+      <div>
+        ${lbl('Diagnosis')}
+        <div style="background:#F9FAFB;border:1px solid #F0F0F2;border-radius:10px;padding:14px 16px;font-size:.92rem;font-weight:600;color:#1C1C1C;line-height:1.5;word-break:break-word">${esc(r.diagnosis)}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+        <div>${lbl('Visits')}<div style="font-size:.84rem;color:#1C1C1C">${r.frequency} (${r.percentage})</div></div>
+        <div>${lbl('Patients')}<div style="font-size:.84rem;color:#1C1C1C">${patientsCount}</div></div>
+        <div>${lbl('Most Recent')}<div style="font-size:.84rem;color:#1C1C1C">${r.lastOccurrence}</div></div>
+      </div>
+      <div>
+        ${lbl('Visits in this report')}
+        <div style="border:1px solid #F0F0F2;border-radius:10px;overflow:hidden;max-height:300px;overflow-y:auto">
+          ${r.visits.map(visitRow).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Close</button>
+    </div>`)
+}
+window.viewDiagnosisDetail = viewDiagnosisDetail
+
 // ════════════════════════════════════════════════════════════════
 //  REPORTS — generateReport + helpers
 // ════════════════════════════════════════════════════════════════
@@ -14276,15 +16062,23 @@ function _buildReportData(key, from, to) {
                    || pt.examinations.find(e => e.date === a.date)
             if (c && c.diagnosis) diagnosis = c.diagnosis
           }
-          return { patient: a.patientName, pid: a.patientId, doctor: a.doctorName,
-                   date: fmtD(a.date), service: a.type, diagnosis, status: a.status }
+          return { apptId: a.id, patient: a.patientName, pid: a.patientId, doctor: a.doctorName,
+                   rawDate: a.date, date: fmtD(a.date), service: a.type, diagnosis, status: a.status }
         })
+      // No Diagnosis column: it's blank for every visit that wasn't
+      // completed (pending/cancelled/no-show…), and the Diagnosis History
+      // report already covers it. It's shown in the row's detail modal.
       return {
         title: 'Patient Visit History Report',
-        headers: ['Patient', 'Patient ID', 'Doctor', 'Date', 'Service', 'Status', 'Diagnosis'],
+        headers: ['Patient', 'Patient ID', 'Doctor', 'Date', 'Service', 'Status'],
         rows,
         render: r => [r.patient, `<span style="font-size:.75rem;color:#6b7280">${r.pid}</span>`,
-                      r.doctor, r.date, r.service, badge(r.status), r.diagnosis]
+                      r.doctor || '—', r.date, r.service, badge(r.status)],
+        rowClick: r => `window.viewVisitDetail('${r.apptId}')`,
+        sortCols: { 0: ['patient', 'text', r => r.patient], 2: ['doctor', 'text', r => r.doctor],
+                    3: ['date', 'date', r => r.rawDate], 4: ['service', 'text', r => r.service],
+                    5: ['status', 'text', r => r.status] },
+        defaultSort: { key: 'date', type: 'date', dir: -1 }
       }
     }
 
@@ -14293,24 +16087,33 @@ function _buildReportData(key, from, to) {
       patients.forEach(pt => {
         ;[...pt.consultations, ...pt.examinations].forEach(rec => {
           if (!inRange(rec.date) || !rec.diagnosis) return
-          if (!diagMap[rec.diagnosis]) diagMap[rec.diagnosis] = { frequency: 0, lastDate: rec.date }
+          if (!diagMap[rec.diagnosis]) diagMap[rec.diagnosis] = { frequency: 0, lastDate: rec.date, visits: [] }
           diagMap[rec.diagnosis].frequency++
           if (rec.date > diagMap[rec.diagnosis].lastDate) diagMap[rec.diagnosis].lastDate = rec.date
+          // The individual visits behind the count, for the row's detail modal.
+          diagMap[rec.diagnosis].visits.push({ patient: pt.name, pid: pt.id, photoUrl: pt.photoUrl || null, date: rec.date, doctor: rec.doctor || '' })
         })
       })
       const total = Object.values(diagMap).reduce((s,v) => s + v.frequency, 0) || 1
       const rows = Object.entries(diagMap)
         .sort((a,b) => b[1].frequency - a[1].frequency)
-        .map(([diag, v]) => ({
-          diagnosis: diag, frequency: v.frequency,
+        .map(([diag, v], i) => ({
+          idx: i, diagnosis: diag, frequency: v.frequency,
           percentage: ((v.frequency / total) * 100).toFixed(1) + '%',
-          lastOccurrence: fmtD(v.lastDate)
+          rawLast: v.lastDate, lastOccurrence: fmtD(v.lastDate),
+          visits: v.visits.sort((a, b) => b.date.localeCompare(a.date))
         }))
+      // Kept for viewDiagnosisDetail() — rows are looked up by index.
+      window._rptDiagnosisRows = rows
       return {
         title: 'Diagnosis History Report',
         headers: ['Diagnosis', 'Frequency', 'Percentage', 'Most Recent'],
         rows,
-        render: r => [r.diagnosis, `<strong>${r.frequency}</strong>`, r.percentage, r.lastOccurrence]
+        render: r => [r.diagnosis, `<strong>${r.frequency}</strong>`, r.percentage, r.lastOccurrence],
+        rowClick: r => `window.viewDiagnosisDetail(${r.idx})`,
+        sortCols: { 0: ['diagnosis', 'text', r => r.diagnosis], 1: ['frequency', 'number', r => r.frequency],
+                    3: ['recent', 'date', r => r.rawLast] },
+        defaultSort: { key: 'frequency', type: 'number', dir: -1 }
       }
     }
 
@@ -14319,7 +16122,7 @@ function _buildReportData(key, from, to) {
       patients.forEach(pt => {
         pt.prescriptions.forEach(rx => {
           if (!inRange(rx.date)) return
-          rows.push({ patient: pt.name, doctor: rx.doctor, date: rx.date,
+          rows.push({ pid: pt.id, rxId: rx.id, patient: pt.name, doctor: rx.doctor, date: rx.date,
                       od: rxEye(rx.od), os: rxEye(rx.os), lensType: rx.lensType })
         })
       })
@@ -14327,10 +16130,15 @@ function _buildReportData(key, from, to) {
       return {
         title: 'Prescription Records Report',
         headers: ['Patient', 'Doctor', 'Date', 'OD (Right Eye)', 'OS (Left Eye)', 'Lens Type'],
-        rows: rows.map(r => ({ ...r, date: fmtD(r.date) })),
+        rows: rows.map(r => ({ ...r, rawDate: r.date, date: fmtD(r.date) })),
         render: r => [r.patient, r.doctor, r.date,
                       `<code style="font-size:.73rem">${r.od}</code>`,
-                      `<code style="font-size:.73rem">${r.os}</code>`, r.lensType]
+                      `<code style="font-size:.73rem">${r.os}</code>`, r.lensType],
+        // Same prescription modal the Patient Profile opens.
+        rowClick: r => `window.viewPrescriptionDetail('${r.pid}','${r.rxId}')`,
+        sortCols: { 0: ['patient', 'text', r => r.patient], 1: ['doctor', 'text', r => r.doctor],
+                    2: ['date', 'date', r => r.rawDate], 5: ['lens', 'text', r => r.lensType] },
+        defaultSort: { key: 'date', type: 'date', dir: -1 }
       }
     }
 
@@ -14338,13 +16146,21 @@ function _buildReportData(key, from, to) {
       const rows = appointments
         .filter(a => inRange(a.date))
         .sort((a,b) => a.date !== b.date ? a.date.localeCompare(b.date) : toMin(a.time) - toMin(b.time))
-        .map(a => ({ patient: a.patientName, doctor: a.doctorName,
-                     date: fmtD(a.date), time: a.time, service: a.type, status: a.status }))
+        .map(a => ({ apptId: a.id, patient: a.patientName, doctor: a.doctorName,
+                     rawDate: a.date, date: fmtD(a.date), time: a.time, service: a.type, status: a.status }))
       return {
         title: 'Daily Appointment Report',
         headers: ['Patient', 'Doctor', 'Date', 'Time', 'Service', 'Status'],
         rows,
-        render: r => [r.patient, r.doctor, r.date, r.time, r.service, badge(r.status)]
+        render: r => [r.patient, r.doctor, r.date, r.time, r.service, badge(r.status)],
+        rowClick: r => `window.viewVisitDetail('${r.apptId}')`,
+        // Time sorts by minutes-of-day (a number) so "9:30 AM" comes before
+        // "10:00 AM" instead of after it alphabetically. Date ties keep the
+        // builder's own day-then-time order (the sort is stable).
+        sortCols: { 0: ['patient', 'text', r => r.patient], 1: ['doctor', 'text', r => r.doctor],
+                    2: ['date', 'date', r => r.rawDate], 3: ['time', 'number', r => toMin(r.time)],
+                    4: ['service', 'text', r => r.service], 5: ['status', 'text', r => r.status] },
+        defaultSort: { key: 'date', type: 'date', dir: 1 }
       }
     }
 
@@ -14352,13 +16168,17 @@ function _buildReportData(key, from, to) {
       const rows = appointments
         .filter(a => a.status === 'completed' && inRange(a.date))
         .sort((a,b) => b.date.localeCompare(a.date))
-        .map(a => ({ patient: a.patientName, doctor: a.doctorName,
-                     date: fmtD(a.date), service: a.type, duration: svcDuration(a.type) }))
+        .map(a => ({ apptId: a.id, patient: a.patientName, doctor: a.doctorName,
+                     rawDate: a.date, date: fmtD(a.date), service: a.type, duration: svcDuration(a.type) }))
       return {
         title: 'Completed Appointment Report',
         headers: ['Patient', 'Doctor', 'Date', 'Service', 'Duration'],
         rows,
-        render: r => [r.patient, r.doctor, r.date, r.service, r.duration]
+        render: r => [r.patient, r.doctor, r.date, r.service, r.duration],
+        rowClick: r => `window.viewVisitDetail('${r.apptId}')`,
+        sortCols: { 0: ['patient', 'text', r => r.patient], 1: ['doctor', 'text', r => r.doctor],
+                    2: ['date', 'date', r => r.rawDate], 3: ['service', 'text', r => r.service] },
+        defaultSort: { key: 'date', type: 'date', dir: -1 }
       }
     }
 
@@ -14366,8 +16186,12 @@ function _buildReportData(key, from, to) {
       const rows = appointments
         .filter(a => (a.status === 'cancelled' || a.status === 'disapproved') && inRange(a.date))
         .sort((a,b) => b.date.localeCompare(a.date))
-        .map(a => ({ patient: a.patientName, doctor: a.doctorName,
-                     date: fmtD(a.date), reason: a.notes || '—', status: a.status }))
+        // The actual cancellation/disapproval reason (was showing the
+        // patient's booking notes instead); falls back to those notes only
+        // for old records that have no reason saved.
+        .map(a => ({ apptId: a.id, patient: a.patientName, doctor: a.doctorName,
+                     rawDate: a.date, date: fmtD(a.date),
+                     reason: a.cancellationReason || a.disapprovalReason || a.notes || '—', status: a.status }))
       return {
         title: 'Cancelled / Disapproved Appointment Report',
         headers: ['Patient', 'Doctor', 'Date', 'Reason / Notes', 'Status'],
@@ -14380,9 +16204,15 @@ function _buildReportData(key, from, to) {
         // outright would mean losing the actual reason data, which is the
         // one thing this report is for; constraining it fixes the layout
         // without throwing away information.
+        // Reason is free text typed by patients/staff — escaped.
         render: r => [r.patient, r.doctor, r.date,
-                      `<span style="font-size:.78rem;color:#6b7280;display:inline-block;max-width:220px;overflow-wrap:anywhere">${r.reason}</span>`,
-                      badge(r.status)]
+                      `<span style="font-size:.78rem;color:#6b7280;display:inline-block;max-width:220px;overflow-wrap:anywhere">${esc(r.reason)}</span>`,
+                      badge(r.status)],
+        // Visit Details shows the full, untruncated reason.
+        rowClick: r => `window.viewVisitDetail('${r.apptId}')`,
+        sortCols: { 0: ['patient', 'text', r => r.patient], 1: ['doctor', 'text', r => r.doctor],
+                    2: ['date', 'date', r => r.rawDate], 4: ['status', 'text', r => r.status] },
+        defaultSort: { key: 'date', type: 'date', dir: -1 }
       }
     }
 
@@ -14394,29 +16224,49 @@ function _buildReportData(key, from, to) {
 // ── Chart builders (real data) ────────────────────────────────────
 function _buildReportCharts(key, from, to) {
   const today = new Date()
-  const monthLabels = []
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
-    monthLabels.push(d.toLocaleString('en-US', { month: 'short' }))
+
+  // Charts follow the SAME date range as the report table above
+  // (_buildReportData's inRange) — they used to always show the last 6
+  // months and all-time totals no matter what range was picked.
+  const fromDate = from ? new Date(from) : null
+  const toDate   = to   ? new Date(to + 'T23:59:59') : null
+  function inRange(dateStr) {
+    if (!dateStr || dateStr === '—') return false
+    const d = new Date(dateStr)
+    if (isNaN(d)) return false
+    if (fromDate && d < fromDate) return false
+    if (toDate   && d > toDate)   return false
+    return true
   }
+
+  // Month axis = the months the selected range covers (max 12, the most
+  // recent ones); no range picked → the last 6 months, as before.
+  const axisEnd   = toDate || today
+  const axisStart = fromDate || new Date(today.getFullYear(), today.getMonth() - 5, 1)
+  const axisMonths = []
+  for (let d = new Date(axisStart.getFullYear(), axisStart.getMonth(), 1);
+       d <= axisEnd; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    axisMonths.push(new Date(d))
+  }
+  while (axisMonths.length > 12) axisMonths.shift()
+  if (!axisMonths.length) axisMonths.push(new Date(axisEnd.getFullYear(), axisEnd.getMonth(), 1))
+  const N = axisMonths.length
+  const spansYears = axisMonths[0].getFullYear() !== axisMonths[N - 1].getFullYear()
+  const monthLabels = axisMonths.map(d => d.toLocaleString('en-US', spansYears ? { month: 'short', year: '2-digit' } : { month: 'short' }))
 
   function monthIdx(dateStr) {
     const d = new Date(dateStr)
     if (isNaN(d)) return -1
-    for (let i = 5; i >= 0; i--) {
-      const t = new Date(today.getFullYear(), today.getMonth() - i, 1)
-      if (d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth()) return 5 - i
-    }
-    return -1
+    return axisMonths.findIndex(t => d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth())
   }
 
   const colors = ['#E8891C','#2563eb','#7c3aed','#16a34a','#dc2626','#6b7280','#f59e0b']
 
   switch (key) {
     case 'patient-visit': {
-      const visitsByMonth = Array(6).fill(0)
+      const visitsByMonth = Array(N).fill(0)
       const svcCount = {}
-      appointments.forEach(a => {
+      appointments.filter(a => inRange(a.date)).forEach(a => {
         const idx = monthIdx(a.date)
         if (idx >= 0) visitsByMonth[idx]++
         svcCount[a.type] = (svcCount[a.type] || 0) + 1
@@ -14434,15 +16284,15 @@ function _buildReportCharts(key, from, to) {
     case 'diagnosis-history': {
       const diagCount = {}
       patients.forEach(pt => {
-        ;[...pt.consultations, ...pt.examinations].forEach(rec => {
+        ;[...pt.consultations, ...pt.examinations].filter(rec => inRange(rec.date)).forEach(rec => {
           if (rec.diagnosis) diagCount[rec.diagnosis] = (diagCount[rec.diagnosis] || 0) + 1
         })
       })
       const sorted = Object.entries(diagCount).sort((a,b)=>b[1]-a[1]).slice(0,7)
       const top3 = sorted.slice(0,3).map(([d])=>d)
-      const monthly = top3.map(() => Array(6).fill(0))
+      const monthly = top3.map(() => Array(N).fill(0))
       patients.forEach(pt => {
-        ;[...pt.consultations, ...pt.examinations].forEach(rec => {
+        ;[...pt.consultations, ...pt.examinations].filter(rec => inRange(rec.date)).forEach(rec => {
           const idx = monthIdx(rec.date)
           if (idx < 0 || !rec.diagnosis) return
           const ti = top3.indexOf(rec.diagnosis)
@@ -14463,9 +16313,9 @@ function _buildReportCharts(key, from, to) {
 
     case 'prescription-records': {
       const lensCount = {}
-      const rxByMonth = Array(6).fill(0)
+      const rxByMonth = Array(N).fill(0)
       patients.forEach(pt => {
-        pt.prescriptions.forEach(rx => {
+        pt.prescriptions.filter(rx => inRange(rx.date)).forEach(rx => {
           const primary = (rx.lensType || '').split(',')[0].trim()
           lensCount[primary] = (lensCount[primary] || 0) + 1
           const idx = monthIdx(rx.date)
@@ -14520,7 +16370,7 @@ function _buildReportCharts(key, from, to) {
     }
 
     case 'completed-appts': {
-      const byMonth = Array(6).fill(0)
+      const byMonth = Array(N).fill(0)
       const byDoc = {}
       // "Avg. Duration by Doctor" used to live here, but every appointment
       // now runs on the same clinic-wide interval regardless of type (no
@@ -14528,7 +16378,7 @@ function _buildReportCharts(key, from, to) {
       // that constant repeated, not an informative chart. Appointment
       // count per doctor stays a real, varying metric using the same
       // grouping this already had to compute.
-      appointments.filter(a => a.status === 'completed').forEach(a => {
+      appointments.filter(a => a.status === 'completed' && inRange(a.date)).forEach(a => {
         const idx = monthIdx(a.date)
         if (idx >= 0) byMonth[idx]++
         if (a.doctorName) byDoc[a.doctorName] = (byDoc[a.doctorName] || 0) + 1
@@ -14545,9 +16395,9 @@ function _buildReportCharts(key, from, to) {
     }
 
     case 'cancelled-appts': {
-      const byMonth = Array(6).fill(0)
+      const byMonth = Array(N).fill(0)
       let cancelledCount = 0, disapprovedCount = 0
-      appointments.filter(a => a.status === 'cancelled' || a.status === 'disapproved').forEach(a => {
+      appointments.filter(a => (a.status === 'cancelled' || a.status === 'disapproved') && inRange(a.date)).forEach(a => {
         const idx = monthIdx(a.date)
         if (idx >= 0) byMonth[idx]++
         if (a.status === 'cancelled') cancelledCount++; else disapprovedCount++
@@ -14569,6 +16419,7 @@ function _buildReportCharts(key, from, to) {
 }
 
 function generateReport() {
+  if (state.role !== 'admin') { toast('Reports are available to administrators only.', 'error'); return }
   const key    = document.getElementById('rpt-type')?.value || ''
   const from   = document.getElementById('rpt-from')?.value || ''
   const to     = document.getElementById('rpt-to')?.value   || ''
@@ -14610,38 +16461,48 @@ function generateReport() {
 
     if (hdr) {
       hdr.style.display = 'block'
+      // white-space:nowrap keeps "21 records" on one line inside its pill
+      // (it was wrapping to two lines next to a long report title on mobile).
+      const chipBase = 'display:inline-flex;align-items:center;flex-shrink:0;white-space:nowrap;font-size:.68rem;font-weight:700;line-height:1.4;padding:2px 10px;border-radius:99px;'
       const countChip = count > 0
-        ? `<span style="display:inline-flex;align-items:center;background:#ECFDF5;color:#065F46;font-size:.68rem;font-weight:700;padding:2px 10px;border-radius:99px;border:1px solid rgba(16,185,129,.2)">${count} record${count!==1?'s':''}</span>`
-        : `<span style="display:inline-flex;align-items:center;background:#FEF2F2;color:#991B1B;font-size:.68rem;font-weight:700;padding:2px 10px;border-radius:99px;border:1px solid rgba(239,68,68,.2)">No records</span>`
+        ? `<span class="rpt-hdr-chip" style="${chipBase}background:#ECFDF5;color:#065F46;border:1px solid rgba(16,185,129,.2)">${count} record${count!==1?'s':''}</span>`
+        : `<span class="rpt-hdr-chip" style="${chipBase}background:#FEF2F2;color:#991B1B;border:1px solid rgba(239,68,68,.2)">No records</span>`
+      // Layout classes (rpt-hdr*) carry the mobile rules in global.css: the
+      // two action buttons share a row and the search bar takes the full
+      // width under them, and the "Generated" stamp drops to its own line.
       hdr.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-          <div>
-            <div style="display:flex;align-items:center;gap:9px;margin-bottom:5px">
-              <span style="font-size:.95rem;font-weight:700;color:#1f2937">${def.title}</span>
+        <div class="rpt-hdr">
+          <div class="rpt-hdr-info">
+            <div class="rpt-hdr-title">
+              <span style="font-size:.95rem;font-weight:700;color:#1f2937;line-height:1.35">${def.title}</span>
               ${countChip}
             </div>
-            <div style="font-size:.75rem;color:#9ca3af">
-              ${fromFmt} \u2013 ${toFmt}
-              <span style="margin:0 6px;color:#e5e7eb">\u00b7</span>
-              Generated: ${now}
+            <div class="rpt-hdr-meta">
+              <span>${fromFmt} \u2013 ${toFmt}</span>
+              <span class="rpt-hdr-dot">\u00b7</span>
+              <span>Generated: ${now}</span>
             </div>
           </div>
-          <div style="display:flex;gap:8px;align-items:center" class="rpt-no-print">
-            <button class="btn-secondary" onclick="window.exportReportXlsx()"
-                    style="font-size:.78rem;padding:7px 14px;display:flex;align-items:center;gap:6px">
+          <div class="rpt-hdr-actions rpt-no-print">
+            <button class="btn-secondary" onclick="window.exportReportXlsx()">
               ${icon('download','icon-sm')} Export to Excel
             </button>
-            <button class="btn-secondary" id="rpt-download-btn" onclick="window.downloadReportPDF()"
-                    style="font-size:.78rem;padding:7px 14px;display:flex;align-items:center;gap:6px">
+            <button class="btn-secondary" id="rpt-download-btn" onclick="window.downloadReportPDF()">
               ${icon('file-text','icon-sm')} Download PDF
             </button>
-            <div class="search-input-wrap">${icon('search','icon-sm')}<input class="search-input" placeholder="Search\u2026" oninput="window.filterTable(this,'rpt-tbody')"></div>
+            <div class="search-input-wrap rpt-hdr-search">${icon('search','icon-sm')}<input class="search-input" placeholder="Search\u2026" aria-label="Search this report" oninput="window.filterTable(this,'rpt-tbody')"></div>
           </div>
         </div>`
     }
 
     // Render table
-    area.innerHTML = reportTable(def.headers, def.rows.map(def.render))
+    // Sortable columns (def.sortCols: { colIndex: [key, type, rawValueFn] })
+    // → the raw value goes on each row as data-sort-<key> so dates/numbers
+    // sort by their real value, not their display text.
+    const sortCols = def.sortCols || {}
+    const rowSortAttrs = def.rows.map(r => Object.values(sortCols)
+      .map(([k, , fn]) => ` data-sort-${k}="${String(fn(r) ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`).join(''))
+    area.innerHTML = reportTable(def.headers, def.rows.map(def.render), def.rowClick ? def.rows.map(def.rowClick) : null, sortCols, rowSortAttrs)
     // This table is injected directly on click, not through router.js's
     // render() — the only place wrapTableScroll() otherwise runs — so
     // without calling it here too, this specific table never gets wrapped
@@ -14649,12 +16510,27 @@ function generateReport() {
     // (including its gray tray background) every other table gets for free.
     if (window.wrapTableScroll) window.wrapTableScroll()
     if (window.initPagination) window.initPagination('rpt-tbody', 10)
+    // Header arrows on desktop + the Sort-by bar on mobile (sortable.js).
+    // context = report type, so switching reports resets to that report's
+    // own default order, while regenerating the same report keeps the
+    // user's chosen sort.
+    if (count > 0 && def.defaultSort && window.initSortable) {
+      window.initSortable('rpt-tbody', Object.assign({}, def.defaultSort, { context: key }))
+    }
 
-    // Render trends
+    // Render trends — only when the report actually has records. With no
+    // rows there's nothing to summarize, and the charts (now filtered to
+    // the same range) would just be empty.
     if (trends) {
-      trends.style.opacity = '1'
-      trends.style.display = 'block'
-      renderReportCharts(key, from, to)
+      if (count > 0) {
+        trends.style.opacity = '1'
+        trends.style.display = 'block'
+        renderReportCharts(key, from, to)
+      } else {
+        trends.style.display = 'none'
+        if (_rptChartLeft)  { _rptChartLeft.destroy();  _rptChartLeft  = null }
+        if (_rptChartRight) { _rptChartRight.destroy(); _rptChartRight = null }
+      }
     }
 
     // Smooth scroll to results
@@ -14760,6 +16636,10 @@ function renderReportCharts(key, from, to) {
       lWrap.style.height = 'auto'
       lWrap.innerHTML = chartEmpty
     } else {
+      // Restore the fixed chart height — the empty-state branch above sets
+      // it to auto, and without this a later report with data drew the
+      // doughnut oversized and the bar chart squashed to canvas default.
+      lWrap.style.height = '260px'
       lWrap.innerHTML = '<canvas id="rpt-chart-left"></canvas>'
       const lCanvas = document.getElementById('rpt-chart-left')
       const isDoughnut = cfg.left.type === 'doughnut' || cfg.left.type === 'pie'
@@ -14792,6 +16672,7 @@ function renderReportCharts(key, from, to) {
       rWrap.style.height = 'auto'
       rWrap.innerHTML = chartEmpty
     } else {
+      rWrap.style.height = '260px'
       rWrap.innerHTML = '<canvas id="rpt-chart-right"></canvas>'
       const rCanvas = document.getElementById('rpt-chart-right')
       const isDoughnut = cfg.right.type === 'doughnut' || cfg.right.type === 'pie'
@@ -14824,7 +16705,11 @@ function renderReportCharts(key, from, to) {
 }
 window.renderReportCharts = renderReportCharts
 
-function reportTable(headers, rows) {
+// rowClicks (optional): one onclick handler string per row — same clickable-
+// row pattern as the Activity Log (pageActivityLog(), pages.js).
+// sortCols / rowSortAttrs (optional): which header indexes are sortable
+// ({ index: [key, type] }) and each row's data-sort-* attributes.
+function reportTable(headers, rows, rowClicks = null, sortCols = {}, rowSortAttrs = []) {
   if (!rows.length) return `
     <div style="text-align:center;padding:48px 24px 40px;color:#9CA3AF">
       <div style="font-size:.8rem;color:#9ca3af;max-width:300px;margin:0 auto;line-height:1.65">
@@ -14834,9 +16719,11 @@ function reportTable(headers, rows) {
   return `
     <div class="table-wrap">
       <table class="tbl">
-        <thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+        <thead><tr>${headers.map((h, i) => sortCols[i]
+          ? `<th data-sort-key="${sortCols[i][0]}" data-sort-type="${sortCols[i][1]}">${h}</th>`
+          : `<th>${h}</th>`).join('')}</tr></thead>
         <tbody id="rpt-tbody">
-          ${rows.map(r=>`<tr data-search="${r.map(c=>String(c).replace(/<[^>]+>/g,'')).join(' ').toLowerCase()}">
+          ${rows.map((r, ri)=>`<tr data-search="${r.map(c=>String(c).replace(/<[^>]+>/g,'')).join(' ').toLowerCase()}"${rowSortAttrs[ri] || ''}${rowClicks ? ` style="cursor:pointer" title="Click to view full details" onclick="${rowClicks[ri]}"` : ''}>
             ${r.map((cell,i)=>`<td data-label="${headers[i]||''}" style="font-size:.82rem">${cell}</td>`).join('')}
           </tr>`).join('')}
         </tbody>

@@ -118,7 +118,7 @@ try {
     // (non-generated) password and this is its only in-app record of it.
     try {
         $fullName = ($role === 'Doctor' ? 'Dr. ' : '') . "$first $last";
-        sendEmail(
+        sendEmailLater(
             $email, $fullName,
             'Welcome to Cana Optical Clinic',
             welcomeEmailBody($fullName, strtolower($role), $email, $pass),

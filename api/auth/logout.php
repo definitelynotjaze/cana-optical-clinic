@@ -32,15 +32,29 @@ if (!$userId || !$sid) {
 } else {
     try {
         $pdo = getDB();
-        $cur = $pdo->prepare('SELECT user_agent, ip_address FROM sessions WHERE id = ? LIMIT 1');
+        $cur = $pdo->prepare('SELECT user_agent, ip_address, device_token FROM sessions WHERE id = ? LIMIT 1');
         $cur->execute([$sid]);
         $row = $cur->fetch();
         if (!$row) {
             error_log("[logout] cascade found no sessions row for sid={$shortSid} userId={$userId} — nothing to base the cascade on (own row was never written, or already gone)");
+        } elseif (!empty($row['device_token'])) {
+            // Note the logout on the device's record — the device itself stays
+            // trusted, so its next login needs only email + password.
+            $pdo->prepare('UPDATE known_devices SET last_logout_at = NOW(), last_seen_at = NOW() WHERE users_id = ? AND device_token = ?')
+                ->execute([$userId, $row['device_token']]);
+            // Only THIS device's own sessions (same device cookie). Matching by
+            // browser + IP used to also sign out a different device that just
+            // happened to run the same browser on the same Wi-Fi.
+            $del = $pdo->prepare('UPDATE sessions SET data = \'\', signed_out_at = NOW() WHERE signed_out_at IS NULL AND user_id = ? AND device_token = ?');
+            $del->execute([$userId, $row['device_token']]);
+            error_log("[logout] cascade deleted {$del->rowCount()} row(s) for userId={$userId} (this device only)");
         } elseif (!$row['user_agent'] || !$row['ip_address']) {
             error_log("[logout] cascade skipped — sid={$shortSid} userId={$userId} row has a blank user_agent or ip_address");
         } else {
-            $del = $pdo->prepare('DELETE FROM sessions WHERE user_id = ? AND user_agent = ? AND ip_address = ?');
+            // Older session without a device cookie: only sessions that ALSO
+            // have no device cookie (pre-upgrade leftovers), so a cookie-
+            // identified device on the same browser + IP is never touched.
+            $del = $pdo->prepare('UPDATE sessions SET data = \'\', signed_out_at = NOW() WHERE signed_out_at IS NULL AND user_id = ? AND user_agent = ? AND ip_address = ? AND device_token IS NULL');
             $del->execute([$userId, $row['user_agent'], $row['ip_address']]);
             error_log("[logout] cascade deleted {$del->rowCount()} row(s) for userId={$userId}, ip={$row['ip_address']}");
         }

@@ -3,7 +3,7 @@
 # reject video uploads whose actual codec Safari/iOS can't play (e.g. VP9
 # muxed into an .mp4 container, which passes a naive MIME-type check but
 # silently fails to play on Apple devices — see clinic-video.mp4 incident).
-nixPkgs = ["php83", "php83Extensions.pdo", "php83Extensions.pdo_mysql", "php83Extensions.mbstring", "php83Extensions.openssl", "php83Extensions.curl", "php83Packages.composer", "ffmpeg"]
+nixPkgs = ["php83", "php83Extensions.pdo", "php83Extensions.pdo_mysql", "php83Extensions.mbstring", "php83Extensions.openssl", "php83Extensions.curl", "php83Extensions.zip", "php83Packages.composer", "ffmpeg"]
 
 [phases.install]
 cmds = ["composer install --no-dev --optimize-autoloader --no-interaction"]

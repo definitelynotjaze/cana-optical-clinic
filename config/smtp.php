@@ -13,9 +13,14 @@
 //
 //  Brevo (recommended for Railway):  https://app.brevo.com → SMTP & API → SMTP
 //  Gmail App Password (local dev):   https://myaccount.google.com/apppasswords
+//
+//  On hosts without env-var injection (e.g. Hostinger), the same names set
+//  in a root .env file work identically — see config/env.php.
 // ================================================================
 
-define('SMTP_HOST',      getenv('SMTP_HOST')      ?: 'smtp.gmail.com');
+require_once __DIR__ . '/env.php';
+
+define('SMTP_HOST',     getenv('SMTP_HOST')      ?: 'smtp.gmail.com');
 define('SMTP_PORT',      (int)(getenv('SMTP_PORT') ?: 587));
 define('SMTP_USERNAME',  getenv('SMTP_USERNAME')   ?: 'jcjcarlos892@gmail.com');
 define('SMTP_PASSWORD',  getenv('SMTP_PASSWORD')   ?: 'ncpyohmvfhnnskiq');
@@ -28,22 +33,26 @@ define('BREVO_API_KEY',  getenv('BREVO_API_KEY')   ?: '');
 //  is set (Railway), falls back to PHPMailer SMTP (local dev).
 // ================================================================
 
-function sendEmail(string $to, string $toName, string $subject, string $html, string $text): void {
+// $replyTo (optional): where "Reply" in the recipient's mail app goes — e.g.
+// the patient who sent a Contact Us message.
+function sendEmail(string $to, string $toName, string $subject, string $html, string $text, string $replyTo = ''): void {
     if (BREVO_API_KEY) {
-        _brevoSend($to, $toName, $subject, $html, $text);
+        _brevoSend($to, $toName, $subject, $html, $text, $replyTo);
     } else {
-        _smtpSend($to, $toName, $subject, $html, $text);
+        _smtpSend($to, $toName, $subject, $html, $text, $replyTo);
     }
 }
 
-function _brevoSend(string $to, string $toName, string $subject, string $html, string $text): void {
-    $payload = json_encode([
+function _brevoSend(string $to, string $toName, string $subject, string $html, string $text, string $replyTo = ''): void {
+    $data = [
         'sender'      => ['name' => SMTP_FROM_NAME, 'email' => SMTP_FROM],
         'to'          => [['email' => $to, 'name' => $toName ?: $to]],
         'subject'     => $subject,
         'htmlContent' => $html,
         'textContent' => $text,
-    ]);
+    ];
+    if ($replyTo) $data['replyTo'] = ['email' => $replyTo];
+    $payload = json_encode($data);
 
     $ch = curl_init('https://api.brevo.com/v3/smtp/email');
     curl_setopt_array($ch, [
@@ -70,7 +79,7 @@ function _brevoSend(string $to, string $toName, string $subject, string $html, s
     }
 }
 
-function _smtpSend(string $to, string $toName, string $subject, string $html, string $text): void {
+function _smtpSend(string $to, string $toName, string $subject, string $html, string $text, string $replyTo = ''): void {
     require_once __DIR__ . '/../vendor/autoload.php';
     $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
     // PHPMailer defaults CharSet to iso-8859-1 unless told otherwise. Every
@@ -96,11 +105,19 @@ function _smtpSend(string $to, string $toName, string $subject, string $html, st
     ]];
     $mail->setFrom(SMTP_FROM, SMTP_FROM_NAME);
     $toName ? $mail->addAddress($to, $toName) : $mail->addAddress($to);
+    if ($replyTo) $mail->addReplyTo($replyTo);
     $mail->isHTML(true);
     $mail->Subject = $subject;
     $mail->Body    = $html;
     $mail->AltBody = $text;
     $mail->send();
+}
+
+// Kept for the callers that use it (appointment notices, welcome emails,
+// contact alerts) — sends right away through sendEmail(), exactly like the
+// original code did. Their own try/catch blocks handle any failure.
+function sendEmailLater(string $to, string $toName, string $subject, string $html, string $text, string $replyTo = ''): void {
+    sendEmail($to, $toName, $subject, $html, $text, $replyTo);
 }
 
 // ================================================================
@@ -230,29 +247,35 @@ HTML;
 
 // ================================================================
 //  System-notice email — automated, non-welcome notifications (appointment
-//  reminders, auto-cancellations, waitlist updates, etc.) that previously
+//  reminders, cancellations, reschedules, etc.) that previously
 //  only ever reached the in-app inbox via createNotification(). Same
 //  branded shell as welcomeEmailBody()/patientEmailBody(), but without
 //  that one's "sent you a message" framing, since this isn't from a
 //  person — just a title + the notice body.
 // ================================================================
 // $ctaUrl/$ctaLabel add an optional card + button below the message block
-// (e.g. "Add to Google Calendar" on the approval/reminder emails) —
+// (e.g. "View Appointment" / "Confirm Appointment" on the approval/reminder emails) —
 // omitted entirely (no empty gap) when $ctaUrl is blank, which is every
-// other caller of this function today. $ctaDate ('Y-m-d', optional) drives
-// a small torn-calendar-page icon (day number + month) on the card, built
-// from plain table/div markup rather than an image or SVG — those are
-// unreliable across email clients (blocked by default, or unsupported
-// outright in Outlook desktop), while table-based "fake icons" like this
-// render consistently everywhere. Explicit "Google Calendar" wording next
-// to it, rather than assuming the button label alone makes that obvious.
+// other caller of this function today. $ctaDate ('Y-m-d', optional) is the
+// appointment's date — it picks the day shown on the Google Calendar icon.
+// A short line above the button says where it leads (the patient portal),
+// rather than leaving the label alone to explain it.
 // $reasonLabel/$reasonText (optional) put a staff-entered reason (a
 // cancellation or disapproval) in its own visually separate box below the
 // main message instead of run into the same paragraph — mirrors how the
 // in-app Appointment Details modal already shows a Cancellation/
 // Disapproval Reason as its own highlighted block, not just appended
 // text after the sentence.
-function systemEmailBody(string $name, string $title, string $message, string $ctaUrl = '', string $ctaLabel = '', string $ctaDate = '', string $reasonLabel = '', string $reasonText = '', string $reasonTone = 'negative'): string {
+// $calendarUrl (optional, a googleCalendarUrl() link) adds a secondary
+// white "Add to Google Calendar" button under the main one, with Google
+// Calendar's own icon for the appointment's day — Google's hosted PNG
+// (gstatic), so it loads in every inbox for local and live sends alike.
+// Built as a two-cell table (icon | label) so the icon sits vertically
+// centered next to the text in every email client; inline <img> + text
+// alignment is unreliable (Gmail/Outlook shift it to the baseline).
+function systemEmailBody(string $name, string $title, string $message, string $ctaUrl = '', string $ctaLabel = '', string $ctaDate = '', string $reasonLabel = '', string $reasonText = '', string $reasonTone = 'negative', string $calendarUrl = '', string $headerLabel = 'Appointment Notice'): string {
+    // $headerLabel: the small line under the clinic name in the orange header.
+    $safeHeaderLabel = htmlspecialchars($headerLabel, ENT_QUOTES, 'UTF-8');
     $safeTitle   = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
     $safeMessage = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
 
@@ -293,24 +316,45 @@ REASON;
     if ($ctaUrl) {
         $safeCtaUrl   = htmlspecialchars($ctaUrl, ENT_QUOTES, 'UTF-8');
         $safeCtaLabel = htmlspecialchars($ctaLabel ?: 'View Details', ENT_QUOTES, 'UTF-8');
+        // One line above the button saying where it leads — the patient portal
+        $ctaNote = stripos($ctaLabel, 'confirm') !== false
+            ? 'Confirm in one tap, <strong style="color:#1C1C1C;">no sign-in needed</strong>. This button only works for this appointment.'
+            : 'See this appointment in your <strong style="color:#1C1C1C;">Cana Optical Clinic</strong> patient account. You\'ll be asked to sign in first if you aren\'t already.';
 
-        $iconHtml = '';
-        $dts = $ctaDate ? strtotime($ctaDate) : false;
-        if ($dts !== false) {
-            $dayNum  = date('j', $dts);
-            $monAbbr = strtoupper(date('M', $dts));
-            $iconHtml = <<<ICON
-            <table cellpadding="0" cellspacing="0" role="presentation" align="center" style="width:46px;margin:0 auto 14px;">
-              <tr><td style="background:#E8760A;height:10px;border-radius:8px 8px 0 0;font-size:0;line-height:0;">&nbsp;</td></tr>
-              <tr>
-                <td style="background:#ffffff;border:2px solid #E8760A;border-top:none;border-radius:0 0 8px 8px;
-                           text-align:center;padding:5px 0 7px;">
-                  <div style="font-family:'Poppins','Segoe UI',Arial,sans-serif;font-size:18px;font-weight:800;color:#1C1C1C;line-height:1.1;">{$dayNum}</div>
-                  <div style="font-family:'Poppins','Segoe UI',Arial,sans-serif;font-size:9px;font-weight:700;color:#9CA3AF;letter-spacing:.06em;">{$monAbbr}</div>
-                </td>
-              </tr>
-            </table>
-ICON;
+        $dts  = $ctaDate ? strtotime($ctaDate) : false;
+        $font = "font-family:'Poppins','Segoe UI',Arial,sans-serif;";
+
+        // Secondary "Add to Google Calendar" button — same 260px width as the
+        // main button so the two stack as a tidy pair. Icon | label in two
+        // table cells, both vertically centered (see the comment above).
+        $calHtml = '';
+        if ($calendarUrl) {
+            $safeCalUrl = htmlspecialchars($calendarUrl, ENT_QUOTES, 'UTF-8');
+            $calDay     = $dts !== false ? date('j', $dts) : '31';
+            $calIcon    = "https://ssl.gstatic.com/calendar/images/dynamiclogo_2020q4/calendar_{$calDay}_2x.png";
+            $calHtml = <<<CAL
+                  <table cellpadding="0" cellspacing="0" role="presentation" align="center" width="260"
+                         style="width:260px;margin:10px auto 0;border-collapse:separate;">
+                    <tr>
+                      <td align="center" style="background:#ffffff;border:1px solid #DADCE0;border-radius:8px;padding:10px 16px;">
+                        <table cellpadding="0" cellspacing="0" role="presentation" align="center" style="border-collapse:collapse;">
+                          <tr>
+                            <td valign="middle" style="vertical-align:middle;padding:0 10px 0 0;line-height:0;font-size:0;">
+                              <a href="{$safeCalUrl}" target="_blank" style="text-decoration:none;">
+                                <img src="{$calIcon}" width="22" height="22" alt="Google Calendar"
+                                     style="display:block;width:22px;height:22px;border:0;outline:none;">
+                              </a>
+                            </td>
+                            <td valign="middle" style="vertical-align:middle;">
+                              <a href="{$safeCalUrl}" target="_blank"
+                                 style="{$font}font-size:14px;font-weight:600;line-height:22px;color:#3C4043;text-decoration:none;white-space:nowrap;">Add to Google Calendar</a>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+CAL;
         }
 
         $ctaHtml = <<<CTA
@@ -319,19 +363,21 @@ ICON;
             <table cellpadding="0" cellspacing="0" role="presentation" width="100%"
                    style="background:#FAFAFB;border:1px solid #EEF0F2;border-radius:12px;">
               <tr>
-                <td style="padding:20px;text-align:center;">
-                  {$iconHtml}
-                  <p style="margin:0 0 14px;font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                            font-size:12.5px;color:#6B7280;line-height:1.5;">
-                    This appointment can be added to <strong style="color:#1C1C1C;">Google Calendar</strong> for extra reminder options.
+                <td style="padding:22px 20px;text-align:center;">
+                  <p style="margin:0 0 16px;{$font}font-size:12.5px;color:#6B7280;line-height:1.5;">
+                    {$ctaNote}
                   </p>
-                  <a href="{$safeCtaUrl}" target="_blank"
-                     style="display:inline-block;background:#E8760A;color:#ffffff;
-                            font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                            font-size:14px;font-weight:700;text-decoration:none;
-                            padding:12px 28px;border-radius:8px;">
-                    {$safeCtaLabel}
-                  </a>
+                  <table cellpadding="0" cellspacing="0" role="presentation" align="center" width="260"
+                         style="width:260px;margin:0 auto;border-collapse:separate;">
+                    <tr>
+                      <td align="center" style="background:#E8760A;border-radius:8px;">
+                        <a href="{$safeCtaUrl}" target="_blank"
+                           style="display:block;padding:12px 16px;{$font}font-size:14px;font-weight:700;line-height:22px;
+                                  color:#ffffff;text-decoration:none;text-align:center;">{$safeCtaLabel}</a>
+                      </td>
+                    </tr>
+                  </table>
+                  {$calHtml}
                 </td>
               </tr>
             </table>
@@ -370,7 +416,7 @@ CTA;
             <div style="font-family:'Poppins','Segoe UI',Arial,sans-serif;
                         font-size:11px;font-weight:500;letter-spacing:2.5px;
                         color:rgba(255,255,255,0.7);text-transform:uppercase;">
-              Appointment Notice
+              {$safeHeaderLabel}
             </div>
           </td>
         </tr>

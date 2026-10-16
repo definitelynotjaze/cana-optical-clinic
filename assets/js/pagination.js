@@ -62,6 +62,25 @@
     if (_pg[tbodyId]) _render(tbodyId)
   }
 
+  // ── Public: snapshot / restore ────────────────────────────────────
+  // Used by renderPage() (router.js) when the SAME page re-renders (after a
+  // modal save, or the background poll): initPagination() starts every
+  // table back on page 1 with the default rows-per-page, so the router
+  // snapshots this state before re-rendering and puts it back afterwards.
+  function pgSnapshot() {
+    var snap = {}
+    Object.keys(_pg).forEach(function (id) { snap[id] = { page: _pg[id].page, rpp: _pg[id].rpp } })
+    return snap
+  }
+  function pgRestore(snap) {
+    Object.keys(snap || {}).forEach(function (id) {
+      if (!_pg[id] || !document.getElementById(id)) return
+      _pg[id].page = snap[id].page
+      _pg[id].rpp  = snap[id].rpp
+      _render(id)   // clamps the page if rows were removed
+    })
+  }
+
   // ── Public: pgReset ───────────────────────────────────────────────
   // Reset to page 1 then re-paginate.
   // Call from search inputs and filter dropdowns.
@@ -208,6 +227,8 @@
   window.initPagination    = initPagination
   window.refreshPagination = refreshPagination
   window.pgReset           = pgReset
+  window.pgSnapshot        = pgSnapshot
+  window.pgRestore         = pgRestore
 
   // Called by page buttons
   window._pgGo = function (tbodyId, page) {

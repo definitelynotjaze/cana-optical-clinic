@@ -1,0 +1,9 @@
+# This folder holds DB/SMTP credentials and is only ever loaded server-side
+# via require_once — nothing here should ever be requested directly.
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

@@ -16,15 +16,59 @@
   var navToggle = document.querySelector('.nav-toggle')
   var navMenu   = document.getElementById('navMenu')
   if (navToggle && navMenu) {
-    navToggle.addEventListener('click', function () {
-      var isOpen = navMenu.classList.toggle('show')
-      navToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
+    // Mobile side drawer (see navbar.css): a header (logo, name, close),
+    // an icon per link, and a dimmed backdrop — all hidden on desktop.
+    var ICONS = {
+      'index.html':    '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+      'services.html': '<circle cx="12" cy="12" r="3"/><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>',
+      'doctors.html':  '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+      'contact.html':  '<path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><polyline points="22,6 12,13 2,6"/>',
+      'app.html':      '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>',
+      'book':          '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'
+    }
+    navMenu.querySelectorAll('.nav-links > li > a.nav-link').forEach(function (a) {
+      var href = a.getAttribute('href') || ''
+      var key = href.indexOf('#book') !== -1 ? 'book' : href.split('#')[0].split('/').pop()
+      if (!ICONS[key] || a.querySelector('.nav-ico')) return
+      a.insertAdjacentHTML('afterbegin', '<span class="nav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + ICONS[key] + '</svg></span>')
     })
-    document.addEventListener('click', function (e) {
-      if (!navToggle.contains(e.target) && !navMenu.contains(e.target)) {
-        navMenu.classList.remove('show')
-        navToggle.setAttribute('aria-expanded', 'false')
-      }
+
+    var logo = document.getElementById('site-logo-img')
+    var head = document.createElement('div')
+    head.className = 'nav-drawer-head'
+    head.innerHTML =
+      '<img src="' + (logo ? logo.getAttribute('src') : base + 'assets/images/logo/clinic-logo.png') + '" alt="" class="nav-drawer-logo">' +
+      '<span class="nav-drawer-name">Cana Optical Clinic</span>' +
+      '<button type="button" class="nav-drawer-close" aria-label="Close menu">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+      '</button>'
+    navMenu.insertBefore(head, navMenu.firstChild)
+
+    var backdrop = document.createElement('div')
+    backdrop.className = 'nav-backdrop'
+    navMenu.parentNode.insertBefore(backdrop, navMenu)
+
+    function setDrawer(open) {
+      navMenu.classList.toggle('show', open)
+      document.body.classList.toggle('nav-drawer-open', open)
+      navToggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+      // Lock the page behind the drawer so it doesn't scroll along
+      document.documentElement.style.overflow = open ? 'hidden' : ''
+      if (open) setTimeout(function () { var c = head.querySelector('.nav-drawer-close'); c && c.focus() }, 50)
+    }
+    navToggle.addEventListener('click', function () { setDrawer(!navMenu.classList.contains('show')) })
+    head.querySelector('.nav-drawer-close').addEventListener('click', function () { setDrawer(false); navToggle.focus() })
+    backdrop.addEventListener('click', function () { setDrawer(false) })
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && navMenu.classList.contains('show')) { setDrawer(false); navToggle.focus() }
+    })
+    // Following a link (incl. same-page anchors) closes the drawer
+    navMenu.addEventListener('click', function (e) {
+      if (e.target.closest('a.nav-link')) setDrawer(false)
+    })
+    // Rotating/resizing up to desktop width shouldn't leave the page locked
+    window.matchMedia('(min-width: 992px)').addEventListener('change', function (mq) {
+      if (mq.matches) setDrawer(false)
     })
   }
 
@@ -70,7 +114,7 @@
       // site root) — needs `base` prepended here or it 404s one level
       // down on /pages/*.html, resolving against the wrong directory.
       var _plUrl = base + _pl
-      document.querySelectorAll('#site-logo-img, .footer-logo-img').forEach(function (img) { img.src = _plUrl })
+      document.querySelectorAll('#site-logo-img, .footer-logo-img, .nav-drawer-logo').forEach(function (img) { img.src = _plUrl })
       document.querySelectorAll('#site-favicon').forEach(function (link) { link.href = _plUrl })
     }
   } catch (e) {}
@@ -210,7 +254,7 @@
 
   function applyClinicBranding(clinic, base) {
     if (clinic.logoUrl) {
-      document.querySelectorAll('#site-logo-img, .footer-logo-img').forEach(function (img) { img.src = base + clinic.logoUrl })
+      document.querySelectorAll('#site-logo-img, .footer-logo-img, .nav-drawer-logo').forEach(function (img) { img.src = base + clinic.logoUrl })
       document.querySelectorAll('#site-favicon').forEach(function (link) { link.href = base + clinic.logoUrl })
     }
 
@@ -352,6 +396,7 @@
 
   // ── Scroll-to-top button ──────────────────────────────────────────
   var scrollBtn = document.createElement('button')
+  scrollBtn.className = 'scroll-top-btn'   // public.css hides it while the menu drawer / photo viewer is open
   scrollBtn.setAttribute('aria-label', 'Back to top')
   scrollBtn.innerHTML =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><polyline points="18 15 12 9 6 15"/></svg>'
@@ -384,7 +429,7 @@
       // stored value has no `../`, so it needs `base` prepended on
       // /pages/*.html or the browser resolves it against the wrong folder.
       var url = base + e.newValue
-      document.querySelectorAll('#site-logo-img, .footer-logo-img').forEach(function (img) { img.src = url })
+      document.querySelectorAll('#site-logo-img, .footer-logo-img, .nav-drawer-logo').forEach(function (img) { img.src = url })
       document.querySelectorAll('#site-favicon').forEach(function (link) { link.href = url })
     }
     if (e.key === '_canaopticalclinic_clinicName' && e.newValue) {

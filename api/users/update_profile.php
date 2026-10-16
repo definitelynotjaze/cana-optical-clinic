@@ -2,8 +2,12 @@
 // ================================================================
 //  CANAOPTICALCLINIC — api/users/update_profile.php
 //
-//  POST { firstName, lastName, phone, email }
+//  POST { firstName, middleName, lastName, phone }
 //  Authenticated admin / staff / doctor only.
+//  Email is NOT changed here any more — it goes through the OTP-verified
+//  flow (api/patients/request-email-change.php + verify-email-change.php,
+//  now open to every role), so a code sent to the new address has to be
+//  entered before users.email changes.
 // ================================================================
 
 require_once '../../config/db.php';
@@ -28,7 +32,6 @@ $fn     = trim($b['firstName']  ?? '');
 $mn     = trim($b['middleName'] ?? '');
 $ln     = trim($b['lastName']   ?? '');
 $phone  = trim($b['phone']      ?? '');
-$email  = trim($b['email']      ?? '');
 
 if (!$fn || !$ln) {
     jsonResponse(['success' => false, 'message' => 'First and last name are required.']);
@@ -45,15 +48,6 @@ try {
     $pdo->prepare(
         "UPDATE `{$table}` SET first_name = ?, middle_name = ?, last_name = ?, contact = ? WHERE user_id = ?"
     )->execute([$fn, $mn ?: null, $ln, $phone, $userId]);
-
-    if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $chk = $pdo->prepare('SELECT id FROM users WHERE email = ? AND id != ? LIMIT 1');
-        $chk->execute([$email, $userId]);
-        if ($chk->fetch()) {
-            jsonResponse(['success' => false, 'message' => 'That email is already in use by another account.']);
-        }
-        $pdo->prepare('UPDATE users SET email = ? WHERE id = ?')->execute([$email, $userId]);
-    }
 
     jsonResponse(['success' => true]);
 

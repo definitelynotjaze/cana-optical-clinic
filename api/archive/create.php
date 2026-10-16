@@ -7,12 +7,10 @@
 //
 //  POST { profileId, role, type, name, reason, archivedBy }
 //   - role: 'Admin' | 'Staff' | 'Doctor' | 'Patient'  (Account/Patient only)
-//   - type: 'Account' | 'Patient' | 'Service' | 'Examination'  (defaults to 'Account')
+//   - type: 'Account' | 'Patient' | 'Service'  (defaults to 'Account';
+//     'Examination' is refused — exam records can't be archived)
 //
-//  Admin only, EXCEPT type 'Examination' — that one is also usable by staff
-//  and by the doctor who created the exam (same authorization as
-//  api/examinations/delete.php's cascade-hard-delete, which this now
-//  precedes: archive first, permanently delete later from Archives).
+//  Admin only.
 // ================================================================
 
 require_once '../../config/db.php';
@@ -33,80 +31,11 @@ $name       = trim($b['name']       ?? '');
 $reason     = trim($b['reason']     ?? '') ?: 'No reason provided';
 $archivedBy = trim($b['archivedBy'] ?? '') ?: 'Admin';
 
-// ── Examinations — admin/staff/doctor(own), archived rather than a role
-// row, so it's handled entirely on its own before the admin-only gate
-// below applies to every other type. ──────────────────────────────────
+// ── Examinations can't be archived: they're permanent medical records
+// (and part of the clinic's record-keeping duty), so the request is refused
+// for every role. ──────────────────────────────────────────────────────
 if ($type === 'Examination') {
-    $sessionRole = $_SESSION['role'] ?? '';
-    if (!in_array($sessionRole, ['admin', 'staff', 'doctor'], true)) {
-        jsonResponse(['success' => false, 'message' => 'Unauthorized.'], 403);
-    }
-    if (!$profileId) {
-        jsonResponse(['success' => false, 'message' => 'profileId is required.']);
-    }
-    try {
-        $pdo = getDB();
-
-        $ex = $pdo->prepare(
-            'SELECT e.*, p.first_name AS pt_first, p.last_name AS pt_last,
-                    d.first_name AS doc_first, d.middle_name AS doc_middle, d.last_name AS doc_last
-             FROM examinations e
-             LEFT JOIN patients p ON p.id = e.patient_id
-             LEFT JOIN doctors  d ON d.id = e.doctor_id
-             WHERE e.id = ? LIMIT 1'
-        );
-        $ex->execute([$profileId]);
-        $exam = $ex->fetch();
-        if (!$exam) {
-            jsonResponse(['success' => false, 'message' => 'Examination not found.']);
-        }
-
-        // A doctor may only archive an exam they themselves created —
-        // admin/staff may archive any doctor's, same rule as the delete flow.
-        if ($sessionRole === 'doctor' && $exam['doctor_id'] !== ($_SESSION['profile_id'] ?? '')) {
-            jsonResponse(['success' => false, 'message' => 'You can only archive examinations you created yourself.'], 403);
-        }
-
-        $doctorName  = $exam['doc_first'] ? trim('Dr. ' . $exam['doc_first'] . _mi($exam['doc_middle'] ?? '') . ' ' . $exam['doc_last']) : '';
-        $patientName = trim(($exam['pt_first'] ?? '') . ' ' . ($exam['pt_last'] ?? ''));
-
-        $snapshot = [
-            'id'             => $exam['id'],
-            'patientId'      => $exam['patient_id'],
-            'doctorId'       => $exam['doctor_id'],
-            'consultationId' => $exam['consultation_id'],
-            'date'           => $exam['date'],
-            'doctor'         => $doctorName,
-            'patientName'    => $patientName,
-            'diagnosis'      => $exam['diagnosis'] ?? '',
-            'status'         => $exam['status'] ?? 'completed',
-        ];
-
-        $pdo->prepare('UPDATE examinations SET archived_at = NOW() WHERE id = ?')->execute([$profileId]);
-        // Cascade to the same visit's consultation/prescription so the whole
-        // visit hides together (Consultations/Prescriptions tabs shouldn't
-        // keep showing an entry that points at an exam no longer visible
-        // anywhere) — mirrors the permanent-delete cascade below.
-        if ($exam['consultation_id']) {
-            $pdo->prepare('UPDATE consultations SET archived_at = NOW() WHERE id = ?')->execute([$exam['consultation_id']]);
-        }
-        $pdo->prepare('UPDATE prescriptions SET archived_at = NOW() WHERE exam_id = ?')->execute([$profileId]);
-
-        $id   = 'AR' . date('YmdHis') . random_int(10, 99);
-        $date = date('M j, Y');
-        $displayName = $name ?: trim($patientName . ($exam['diagnosis'] ? ' — ' . $exam['diagnosis'] : ''));
-        $pdo->prepare(
-            'INSERT INTO archived_records (id, type, name, ref_id, archived_by, reason, data_json, date)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        )->execute([$id, 'Examination', $displayName, $profileId, $archivedBy, $reason, json_encode($snapshot), $date]);
-
-        jsonResponse(['success' => true, 'record' => [
-            'id' => $id, 'type' => 'Examination', 'name' => $displayName, 'refId' => $profileId,
-            'archivedBy' => $archivedBy, 'reason' => $reason, 'date' => $date, 'data' => $snapshot,
-        ]]);
-    } catch (PDOException $e) {
-        jsonResponse(['success' => false, 'message' => 'Database error. Please try again.'], 500);
-    }
+    jsonResponse(['success' => false, 'message' => 'Examination records are permanent medical records and can\'t be archived.'], 403);
 }
 
 if ($_SESSION['role'] !== 'admin') {

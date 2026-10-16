@@ -39,6 +39,9 @@ $contact= trim($b['contact']        ?? '');
 $email  = trim($b['email']          ?? '');
 $addr   = trim($b['address']        ?? '');
 $occ    = trim($b['occupation']     ?? '');
+// Added by clinic staff → walk-in unless they pick transferred/referral.
+$source     = cleanPatientSource($b['source'] ?? 'walk-in');
+$sourceNote = mb_substr(trim($b['sourceNote'] ?? ''), 0, 150);
 $medHx  = trim($b['medicalHistory'] ?? '');
 
 if (!$first || !$last || !$gender || !$dob) {
@@ -112,6 +115,10 @@ try {
         $contact, $addr, $occ, $medHx ?: null,
         $qrData, $today, 'active',
     ]);
+    if (patientSourceColumns($pdo)) {
+        $pdo->prepare('UPDATE patients SET source = ?, source_note = ? WHERE id = ?')
+            ->execute([$source, in_array($source, ['transferred', 'referral'], true) && $sourceNote !== '' ? $sourceNote : null, $pid]);
+    }
 
     // Welcome notification if user account was created
     if ($uid) {
@@ -130,7 +137,7 @@ try {
     if ($uid && $email) {
         try {
             $fullName = "$first $last";
-            sendEmail(
+            sendEmailLater(
                 $email, $fullName,
                 'Welcome to Cana Optical Clinic',
                 welcomeEmailBody($fullName, 'patient', $email, $tempPw),

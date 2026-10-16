@@ -76,122 +76,21 @@ try {
     jsonResponse(['success' => false, 'message' => 'Database error.'], 500);
 }
 
+// Same layout as every other email a patient receives from the clinic
+// (systemEmailBody(), config/smtp.php): the clinic's reply sits in the
+// highlighted box, and their own original message is quoted underneath for
+// context. Only this patient-facing reply uses it — the admin/staff
+// "New Contact Message" alert (contact/create.php) keeps its own layout.
 function replyEmailBody(string $name, string $original, string $reply, string $replierName): string {
-    $safeOriginal = nl2br(htmlspecialchars($original));
-    $safeReply    = nl2br(htmlspecialchars($reply));
-
-    return <<<HTML
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Reply from Cana Optical Clinic</title>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-</head>
-<body style="margin:0;padding:0;background:#f0f1f5;font-family:'Poppins','Segoe UI',Arial,sans-serif;">
-
-  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f0f1f5;padding:48px 16px;">
-    <tr><td align="center">
-
-      <table width="520" cellpadding="0" cellspacing="0" role="presentation"
-             style="background:#ffffff;border-radius:16px;overflow:hidden;
-                    box-shadow:0 4px 24px rgba(0,0,0,0.09),0 1px 4px rgba(0,0,0,0.05);
-                    max-width:520px;width:100%;">
-
-        <!-- Header -->
-        <tr>
-          <td style="background:#E8760A;
-                     padding:32px 40px 28px;text-align:center;">
-            <div style="font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                        font-size:22px;font-weight:800;color:#ffffff;
-                        letter-spacing:1px;line-height:1;margin-bottom:4px;">
-              Cana Optical Clinic
-            </div>
-            <div style="font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                        font-size:11px;font-weight:500;letter-spacing:2.5px;
-                        color:rgba(255,255,255,0.7);text-transform:uppercase;">
-              Cana Optical Clinic
-            </div>
-          </td>
-        </tr>
-
-        <!-- Greeting -->
-        <tr>
-          <td style="padding:40px 40px 0;">
-            <h1 style="font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                       margin:0 0 12px;font-size:20px;font-weight:700;
-                       color:#1C1C1C;letter-spacing:-0.3px;">
-              Message Reply
-            </h1>
-            <p style="font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                      margin:0 0 6px;font-size:14px;color:#1C1C1C;line-height:1.7;">
-              Hi {$name},
-            </p>
-            <p style="font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                      margin:0;font-size:14px;color:#6b7280;line-height:1.7;">
-              {$replierName} from Cana Optical Clinic replied to your message:
-            </p>
-          </td>
-        </tr>
-
-        <!-- Reply block -->
-        <tr>
-          <td style="padding:24px 40px 8px;">
-            <p style="font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                      margin:0 0 10px;font-size:10px;font-weight:700;
-                      letter-spacing:2.5px;text-transform:uppercase;color:#9ca3af;">
-              Their Reply
-            </p>
-            <div style="background:#FFF8F0;border:2px solid #FFD9A8;
-                        border-radius:12px;padding:20px 22px;
-                        font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                        font-size:14px;color:#1C1C1C;line-height:1.7;">
-              {$safeReply}
-            </div>
-          </td>
-        </tr>
-
-        <!-- Original message block -->
-        <tr>
-          <td style="padding:20px 40px 36px;">
-            <p style="font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                      margin:0 0 10px;font-size:10px;font-weight:700;
-                      letter-spacing:2.5px;text-transform:uppercase;color:#9ca3af;">
-              Your Message
-            </p>
-            <div style="border-left:3px solid #FFD9A8;padding:4px 0 4px 16px;
-                        font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                        font-size:13px;color:#6b7280;line-height:1.65;">
-              {$safeOriginal}
-            </div>
-          </td>
-        </tr>
-
-        <!-- Divider -->
-        <tr>
-          <td style="padding:0 40px;">
-            <div style="border-top:1px solid #f0f0f4;"></div>
-          </td>
-        </tr>
-
-        <!-- Footer -->
-        <tr>
-          <td style="background:#f8f8fb;padding:20px 40px;
-                     border-top:1px solid #f0f0f4;text-align:center;">
-            <p style="font-family:'Poppins','Segoe UI',Arial,sans-serif;
-                      margin:0;font-size:11px;color:#b0b7c3;">
-              &copy; Cana Optical Clinic &nbsp;&bull;&nbsp; Do not reply to this email
-            </p>
-          </td>
-        </tr>
-
-      </table>
-
-    </td></tr>
-  </table>
-
-</body>
-</html>
-HTML;
+    $message = "{$replierName} from Cana Optical Clinic replied to your message. You can find their reply below."
+             . "\n\nYour message:\n\u{201C}" . trim($original) . "\u{201D}";
+    return systemEmailBody(
+        $name,
+        'Reply to Your Message',
+        $message,
+        '', '', '',
+        'Our Reply', $reply, 'neutral',
+        '',
+        'Message Reply'
+    );
 }

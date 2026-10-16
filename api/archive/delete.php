@@ -46,31 +46,10 @@ try {
         jsonResponse(['success' => true]);
     }
 
-    // Examinations — same cascade api/examinations/delete.php used to do in
-    // one step (that hard-delete path now only runs via this Archives-page
-    // "Delete Forever" action, after the exam has already been archived).
+    // Examination records are permanent medical records — never deleted.
+    // One archived before this rule can still be restored from Archives.
     if ($rec['type'] === 'Examination') {
-        $ex = $pdo->prepare('SELECT id, consultation_id FROM examinations WHERE id = ? LIMIT 1');
-        $ex->execute([$rec['ref_id']]);
-        $exam = $ex->fetch();
-
-        if ($exam) {
-            $pdo->beginTransaction();
-            // Prescription links back via exam_id.
-            $pdo->prepare('DELETE FROM prescriptions WHERE exam_id = ?')->execute([$rec['ref_id']]);
-            // Consultation links via examinations.consultation_id — delete it
-            // explicitly before the exam row itself (there's no ON DELETE
-            // CASCADE from examinations to consultations, only the reverse FK).
-            if ($exam['consultation_id']) {
-                $pdo->prepare('DELETE FROM consultations WHERE id = ?')->execute([$exam['consultation_id']]);
-            }
-            $pdo->prepare('DELETE FROM examinations WHERE id = ?')->execute([$rec['ref_id']]);
-            $pdo->commit();
-        }
-        // Exam may already be gone (e.g. deleted some other way) — still
-        // clean up the archive entry either way.
-        $pdo->prepare('DELETE FROM archived_records WHERE id = ?')->execute([$id]);
-        jsonResponse(['success' => true]);
+        jsonResponse(['success' => false, 'message' => 'Examination records are permanent medical records and can\'t be deleted. Restore it instead.'], 403);
     }
 
     $data  = $rec['data_json'] ? json_decode($rec['data_json'], true) : [];
@@ -87,7 +66,27 @@ try {
         $pdo->prepare("DELETE FROM `{$table}` WHERE id = ?")->execute([$rec['ref_id']]);
 
         if ($row && $row['user_id']) {
+            // Captured before the users row goes — this is the one thing
+            // that still ties a self-registered account back to its
+            // original pending_registrations row (kept, not deleted, once
+            // verified — see verify-email-otp.php). Without deleting it
+            // here too, "permanently" deleting a patient would leave
+            // their dob/address/contact/password hash sitting untouched
+            // in that second table forever — quietly undercutting what
+            // this endpoint's own name promises, in an app whose
+            // registration form has patients explicitly consent to
+            // RA 10173 data processing. NULL for every non-self-
+            // registered account (Add Patient/Add User never touch
+            // pending_registrations), so this is a no-op for those.
+            $pr = $pdo->prepare('SELECT pending_registration_id FROM users WHERE id = ? LIMIT 1');
+            $pr->execute([$row['user_id']]);
+            $pendingId = $pr->fetchColumn();
+
             $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$row['user_id']]);
+
+            if ($pendingId) {
+                $pdo->prepare('DELETE FROM pending_registrations WHERE id = ?')->execute([$pendingId]);
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=block" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/global.css?v=202609011n">
+  <link rel="stylesheet" href="assets/css/global.css?v=2026101602">
   <style>
     .badge-no-show {
       display: inline-flex !important;
@@ -174,24 +174,32 @@
     <div class="auth-brand-panel">
       <div class="auth-bp-inner">
         <div class="auth-bp-logo-wrap">
-          <a href="index.html"><img src="assets/images/logo/clinic-logo.png" alt="Cana Optical Logo" class="auth-bp-logo"></a>
+          <a href="index.html" aria-label="Back to website"><img src="assets/images/logo/clinic-logo.png" alt="Cana Optical Logo" class="auth-bp-logo"></a>
         </div>
         <div class="auth-bp-text-block">
           <div class="auth-bp-brand-name brand-logo-name">Cana Optical Clinic</div>
+          <p class="auth-bp-desc">Clear vision, <em>compassionate care</em>.<br>Your eye health, all in one place.</p>
+          <div class="auth-bp-divider"></div>
+          <ul class="auth-bp-features">
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>Book appointments online</li>
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg></span>View your exam records &amp; prescriptions</li>
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>Care from licensed optometrists</li>
+          </ul>
         </div>
       </div>
     </div>
 
     <!-- RIGHT: Form panel -->
     <div class="auth-form-panel">
+    <div class="login-form-wrap">
 
       <a href="index.html" class="auth-back-link">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>
-        Back to Website
+        <span class="auth-back-link-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><polyline points="15 18 9 12 15 6"/></svg></span>
+        Back to website
       </a>
 
       <h2 class="login-title">Welcome Back</h2>
-      <p class="login-desc">Sign in to access your account.</p>
+      <p class="login-desc">Sign in to continue to your account.</p>
 
       <form onsubmit="handleLogin(); return false" autocomplete="on">
       <div class="lf-group">
@@ -230,6 +238,7 @@
       </p>
 
     </div>
+    </div>
 
   </div>
 
@@ -251,6 +260,13 @@
         </div>
         <div class="auth-bp-text-block">
           <div class="auth-bp-brand-name brand-logo-name">Cana Optical Clinic</div>
+          <p class="auth-bp-desc">Clear vision, <em>compassionate care</em>.<br>Your eye health, all in one place.</p>
+          <div class="auth-bp-divider"></div>
+          <ul class="auth-bp-features">
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>Book appointments online</li>
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg></span>View your exam records &amp; prescriptions</li>
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>Care from licensed optometrists</li>
+          </ul>
         </div>
       </div>
     </div>
@@ -449,6 +465,13 @@
         </div>
         <div class="auth-bp-text-block">
           <div class="auth-bp-brand-name brand-logo-name">Cana Optical Clinic</div>
+          <p class="auth-bp-desc">Clear vision, <em>compassionate care</em>.<br>Your eye health, all in one place.</p>
+          <div class="auth-bp-divider"></div>
+          <ul class="auth-bp-features">
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>Book appointments online</li>
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg></span>View your exam records &amp; prescriptions</li>
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>Care from licensed optometrists</li>
+          </ul>
         </div>
       </div>
     </div>
@@ -535,7 +558,7 @@
       <h2 class="fp-title" style="color:#DC2626" id="ev-2-title">Invalid OTP Code</h2>
       <p class="fp-desc" style="margin-bottom:24px" id="ev-2-msg">The code you entered is incorrect. Please try again.</p>
       <button class="fp-btn-primary full" id="ev-2-retry" onclick="evShowStep(1); document.querySelector('#ev-otp-row .otp-input')?.focus()">Try Again</button>
-      <button class="fp-btn-primary full" id="ev-2-resend" onclick="evResendCode(); evShowStep(1)" style="display:none;margin-top:10px">Request New Code</button>
+      <button class="fp-btn-primary full" id="ev-2-resend" onclick="evResendCode()" style="display:none;margin-top:10px">Request New Code</button>
       <div style="text-align:center;margin-top:12px">
         <button class="fp-back-link" onclick="showLogin()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>
@@ -551,8 +574,8 @@
           <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
       </div>
-      <h2 class="fp-title success-color">Email Verified!</h2>
-      <p class="fp-desc">Your account is now active. Welcome to Cana Optical Clinic!</p>
+      <h2 class="fp-title success-color" id="ev-3-title">Email Verified!</h2>
+      <p class="fp-desc" id="ev-3-desc">Your account is now active. Welcome to Cana Optical Clinic!</p>
     </div>
 
     </div><!-- end fp-card -->
@@ -574,10 +597,17 @@
     <div class="auth-brand-panel">
       <div class="auth-bp-inner">
         <div class="auth-bp-logo-wrap">
-          <a href="index.html"><img src="assets/images/logo/clinic-logo.png" alt="Cana Optical Logo" class="auth-bp-logo"></a>
+          <a href="index.html" aria-label="Back to website"><img src="assets/images/logo/clinic-logo.png" alt="Cana Optical Logo" class="auth-bp-logo"></a>
         </div>
         <div class="auth-bp-text-block">
           <div class="auth-bp-brand-name brand-logo-name">Cana Optical Clinic</div>
+          <p class="auth-bp-desc">Clear vision, <em>compassionate care</em>.<br>Your eye health, all in one place.</p>
+          <div class="auth-bp-divider"></div>
+          <ul class="auth-bp-features">
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>Book appointments online</li>
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg></span>View your exam records &amp; prescriptions</li>
+            <li class="auth-bp-feature"><span class="auth-bp-feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>Care from licensed optometrists</li>
+          </ul>
         </div>
       </div>
     </div>
@@ -651,7 +681,7 @@
             <!-- Same custom-select markup selectFieldHtml() generates in main.js —
                  hand-written here since this screen is static HTML, not a JS
                  template (same reasoning as reg-dob's custom date picker above). -->
-            <div class="cust-select" id="reg-gender-wrap" data-options='[{"value":"Male","label":"Male"},{"value":"Female","label":"Female"},{"value":"Other","label":"Other"}]' data-placeholder="Select gender">
+            <div class="cust-select" id="reg-gender-wrap" data-options='[{"value":"Male","label":"Male"},{"value":"Female","label":"Female"},{"value":"Prefer not to say","label":"Prefer not to say"}]' data-placeholder="Select gender">
               <input type="hidden" id="reg-gender" value="">
               <button type="button" id="reg-gender-trigger" class="reg-input cust-select-trigger"
                       role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="cust-select-popover-root"
@@ -885,15 +915,14 @@
 </script>
 <script src="assets/js/clinic-data.js"></script>
 <script src="assets/js/analytics-data.js"></script>
-<script src="assets/js/db.js?v=20260806m"></script>
-<script src="assets/js/auth.js?v=202609011q"></script>
+<script src="assets/js/db.js?v=2026101502"></script>
+<script src="assets/js/auth.js?v=2026101505"></script>
 <script src="assets/js/charts.js"></script>
-<script src="assets/js/pagination.js?v=20260806a"></script>
-<script src="assets/js/sortable.js"></script>
-<script src="assets/js/router.js?v=202609011h"></script>
-<script src="assets/js/pages.js?v=202609011zzw"></script>
-<script src="api/badge-fix.php"></script>
-<script src="assets/js/main.js?v=202609011cn"></script>
+<script src="assets/js/pagination.js?v=2026101401"></script>
+<script src="assets/js/sortable.js?v=2026101401"></script>
+<script src="assets/js/router.js?v=2026101602"></script>
+<script src="assets/js/pages.js?v=2026101606"></script>
+<script src="assets/js/main.js?v=2026101604"></script>
 <script>
   // If navigated here with #register, set a flag so restoreSession()
   // opens the register screen instead of login when no session exists
@@ -912,6 +941,16 @@
   if (window.location.hash === '#book') {
     window.history.replaceState(null, '', window.location.pathname);
     window._openBooking = true;
+  }
+
+  // "View Appointment" / "Confirm Appointment" links in the clinic's emails
+  // (#appt=A123) — open that one appointment once the patient is signed in
+  // (straight away, or after they log in from here). _bootAfterAuth()
+  // (auth.js) consumes this once their appointments have loaded.
+  var apptLink = /^#appt=([A-Za-z0-9-]+)$/.exec(window.location.hash);
+  if (apptLink) {
+    window.history.replaceState(null, '', window.location.pathname);
+    window._openApptId = apptLink[1];
   }
 
   // Restore an active PHP session on page load (skips login screen if already authenticated)

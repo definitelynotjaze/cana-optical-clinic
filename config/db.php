@@ -1,6 +1,9 @@
 <?php
 
-// Database configuration from Railway environment variables
+require_once __DIR__ . '/env.php';
+
+// Database configuration from Railway environment variables (or, on hosts
+// without env-var injection like Hostinger, from the root .env file above)
 define('DB_NAME', getenv('MYSQLDATABASE') ?: getenv('MYSQL_DATABASE') ?: 'canaopticalclinic_db');
 define('DB_HOST', getenv('MYSQLHOST') ?: 'localhost');
 define('DB_USER', getenv('MYSQLUSER') ?: 'root');
@@ -35,6 +38,13 @@ function getDB(): PDO {
         // in helpers.php — otherwise timestamps stored by the DB (e.g. on
         // CURRENT_TIMESTAMP defaults) drift from what the app displays.
         $pdo->exec("SET time_zone = '+08:00'");
+
+        // Talk to MySQL in the same collation every table uses. Hosts differ
+        // in their server default (Hostinger: utf8mb4_general_ci, XAMPP:
+        // utf8mb4_unicode_ci); when the connection's default doesn't match
+        // the tables', any statement mixing a bound value with a column
+        // (e.g. COALESCE/NULLIF) fails with "Illegal mix of collations".
+        $pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
     }
 
     return $pdo;

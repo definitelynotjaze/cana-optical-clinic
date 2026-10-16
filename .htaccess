@@ -7,3 +7,16 @@
     Header set Expires "0"
   </FilesMatch>
 </IfModule>
+
+# Block direct web access to secrets/config — matters on Apache hosts
+# (e.g. Hostinger) where, unlike Railway's PHP built-in server, a file
+# like .env would otherwise be served as plain text if requested directly.
+<FilesMatch "(^\.env|\.sql$|composer\.(json|lock)|\.gitignore$)">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>

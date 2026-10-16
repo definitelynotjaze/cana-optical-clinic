@@ -11,20 +11,18 @@
 //
 //  Each run does three independent jobs:
 //   1. Send the day-before reminder at the admin-configured reminder time
-//      (Clinic Settings → Scheduling Rules, default noon) for approved
-//      appointments happening tomorrow that haven't been reminded yet.
-//   2. Auto-cancel approved appointments happening tomorrow that were
-//      reminded but not confirmed by the admin-configured deadline (default
-//      9 PM) that same day, freeing the slot to the next waitlisted patient.
-//   3. Expire stale waitlist offers past their claim window, cascading
-//      the offer to the next patient in line for that slot.
-//   4. Remove still-"waiting" entries whose slot is now too close to ever
-//      realistically be offered, and let the patient know — instead of
-//      leaving them waiting indefinitely for something that's become
-//      impossible.
-//   5. Auto-disapprove appointment requests still stuck at "pending" once
-//      their date has fully passed — staff/admin never acted on them at
+//      (Clinic Settings → Scheduling Rules) for approved appointments
+//      happening tomorrow that haven't been reminded yet.
+//   1b. Send a second reminder at the follow-up time to anyone reminded
+//      earlier that day who still hasn't confirmed. Confirming is
+//      informational only — an unconfirmed appointment is never cancelled.
+//   2. Auto-decline appointment requests still stuck at "pending" once
+//      their appointment time arrives — staff/admin never acted on them at
 //      all, so nothing else in the app was ever going to resolve them.
+//      Declined (kept on record), never deleted.
+//   3. Keep patients.age current (age is also computed from DOB on read).
+//   4. Unsaved exam drafts: remind the doctor + admins once the appointment
+//      date has passed; expire drafts untouched for 30 days.
 // ================================================================
 
 require_once '../../config/db.php';
@@ -40,16 +38,15 @@ if (!$providedKey || !hash_equals($cronSecret, $providedKey)) {
 // in-app inbox via createNotification() — nothing outside the app itself
 // (email, let alone SMS) ever told a patient their appointment needed
 // confirming, so anyone not actively logged in when the cron fired would
-// just find it auto-cancelled later with no warning. _emailPatientNotice()
-// (api/helpers.php) sends the same notice by email too — also used by
-// api/waitlist/leave.php's manual-removal path for the same reason.
-$result = ['success' => true, 'remindersSent' => 0, 'autoCancelled' => 0, 'offersExpired' => 0, 'staleWaitlistRemoved' => 0, 'pendingAutoDisapproved' => 0];
+// just miss it. _emailPatientNotice() (api/helpers.php) sends the same
+// notice by email too.
+$result = ['success' => true, 'remindersSent' => 0, 'followupRemindersSent' => 0, 'pendingAutoDisapproved' => 0];
 
 try {
     $pdo = getDB();
 
     $reminderHourStr = settingTimeTo24h(reminderTimeSetting($pdo));
-    $deadlineHourStr = settingTimeTo24h(confirmDeadlineTimeSetting($pdo));
+    $followupHourStr = settingTimeTo24h(followupReminderTimeSetting($pdo));
 
     // ── Job 1: send day-before reminder ─────────────────────────────
     $dueReminders = $pdo->prepare(
@@ -69,145 +66,61 @@ try {
         $ps->execute([$r['patient_id']]);
         $userId = $ps->fetchColumn();
         if ($userId) {
-            $fmtDate = date('M j, Y', strtotime($r['date']));
-            $noticeMsg = "You have an appointment with {$r['doctor_name']} tomorrow ({$fmtDate}) at {$r['time']}. "
-              . "Please confirm by " . date('g:i A', strtotime($deadlineHourStr)) . " today or it will be automatically cancelled.";
-            createNotification($pdo, (int)$userId, 'reminder', 'Confirm Your Appointment', $noticeMsg, $r['id']);
-            $calUrl = googleCalendarUrl($pdo, $r['date'], $r['time'], $r['doctor_name'], $r['type'] ?? null);
-            _emailPatientNotice($pdo, (int)$userId, 'Confirm Your Appointment', $noticeMsg, $calUrl, 'Add to Google Calendar', $r['date']);
+            [$title, $noticeMsg] = buildReminderNotice($pdo, $r, 1);
+            createNotification($pdo, (int)$userId, 'reminder', $title, $noticeMsg, $r['id']);
+            _emailPatientNotice($pdo, (int)$userId, $title, $noticeMsg, appointmentConfirmUrl($r['id']), 'Confirm Appointment', $r['date']);
         }
     }
     $result['remindersSent'] = count($reminderRows);
 
-    // ── Job 2: auto-cancel unconfirmed appointments past the deadline ──
-    $dueCancel = $pdo->prepare(
-        "SELECT id, patient_id, doctor_id, doctor_name, date, time FROM appointments
+    // ── Job 1b: second reminder for anyone still unconfirmed ─────────
+    // Only for reminders that went out BEFORE today's follow-up time — an
+    // appointment approved later in the day only just got its first
+    // reminder, so a second one straight after it would be noise.
+    $dueFollowups = $pdo->prepare(
+        "SELECT id, patient_id, doctor_name, date, time, type FROM appointments
          WHERE status = 'approved' AND date = CURDATE() + INTERVAL 1 DAY
-           AND reminder_sent_at IS NOT NULL AND confirmed_at IS NULL AND CURTIME() >= ?"
+           AND reminder_sent_at IS NOT NULL AND confirmed_at IS NULL
+           AND followup_reminder_sent_at IS NULL
+           AND reminder_sent_at < TIMESTAMP(CURDATE(), ?)
+           AND CURTIME() >= ?"
     );
-    $dueCancel->execute([$deadlineHourStr]);
-    $cancelRows = $dueCancel->fetchAll();
+    $dueFollowups->execute([$followupHourStr, $followupHourStr]);
+    $followupRows = $dueFollowups->fetchAll();
 
-    $deadlineLabel = date('g:i A', strtotime($deadlineHourStr));
-    foreach ($cancelRows as $r) {
-        $upd = $pdo->prepare(
-            "UPDATE appointments SET status = 'cancelled',
-                cancellation_reason = ?
-             WHERE id = ? AND status = 'approved'"
-        );
-        $upd->execute(["Automatically cancelled. No confirmation received by {$deadlineLabel}.", $r['id']]);
-        if ($upd->rowCount() === 0) continue;
-
-        if ($r['doctor_id']) {
-            offerNextWaitlistSlot($pdo, $r['doctor_id'], $r['date'], $r['time']);
-        }
-        if (!$r['patient_id']) continue;
-        $ps = $pdo->prepare('SELECT user_id FROM patients WHERE id = ? LIMIT 1');
-        $ps->execute([$r['patient_id']]);
-        $userId = $ps->fetchColumn();
-        if ($userId) {
-            $fmtDate = date('M j, Y', strtotime($r['date']));
-            $noticeMsg = "Your appointment with {$r['doctor_name']} on {$fmtDate} at {$r['time']} was automatically cancelled because no confirmation was received.";
-            createNotification($pdo, (int)$userId, 'cancelled', 'Appointment Automatically Cancelled', $noticeMsg);
-            _emailPatientNotice($pdo, (int)$userId, 'Appointment Automatically Cancelled', $noticeMsg);
-        }
-    }
-    $result['autoCancelled'] = count($cancelRows);
-
-    // ── Job 3: expire stale waitlist offers and cascade to next in line ──
-    $dueExpire = $pdo->query(
-        "SELECT id, doctor_id, date, time FROM appointment_waitlist
-         WHERE status = 'offered' AND offer_expires_at <= NOW()"
-    )->fetchAll();
-
-    foreach ($dueExpire as $r) {
-        $upd = $pdo->prepare("UPDATE appointment_waitlist SET status = 'expired' WHERE id = ? AND status = 'offered'");
+    foreach ($followupRows as $r) {
+        $upd = $pdo->prepare('UPDATE appointments SET followup_reminder_sent_at = NOW() WHERE id = ? AND followup_reminder_sent_at IS NULL AND confirmed_at IS NULL');
         $upd->execute([$r['id']]);
-        if ($upd->rowCount() === 0) continue; // already claimed in the meantime
-
-        offerNextWaitlistSlot($pdo, $r['doctor_id'], $r['date'], $r['time']);
-    }
-    $result['offersExpired'] = count($dueExpire);
-
-    // ── Job 4: remove stale "waiting" entries that can no longer ever be
-    //    offered, and notify the patient ─────────────────────────────
-    // A "waiting" entry is only ever fulfilled by some other appointment
-    // for the exact same slot getting cancelled, which then runs through
-    // waitlistHasEnoughLeadTime() before an offer is made — so that same
-    // check is the single source of truth for "is this entry still
-    // fulfillable." Deliberately NOT layering the day-level Minimum Advance
-    // Booking policy on top of it here: that policy governs brand-new,
-    // self-service bookings, not an already-waitlisted patient. The
-    // reminder → 9pm confirm-deadline → auto-cancel cycle for a "tomorrow"
-    // appointment runs entirely within 24 hours of the slot — a day-based
-    // cutoff would expire the waitlisted patient hours before that
-    // auto-cancel even has a chance to run, defeating the exact case the
-    // waitlist exists for.
-    $waitingRows = $pdo->query(
-        "SELECT id, patient_id, doctor_name, date, time FROM appointment_waitlist WHERE status = 'waiting'"
-    )->fetchAll();
-
-    $staleRemoved = 0;
-    foreach ($waitingRows as $w) {
-        if (waitlistHasEnoughLeadTime($pdo, $w['date'], $w['time'])) continue; // still fulfillable — leave it waiting
-
-        $upd = $pdo->prepare("UPDATE appointment_waitlist SET status = 'expired' WHERE id = ? AND status = 'waiting'");
-        $upd->execute([$w['id']]);
-        if ($upd->rowCount() === 0) continue; // changed by another process in the meantime
-
-        $staleRemoved++;
-        if (!$w['patient_id']) continue;
-        $ps = $pdo->prepare('SELECT user_id FROM patients WHERE id = ? LIMIT 1');
-        $ps->execute([$w['patient_id']]);
-        $userId = $ps->fetchColumn();
-        if ($userId) {
-            $fmtDate = date('M j, Y', strtotime($w['date']));
-            $noticeMsg = "You've been removed from the waitlist for {$w['doctor_name']} on {$fmtDate} at {$w['time']}. "
-              . "It's too close to that time now for the slot to open up for you. "
-              . "Please request a new appointment if you'd still like to be seen.";
-            createNotification($pdo, (int)$userId, 'info', 'Removed From Waitlist', $noticeMsg);
-            _emailPatientNotice($pdo, (int)$userId, 'Removed From Waitlist', $noticeMsg);
-        }
-    }
-    $result['staleWaitlistRemoved'] = $staleRemoved;
-
-    // ── Job 5: auto-disapprove pending requests whose date has passed ──
-    // Mirrors Job 2 (approved → auto-cancel past its confirm deadline)
-    // exactly, just for the "staff never responded at all" case instead
-    // of "patient never confirmed": same terminal-status update, same
-    // waitlist hand-off (checkApptConflict() treats 'pending' as
-    // occupying the slot, same as 'approved' — see api/helpers.php — so
-    // resolving it here genuinely frees that slot up), same in-app +
-    // email notice. Uses date < CURDATE() (not <=) so a same-day request
-    // still gets its full day for staff to act on before this takes over.
-    $duePending = $pdo->query(
-        "SELECT id, patient_id, doctor_id, doctor_name, date, time FROM appointments
-         WHERE status = 'pending' AND date < CURDATE()"
-    )->fetchAll();
-
-    foreach ($duePending as $r) {
-        $upd = $pdo->prepare(
-            "UPDATE appointments SET status = 'disapproved', disapproval_reason = ?
-             WHERE id = ? AND status = 'pending'"
-        );
-        $upd->execute(['Automatically declined. This request was never responded to before its appointment date.', $r['id']]);
-        if ($upd->rowCount() === 0) continue; // acted on by staff in the meantime
-
-        if ($r['doctor_id']) {
-            offerNextWaitlistSlot($pdo, $r['doctor_id'], $r['date'], $r['time']);
-        }
-        if (!$r['patient_id']) continue;
+        if ($upd->rowCount() === 0 || !$r['patient_id']) continue;
         $ps = $pdo->prepare('SELECT user_id FROM patients WHERE id = ? LIMIT 1');
         $ps->execute([$r['patient_id']]);
         $userId = $ps->fetchColumn();
         if ($userId) {
-            $fmtDate = date('M j, Y', strtotime($r['date']));
-            $noticeMsg = "Your appointment request with {$r['doctor_name']} on {$fmtDate} at {$r['time']} was never responded to in time and has been automatically declined. Please book a new appointment if you'd still like to be seen.";
-            createNotification($pdo, (int)$userId, 'disapproved', 'Appointment Request Expired', $noticeMsg);
-            _emailPatientNotice($pdo, (int)$userId, 'Appointment Request Expired', $noticeMsg);
+            [$title, $noticeMsg] = buildReminderNotice($pdo, $r, 2);
+            createNotification($pdo, (int)$userId, 'reminder', $title, $noticeMsg, $r['id']);
+            _emailPatientNotice($pdo, (int)$userId, $title, $noticeMsg, appointmentConfirmUrl($r['id']), 'Confirm Appointment', $r['date']);
         }
     }
-    $result['pendingAutoDisapproved'] = count($duePending);
+    $result['followupRemindersSent'] = count($followupRows);
+
+    // ── Job 2: auto-decline pending requests whose time has arrived ────
+    // The "staff never responded at all" case — see expireUnactionedPending()
+    // (helpers.php), which also runs on every appointments load.
+    $result['pendingAutoDisapproved'] = expireUnactionedPending($pdo);
+
+    // ── Job 4: unsaved exam drafts — reminders + 30-day expiry ─────────
+    $drafts = processExamDrafts($pdo);
+    $result['examDraftReminders'] = $drafts['reminded'];
+    $result['examDraftsExpired']  = $drafts['expired'];
+
+    // ── Job 3: keep the stored age current ─────────────────────────────
+    // Every screen already computes age from the DOB (patientAge(),
+    // helpers.php); this just keeps the patients.age column itself right
+    // for exports/snapshots, rolling it over on each patient's birthday.
+    $result['agesUpdated'] = $pdo->exec(
+        'UPDATE patients SET age = TIMESTAMPDIFF(YEAR, dob, CURDATE())
+         WHERE dob IS NOT NULL AND age <> TIMESTAMPDIFF(YEAR, dob, CURDATE())'
+    );
 
     jsonResponse($result);
 

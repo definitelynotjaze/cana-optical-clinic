@@ -10,9 +10,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <!-- Bootstrap 5.3 — loaded first so our CSS rules take precedence -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="../assets/css/public.css">
-  <link rel="stylesheet" href="../assets/css/navbar.css">
-  <link rel="stylesheet" href="../assets/css/contact.css">
+  <link rel="stylesheet" href="../assets/css/public.css?v=2026100407">
+  <link rel="stylesheet" href="../assets/css/navbar.css?v=2026100104">
+  <link rel="stylesheet" href="../assets/css/contact.css?v=2026100105">
 </head>
 <body>
 
@@ -143,12 +143,17 @@
                 </button>
                 <div class="pub-select-popover" id="cf-service-popover" role="listbox">
                   <div class="pub-select-list">
-                    <div class="pub-select-item" role="option" data-value="Eye Examination">Eye Examination</div>
-                    <div class="pub-select-item" role="option" data-value="Vision Screening">Vision Screening</div>
-                    <div class="pub-select-item" role="option" data-value="Refraction Testing">Refraction Testing</div>
-                    <div class="pub-select-item" role="option" data-value="Contact Lens Fitting">Contact Lens Fitting</div>
-                    <div class="pub-select-item" role="option" data-value="Frame Selection">Frame Selection</div>
+                    <!-- Matches the clinic's current services (Settings → Services):
+                         the two bookable ones, the eyewear services, and the
+                         common non-service questions people contact a clinic about. -->
+                    <div class="pub-select-item" role="option" data-value="Appointment &amp; Booking">Appointment &amp; Booking</div>
+                    <div class="pub-select-item" role="option" data-value="Comprehensive Eye Examination">Comprehensive Eye Examination</div>
                     <div class="pub-select-item" role="option" data-value="Follow-up Consultation">Follow-up Consultation</div>
+                    <div class="pub-select-item" role="option" data-value="Optical Frame Selection">Optical Frame Selection</div>
+                    <div class="pub-select-item" role="option" data-value="Eyeglass/Contact Lens Fitting">Eyeglass/Contact Lens Fitting</div>
+                    <div class="pub-select-item" role="option" data-value="Eye Tests (Refraction, Ishihara, Tonometry)">Eye Tests (Refraction, Ishihara, Tonometry)</div>
+                    <div class="pub-select-item" role="option" data-value="Prescription &amp; Records">Prescription &amp; Records</div>
+                    <div class="pub-select-item" role="option" data-value="Pricing &amp; Payment">Pricing &amp; Payment</div>
                     <div class="pub-select-item" role="option" data-value="Other Concern">Other Concern</div>
                   </div>
                 </div>
@@ -216,7 +221,7 @@
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="../assets/js/public-nav.js"></script>
+<script src="../assets/js/public-nav.js?v=2026100407"></script>
 <script>
   document.querySelectorAll('.nav-links a, .nav-login, .nav-book').forEach(link => {
     link.addEventListener('click', function(e) {

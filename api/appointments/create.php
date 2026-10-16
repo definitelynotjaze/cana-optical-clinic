@@ -4,9 +4,7 @@
 //  POST { patientId, patientName, doctorId, doctorName,
 //         date, time, type, status, notes, termsAgreed }
 //  → { success:true, id:'A001' }
-//  → { success:false, message, waitlistAvailable:true, doctorId, doctorName,
-//      date, time, type } when the slot is taken/held and the caller is a
-//      patient — frontend offers api/waitlist/join.php for this exact slot.
+//  → { success:false, message } when the slot is already taken.
 // ================================================================
 
 require_once '../../config/db.php';
@@ -112,6 +110,13 @@ try {
                     'This doctor is unavailable on the selected date' . ($blockedRow['reason'] ? " ({$blockedRow['reason']})" : '') . '. Please choose another date.']);
             }
 
+            // Same idea for the doctor's weekly schedule: if their days or
+            // hours changed after the booking page loaded, the stale slot
+            // list could still offer a time they no longer work.
+            if ($schedProblem = doctorScheduleProblem($pdo, $doctorId, $date, $time)) {
+                jsonResponse(['success' => false, 'scheduleChanged' => true, 'message' => $schedProblem]);
+            }
+
             // Enforce the clinic's max-appointments-per-doctor-per-day cap for
             // self-service patient bookings — cancelled/disapproved slots don't
             // count against it since they're not actually occupying the doctor's day.
@@ -128,6 +133,14 @@ try {
         }
     }
 
+    // Per-patient upcoming limit (default 1 open booking at a time) —
+    // patients booking themselves only. Admin/staff keep discretion to book
+    // more on a patient's behalf (e.g. a follow-up), and those don't count.
+    if ($role === 'patient') {
+        $limitMsg = patientUpcomingLimitError($pdo, $patientId);
+        if ($limitMsg) jsonResponse(['success' => false, 'upcomingLimit' => true, 'message' => $limitMsg]);
+    }
+
     // Reject if the requested time conflicts with an existing appointment
     // (same doctor, same date, within the clinic's default appointment duration).
     // Applies to all roles — admin/staff bookings are equally subject to gaps.
@@ -135,13 +148,23 @@ try {
     preg_match('/(\d+)/', $durStr ?: '45', $dm);
     $durationMin = isset($dm[1]) ? (int)$dm[1] : 45;
 
+    // A patient can't be in two places at once — reject if they already hold
+    // an appointment at this date+time with any doctor, whether they booked
+    // it themselves or the clinic booked it for them. All roles.
+    $ownConflict = checkPatientApptConflict($pdo, (string)$patientId, $date, $time, $durationMin);
+    if ($ownConflict !== null) {
+        jsonResponse(['success' => false, 'message' => $role === 'patient'
+            ? "You already have an appointment at {$ownConflict} on this date. Please choose a different time."
+            : "This patient already has an appointment at {$ownConflict} on this date. Please choose a different time."]);
+    }
+
     if ($anyDoctor) {
         // No specific doctor chosen — confirm at least one doctor who could
         // plausibly work this date is actually free at the requested time
-        // (not over the max-per-day cap, no conflicting appointment, not
-        // holding an active waitlist offer for someone else). The clinic
-        // assigns the actual doctor afterward; we just need SOME doctor free.
-        $eligible = eligibleDoctorsForDate($pdo, $date);
+        // (not over the max-per-day cap, no conflicting appointment). The
+        // clinic assigns the actual doctor afterward; we just need SOME
+        // doctor free.
+        $eligible = eligibleDoctorsForDate($pdo, $date, $time);
         if (!$eligible) {
             jsonResponse(['success' => false, 'message' =>
                 'No doctors are scheduled on the selected date. Please choose another date.']);
@@ -149,9 +172,8 @@ try {
 
         // Doctors who could still take on a NEW appointment this date at
         // all (under the daily cap) — separate from whether they're free at
-        // THIS exact time, so the waitlist offer below only ever targets a
-        // doctor who's actually a plausible candidate for the day, same as
-        // wizBuildTimeSlotsAnyDoctor()'s freeDocs on the frontend.
+        // THIS exact time, same as wizBuildTimeSlotsAnyDoctor()'s freeDocs
+        // on the frontend.
         $maxPerDay = (int)($pdo->query('SELECT max_appts_per_doctor_per_day FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn() ?: 12);
         $underCap = [];
         foreach ($eligible as $doc) {
@@ -170,61 +192,22 @@ try {
         $freeFound = false;
         foreach ($underCap as $doc) {
             if (checkApptConflict($pdo, $doc['id'], $date, $time, $durationMin) !== null) continue;
-            if (checkWaitlistHold($pdo, $doc['id'], $date, $time, $patientId)) continue;
             $freeFound = true;
             break;
         }
 
         if (!$freeFound) {
-            // No doctor is free at this exact time — same "still selectable,
-            // offers a waitlist" experience as the single-doctor path below.
-            // Whichever under-cap doctor the waitlist entry is tied to
-            // doesn't matter — offerNextWaitlistSlot() notifies the patient
-            // as soon as ANY of that doctor's slots open up — so just take
-            // the first. Reuses the exact same waitlistAvailable response
-            // shape (and the frontend's existing promptJoinWaitlist()/
-            // joinWaitlist()/api/waitlist/join.php) as the preferred-doctor
-            // booking path — no new waitlist machinery needed.
-            $target = $underCap[0];
-            jsonResponse([
-                'success'           => false,
-                'message'           => 'No doctor is available at that time. Please choose a different slot, or join the waitlist.',
-                'waitlistAvailable' => true,
-                'doctorId'          => $target['id'],
-                'doctorName'        => $target['name'],
-                'date'              => $date,
-                'time'              => $time,
-                'type'              => $type,
-            ]);
+            jsonResponse(['success' => false, 'message' =>
+                'No doctor is available at that time. Please choose a different slot.']);
         }
 
         $doctorId   = null;
         $doctorName = null;
     } else {
         $conflict = checkApptConflict($pdo, $doctorId, $date, $time, $durationMin);
-        $held     = checkWaitlistHold($pdo, $doctorId, $date, $time, $patientId);
-        if ($conflict !== null || $held) {
-            $message = $conflict !== null
-                ? "This time conflicts with an existing appointment at {$conflict}. Please choose a different slot."
-                : "This slot is currently reserved for another patient. Please choose a different slot.";
-            $response = [
-                'success'           => false,
-                'message'           => $message,
-                'waitlistAvailable' => true,
-                'doctorId'          => $doctorId,
-                'doctorName'        => $doctorName,
-                'date'              => $date,
-                'time'              => $time,
-                'type'              => $type,
-            ];
-            // Admin/staff creating on a patient's behalf need the patient's
-            // identity passed through too, so the frontend can offer to waitlist
-            // that specific patient instead of assuming "the logged-in user."
-            if ($role !== 'patient') {
-                $response['patientId']   = $patientId;
-                $response['patientName'] = $patientName;
-            }
-            jsonResponse($response);
+        if ($conflict !== null) {
+            jsonResponse(['success' => false, 'message' =>
+                "This time conflicts with an existing appointment at {$conflict}. Please choose a different slot."]);
         }
     }
 
@@ -257,6 +240,15 @@ try {
             "{$patientName} has requested an appointment {$withWho}",
             $newId
         );
+        // Email receipt to the patient — what they asked for, and that it
+        // still needs the clinic's approval (no calendar link until then).
+        $selfUid = (int)($_SESSION['user_id'] ?? 0);
+        if ($selfUid) {
+            _emailPatientNotice($pdo, $selfUid, 'Appointment Request Received',
+                "We've received your appointment request " . ($doctorName ? "with {$doctorName} " : '')
+                . "on {$fmtDate} at {$time} ({$type}). The clinic will review it, and we'll email you as soon as it's approved.",
+                appointmentLinkUrl($newId), 'View Appointment', $date);
+        }
     } else {
         // Admin/staff booked — notify patient
         $ps = $pdo->prepare('SELECT user_id FROM patients WHERE id = ? LIMIT 1');
@@ -269,11 +261,13 @@ try {
             // 'info' had no appointment-aware routing and always dead-ended
             // on the dashboard.
             $notifType = $status === 'approved' ? 'approved' : 'new_appointment';
-            createNotification($pdo, (int)$pRow['user_id'], $notifType,
-                'Appointment Scheduled',
-                "An appointment with {$doctorName} has been scheduled for you on {$fmtDate} at {$time}."
-                . ($status === 'approved' ? '' : ' It is pending confirmation from the clinic.')
-            );
+            $schedMsg  = "An appointment with {$doctorName} has been scheduled for you on {$fmtDate} at {$time} ({$type})."
+                . ($status === 'approved' ? '' : ' It is pending confirmation from the clinic.');
+            createNotification($pdo, (int)$pRow['user_id'], $notifType, 'Appointment Scheduled', $schedMsg, $newId);
+            // Email too, with Add to Google Calendar once it's already approved.
+            _emailPatientNotice($pdo, (int)$pRow['user_id'], 'Appointment Scheduled', $schedMsg,
+                appointmentLinkUrl($newId), 'View Appointment', $date,
+                calendarUrl: $status === 'approved' ? googleCalendarUrl($pdo, $date, $time, $doctorName, $type) : '');
         }
     }
 

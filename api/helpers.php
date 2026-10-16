@@ -26,16 +26,22 @@ const DEFAULT_TERMS_MD = <<<'TERMS'
 By creating a patient account with Cana Optical Clinic ("the Clinic"), you agree to be bound by these Terms & Conditions. If you do not agree, please do not proceed with registration.
 
 ## 2. Account Registration
-You must provide accurate, current, and complete information during registration. You are responsible for keeping your password confidential and for all activity under your account. Notify the Clinic immediately if you suspect unauthorized use.
+You must provide accurate, current, and complete information during registration.
+
+> You are responsible for keeping your password confidential and for all activity under your account.
+
+Notify the Clinic immediately if you suspect unauthorized use.
 
 ## 3. Your Patient QR Code
-Upon registration, a unique QR code is generated and linked to your patient record. Present this QR code at the clinic for fast, accurate check-in. Do not share it with anyone else — it provides access to your health information.
+Upon registration, a unique QR code is generated and linked to your patient record. Present this QR code at the clinic for fast, accurate check-in.
+
+> Do not share your QR code with anyone else, since it provides access to your health information.
 
 ## 4. Appointments
-Appointment requests submitted through this system are subject to confirmation by clinic staff based on doctor availability. The Clinic reserves the right to reschedule or decline requests when necessary.
+Appointment requests submitted through this system are subject to review and approval by clinic staff. The Clinic reserves the right to reschedule or decline requests when necessary.
 
 ## 5. Use of the Platform
-You agree to use this system only for legitimate healthcare purposes related to your own care. Misuse — including attempting to access another patient's records or interfering with the system's normal operation — may result in account suspension.
+You agree to use this system only for legitimate healthcare purposes related to your own care. Misuse, including attempting to access another patient's records or interfering with the system's normal operation, may result in account suspension.
 
 ## 6. Changes to these Terms
 The Clinic may update these Terms & Conditions from time to time. Continued use of your account after changes are posted constitutes acceptance of the revised terms.
@@ -65,7 +71,9 @@ The Clinic collects the personal and sensitive personal information you provide 
 Your data is stored on secured servers with access restricted to authorized clinic personnel (admin, staff, and your attending doctor) who need it to perform their duties. We apply reasonable organizational, physical, and technical safeguards to protect your information against unauthorized access, alteration, disclosure, or destruction.
 
 ## 4. Data Sharing
-The Clinic does not sell or rent your personal information. Your data may only be shared with third parties when required by law, when necessary to provide your care (e.g. referrals), or with your explicit consent.
+> The Clinic does not sell or rent your personal information.
+
+Your data may only be shared with third parties when required by law, when necessary to provide your care (e.g. referrals), or with your explicit consent.
 
 ## 5. Data Retention
 Your personal and health records are retained for as long as your account is active, and for the period required by applicable healthcare record-keeping regulations afterward, after which they are securely disposed of.
@@ -79,10 +87,14 @@ Under the Data Privacy Act, you have the right to:
 - Request deletion of your data, where applicable
 - File a complaint with the National Privacy Commission (NPC)
 
-To exercise any of these rights, please contact the clinic directly using the contact details on our website.
+Account deletion is handled by request instead of happening instantly. You can send a request from Settings > My Profile, and clinic staff will review it. This is because your examination, diagnosis, and prescription records are health records the Clinic must keep for the period required by healthcare record-keeping regulations, and the review confirms that the request really comes from you. Your account stays as it is until staff act on the request, and you can cancel it any time before then. Once it is processed, your account is closed and your records are kept only for the required period, then securely disposed of.
+
+> To exercise any of these rights, please contact the clinic directly using the contact details on our website.
 
 ## 7. Consent and Changes to this Notice
-By checking "I agree" and completing registration, you acknowledge that you have read and understood this notice, and you consent to the collection, use, storage, and processing of your personal and sensitive personal information as described above, for the purpose of receiving care from Cana Optical Clinic — and you are entrusting your credentials and personal information to the Clinic on that basis. The Clinic may update this notice from time to time; continued use of your account after changes are posted constitutes acceptance of the revised notice.
+> By checking "I agree" and completing registration, you acknowledge that you have read and understood this notice, and you consent to the collection, use, storage, and processing of your personal and sensitive personal information as described above, for the purpose of receiving care from Cana Optical Clinic, and you are entrusting your credentials and personal information to the Clinic on that basis.
+
+The Clinic may update this notice from time to time; continued use of your account after changes are posted constitutes acceptance of the revised notice.
 PRIVACY;
 
 // ── Default booking-wizard Appointment Policy ──────────────────────
@@ -91,13 +103,55 @@ PRIVACY;
 // uses "> " so it keeps rendering as the original amber callout box instead
 // of a plain paragraph.
 // A function rather than a const so section 4 always states the *actual*
-// configured reminder/confirm-deadline times (Clinic Settings → Scheduling
-// Rules) instead of a hardcoded "noon"/"9:00 PM" that could silently drift
-// out of sync with what the cron is really doing.
-function defaultApptPolicyMd(string $reminderTime, string $confirmDeadlineTime): string {
+// configured reminder times (Clinic Settings → Scheduling Rules) instead of
+// hardcoded ones that could silently drift out of sync with the cron.
+// Section 2 states the live Max Upcoming Appointments Per Patient setting;
+// apptPolicyUpcomingPhrase() is also what settings.php matches to keep a
+// saved copy of the policy in sync when that number changes.
+function apptPolicyUpcomingPhrase(int $maxOpen): string {
+    return $maxOpen <= 1 ? 'one upcoming appointment' : "{$maxOpen} upcoming appointments";
+}
+function defaultApptPolicyMd(string $reminderTime, string $followupTime = '12:00 PM', int $maxOpen = 1): string {
+    $upcoming = apptPolicyUpcomingPhrase($maxOpen);
+    // "> " lines render as the amber callout box — used for the key rule
+    // of each section that patients most need to notice.
     return <<<POLICY
 ## 1. Appointment Requests
-Appointment requests submitted through this system are subject to confirmation by clinic staff based on doctor availability. The clinic reserves the right to reschedule or decline requests when necessary.
+> Appointment requests submitted through this system are subject to review and approval by clinic staff.
+
+The clinic reserves the right to reschedule or decline requests when necessary.
+
+## 2. Upcoming Appointment Limit
+> You can only have {$upcoming} booked online at a time.
+
+You can book another once an appointment is completed, cancelled, or disapproved, or its date has passed. To change the date or time, use Request Reschedule on your current appointment instead of booking a new one. Appointments the clinic books for you, such as follow-ups, don't count toward this limit.
+
+## 3. Cancellations
+If you can no longer make it to your appointment, please cancel as early as possible. This keeps the slot open for someone else who may need it.
+
+## 4. Repeated No-Shows
+> If you miss multiple approved appointments without cancelling, online booking may be temporarily restricted for your account.
+
+In that case, please contact the clinic directly by phone or in person to schedule your next visit.
+
+## 5. Appointment Reminders and Confirmation
+> For approved appointments, we send a reminder at {$reminderTime} the day before your visit, and another at {$followupTime} if you haven't confirmed yet. Please confirm that you'll be attending so the clinic can prepare for your visit. If you can no longer make it, please cancel instead so the slot can go to another patient.
+
+## 6. Arrival Time
+> Please arrive 5 to 10 minutes before your scheduled appointment time.
+
+This gives the clinic time to check you in so your consultation can start on time.
+POLICY;
+}
+
+// The policy as it read before section 2 (Upcoming Appointment Limit) was
+// added. A saved copy that is still exactly this — saved from Terms &
+// Policies without edits — counts as "not customized" and is served as the
+// current default instead (settings.php), so the new section shows up.
+function legacyApptPolicyMd(string $reminderTime, string $followupTime): string {
+    return <<<POLICY
+## 1. Appointment Requests
+Appointment requests submitted through this system are subject to review and approval by clinic staff. The clinic reserves the right to reschedule or decline requests when necessary.
 
 ## 2. Cancellations
 If you can no longer make it to your appointment, please cancel as early as possible. This keeps the slot open for someone else who may need it.
@@ -106,16 +160,53 @@ If you can no longer make it to your appointment, please cancel as early as poss
 If you miss multiple approved appointments without cancelling, online booking may be temporarily restricted for your account. In that case, please contact the clinic directly by phone or in person to schedule your next visit.
 
 ## 4. Appointment Reminders and Confirmation
-> For approved appointments, we send a reminder at {$reminderTime} the day before your visit. Please confirm you'll be attending by {$confirmDeadlineTime} that same day. If we don't hear from you by then, the appointment is automatically cancelled so the slot can be offered to another patient.
+> For approved appointments, we send a reminder at {$reminderTime} the day before your visit, and another at {$followupTime} if you haven't confirmed yet. Please confirm that you'll be attending so the clinic can prepare for your visit. If you can no longer make it, please cancel instead so the slot can go to another patient.
 
-## 5. Waitlist
-If your preferred slot is fully booked, you can join the waitlist for it. If that slot opens up, you'll be notified with a limited time to claim it. If you don't respond in time, or choose to decline, the slot is offered to the next patient in line. You can only be on one waitlist at a time.
+## 5. Arrival Time
+Please arrive 5 to 10 minutes before your scheduled appointment time. This gives the clinic time to check you in so your consultation can start on time.
 POLICY;
 }
 
 // Middle initial as displayed on formal names/documents ("Juan D. Dela Cruz") —
 // the standard PH convention — leading space included so callers can just
 // concatenate it between first and last name.
+// Appointments store the patient's name as it was when booked
+// (appointments.patient_name) — after a rename, bring every one of that
+// patient's appointments up to date, in the same "First M. Last" format the
+// booking flow uses. Returns how many appointments changed.
+// ── Patient source ───────────────────────────────────────────────
+// How a patient came to the clinic, shown as a badge on Patient Records
+// (replacing the old Active/Inactive status): 'online' (self-registered),
+// 'walk-in' (added by clinic staff), 'transferred' (migrated from another
+// optical clinic), 'referral'. source_note holds the previous clinic's name
+// or who referred them. Columns added by database/patient_source.sql —
+// until that has run, callers just skip them (patientSourceColumns()).
+const PATIENT_SOURCES = ['online', 'walk-in', 'transferred', 'referral'];
+function patientSourceColumns(PDO $pdo): bool {
+    static $has = null;
+    if ($has === null) {
+        try { $has = (bool)$pdo->query("SHOW COLUMNS FROM patients LIKE 'source'")->fetch(); }
+        catch (PDOException $e) { $has = false; }
+    }
+    return $has;
+}
+function cleanPatientSource($v, string $default = 'walk-in'): string {
+    $v = strtolower(trim((string)$v));
+    return in_array($v, PATIENT_SOURCES, true) ? $v : $default;
+}
+
+function syncPatientNameEverywhere(PDO $pdo, string $patientId): int {
+    if ($patientId === '') return 0;
+    $s = $pdo->prepare('SELECT first_name, middle_name, last_name FROM patients WHERE id = ? LIMIT 1');
+    $s->execute([$patientId]);
+    $p = $s->fetch();
+    if (!$p) return 0;
+    $name = trim($p['first_name'] . _mi($p['middle_name'] ?? '') . ' ' . $p['last_name']);
+    $u = $pdo->prepare('UPDATE appointments SET patient_name = ? WHERE patient_id = ? AND (patient_name IS NULL OR patient_name <> ?)');
+    $u->execute([$name, $patientId, $name]);
+    return $u->rowCount();
+}
+
 function _mi(?string $middleName): string {
     $middleName = trim((string)$middleName);
     return $middleName !== '' ? ' ' . mb_strtoupper(mb_substr($middleName, 0, 1)) . '.' : '';
@@ -288,23 +379,33 @@ class DbSessionHandler implements SessionHandlerInterface {
     public function open(string $path, string $name): bool { return true; }
     public function close(): bool { return true; }
 
+    // Ended sessions are KEPT as a record (signed_out_at set, data wiped)
+    // instead of deleted — see endSessions(). A signed-out row reads as
+    // empty and can never be written back to life, even if a browser still
+    // holds its old cookie; logging in again always gets a fresh session id
+    // (session_regenerate_id() in completeLogin()).
     public function read(string $id): string {
-        $stmt = $this->pdo->prepare('SELECT data FROM sessions WHERE id = ? LIMIT 1');
+        $stmt = $this->pdo->prepare('SELECT data, signed_out_at FROM sessions WHERE id = ? LIMIT 1');
         $stmt->execute([$id]);
         $row = $stmt->fetch();
-        return $row ? $row['data'] : '';
+        return ($row && $row['signed_out_at'] === null) ? $row['data'] : '';
     }
 
     public function write(string $id, string $data): bool {
         $stmt = $this->pdo->prepare(
             'INSERT INTO sessions (id, data, last_access) VALUES (?, ?, ?)
-             ON DUPLICATE KEY UPDATE data = VALUES(data), last_access = VALUES(last_access)'
+             ON DUPLICATE KEY UPDATE data = IF(signed_out_at IS NULL, VALUES(data), \'\'),
+                                     last_access = IF(signed_out_at IS NULL, VALUES(last_access), last_access)'
         );
         return $stmt->execute([$id, $data, time()]);
     }
 
     public function destroy(string $id): bool {
-        $stmt = $this->pdo->prepare('DELETE FROM sessions WHERE id = ?');
+        // session_destroy() — the device's own Log Out
+        $stmt = $this->pdo->prepare(
+            'UPDATE sessions SET data = \'\', signed_out_at = NOW()
+              WHERE id = ? AND signed_out_at IS NULL'
+        );
         return $stmt->execute([$id]);
     }
 
@@ -321,9 +422,18 @@ class DbSessionHandler implements SessionHandlerInterface {
     }
 }
 
+// Like a Google account: a signed-in browser stays signed in for 30 days
+// from its LAST activity (not from login) — every request from a signed-in
+// session renews the cookie (see startSession()), and the DB row is only
+// garbage-collected after 30 idle days (DbSessionHandler::gc()). Applies to
+// every login, whether or not "Remember me" was ticked (that now just
+// remembers the email on the login form). Logging out, removing the device
+// from Sessions & Sign-in, or a password change still ends it right away.
+const SESSION_DAYS = 30;
+
 // $days controls both the session cookie lifetime and how long the DB-backed
-// session row survives — pass a larger value for "remember me" logins.
-function startSession(int $days = 1): void {
+// session row survives.
+function startSession(int $days = SESSION_DAYS): void {
     if (session_status() === PHP_SESSION_NONE) {
         $lifetimeSeconds = $days * 86400;
         ini_set('session.gc_maxlifetime', (string)$lifetimeSeconds);
@@ -376,6 +486,20 @@ function startSession(int $days = 1): void {
         if ($hadCookie && empty($_SESSION)) {
             $uri = $_SERVER['REQUEST_URI'] ?? '(unknown)';
             error_log("[startSession] browser sent a session cookie but PHP found no session data for it — request: {$uri}");
+        }
+
+        // Rolling expiry: PHP only sends the session cookie when a session is
+        // first created, so on its own the cookie would still die $days after
+        // LOGIN however active the person is. Re-issue it on each signed-in
+        // request so it's always $days from the last activity instead.
+        if ($hadCookie && !empty($_SESSION['user_id']) && !headers_sent()) {
+            setcookie(session_name(), session_id(), [
+                'expires'  => time() + $lifetimeSeconds,
+                'path'     => '/',
+                'httponly' => true,
+                'samesite' => 'Lax',
+                'secure'   => $isHttps,
+            ]);
         }
     }
 }
@@ -433,7 +557,114 @@ function parseDeviceParts(string $ua): array {
     return ['os' => $os, 'browser' => $browser, 'type' => $type, 'label' => "{$browser} on {$os}"];
 }
 
+// A Google-style device name for the Sessions & Sign-in list — "Samsung
+// Galaxy S23 Ultra", "Google Pixel 7", "iPhone", "Windows 11 PC" — rather
+// than just "Chrome on Android". $model / $platformVersion come from the
+// browser's User-Agent Client Hints (api/auth/device-info.php), since
+// modern Chrome on Android hides the model in its plain UA ("Android 10; K").
+// Falls back to whatever the UA itself says, then to a generic name.
+function deviceDisplayName(string $ua, ?string $model, ?string $platformVersion, string $os, string $type): string {
+    $model = trim((string)$model);
+    // Older Android UAs still carry the model: "...; Android 13; SM-A546E Build/..."
+    if ($model === '' && preg_match('/Android [\d.]+;\s*([^;)]+?)(?:\s+Build\/|\))/i', $ua, $m) && strtoupper(trim($m[1])) !== 'K') {
+        $model = trim($m[1]);
+    }
+
+    if ($os === 'iOS')   return $type === 'tablet' ? 'iPad' : 'iPhone';
+    if ($os === 'macOS') return 'Mac';
+    if ($os === 'Windows') {
+        // Windows 11 reports platformVersion 13.0.0 or higher; 10 reports 1–10.x.
+        $major = (int)explode('.', (string)$platformVersion)[0];
+        return $platformVersion !== null && $platformVersion !== ''
+            ? ($major >= 13 ? 'Windows 11 PC' : 'Windows 10 PC')
+            : 'Windows PC';
+    }
+    if (stripos($ua, 'CrOS') !== false) return 'Chromebook';
+    if ($os === 'Linux') return 'Linux PC';
+
+    if ($os === 'Android') {
+        if ($model === '') return $type === 'tablet' ? 'Android Tablet' : 'Android Phone';
+
+        // Popular Samsung model codes → marketing names (Philippine market);
+        // anything not listed still reads "Samsung Galaxy … (SM-XXXX)".
+        $samsung = [
+            'SM-S928' => 'Galaxy S24 Ultra', 'SM-S926' => 'Galaxy S24+', 'SM-S921' => 'Galaxy S24',
+            'SM-S918' => 'Galaxy S23 Ultra', 'SM-S916' => 'Galaxy S23+', 'SM-S911' => 'Galaxy S23', 'SM-S711' => 'Galaxy S23 FE',
+            'SM-S908' => 'Galaxy S22 Ultra', 'SM-S906' => 'Galaxy S22+', 'SM-S901' => 'Galaxy S22',
+            'SM-G998' => 'Galaxy S21 Ultra', 'SM-G991' => 'Galaxy S21', 'SM-G990' => 'Galaxy S21 FE',
+            'SM-F946' => 'Galaxy Z Fold5', 'SM-F731' => 'Galaxy Z Flip5', 'SM-F956' => 'Galaxy Z Fold6', 'SM-F741' => 'Galaxy Z Flip6',
+            'SM-A556' => 'Galaxy A55', 'SM-A546' => 'Galaxy A54', 'SM-A536' => 'Galaxy A53', 'SM-A356' => 'Galaxy A35',
+            'SM-A346' => 'Galaxy A34', 'SM-A256' => 'Galaxy A25', 'SM-A255' => 'Galaxy A25', 'SM-A155' => 'Galaxy A15',
+            'SM-A156' => 'Galaxy A15 5G', 'SM-A145' => 'Galaxy A14', 'SM-A057' => 'Galaxy A05s', 'SM-A055' => 'Galaxy A05',
+            'SM-A245' => 'Galaxy A24', 'SM-A235' => 'Galaxy A23', 'SM-A135' => 'Galaxy A13', 'SM-A045' => 'Galaxy A04',
+            'SM-M156' => 'Galaxy M15', 'SM-X110' => 'Galaxy Tab A9', 'SM-X210' => 'Galaxy Tab A9+', 'SM-X200' => 'Galaxy Tab A8',
+        ];
+        if (stripos($model, 'SM-') === 0) {
+            $code = strtoupper(substr($model, 0, 7));
+            if (isset($samsung[$code])) return 'Samsung ' . $samsung[$code];
+            $series = ['S' => 'Galaxy S', 'G' => 'Galaxy', 'A' => 'Galaxy A', 'M' => 'Galaxy M', 'N' => 'Galaxy Note',
+                       'F' => 'Galaxy Z', 'E' => 'Galaxy F', 'X' => 'Galaxy Tab', 'T' => 'Galaxy Tab', 'P' => 'Galaxy Tab'];
+            $s = $series[strtoupper($model[3] ?? '')] ?? 'Galaxy';
+            return "Samsung {$s} ({$model})";
+        }
+        // Model hints that already read like a name ("Pixel 8", "Redmi Note 13").
+        $brands = [
+            '/^Pixel/i'                 => 'Google ',
+            '/^(Redmi|POCO|Mi )/i'      => 'Xiaomi ',
+            '/^(CPH|OPPO)/i'            => 'OPPO ',
+            '/^RMX/i'                   => 'realme ',
+            '/^(V2\d{3}|vivo)/i'        => 'vivo ',
+            '/^(TECNO|KG|KI|CK|BG|LH)\d/i' => 'TECNO ',
+            '/^Infinix|^X6\d{2}/i'      => 'Infinix ',
+            '/^(moto|motorola)/i'       => 'Motorola ',
+            '/^Nokia/i'                 => '',
+            '/^(HUAWEI|[A-Z]{3}-[A-Z]{1,2}\d)/' => 'Huawei ',
+            '/^itel/i'                  => '',
+            '/^(\d{4,}[A-Z]{1,3}\d*[A-Z]?)$/' => 'Xiaomi ',   // e.g. 2201117TG, 23129RAA4G
+        ];
+        foreach ($brands as $re => $prefix) {
+            if (preg_match($re, $model)) {
+                // Don't double the brand ("OPPO OPPO A78").
+                return (stripos($model, trim($prefix)) === 0 || $prefix === '') ? $model : $prefix . $model;
+            }
+        }
+        return $model;
+    }
+    return $type === 'phone' ? 'Phone' : ($type === 'tablet' ? 'Tablet' : 'Computer');
+}
+
 // Thin wrapper kept for any caller that just wants the combined label.
+// ── New-device OTP lockout (login_device_otps) ────────────────────
+// After 10 wrong codes across resends (verify-login-device.php), the
+// account's device-verification row is turned into a lock: its otp is
+// replaced with a non-numeric marker no 6-digit entry can ever match, and
+// expires_at is pushed an hour out. login.php, resend and verify all
+// refuse while that row is live — the same 1-hour block forgot-password
+// applies (verify-otp.php), without needing an extra column.
+const LDO_BLOCK_MINUTES = 60;
+const LDO_LOCK_MARKER   = 'LOCKED';
+
+function ldoBlockRow(PDO $pdo, int $rowId): void {
+    $pdo->prepare(
+        'UPDATE login_device_otps
+            SET otp = ?, attempts = 5, total_attempts = 10,
+                expires_at = NOW() + INTERVAL ' . LDO_BLOCK_MINUTES . ' MINUTE
+          WHERE id = ?'
+    )->execute([LDO_LOCK_MARKER, $rowId]);
+}
+
+function ldoIsBlocked(array $row): bool {
+    return ($row['otp'] ?? '') === LDO_LOCK_MARKER;
+}
+
+// $row must include secs_left (TIMESTAMPDIFF against the DB's own NOW(),
+// so PHP/MySQL timezone differences can't skew it).
+function ldoBlockedMessage(array $row): string {
+    $mins = max(1, (int)ceil(((int)($row['secs_left'] ?? LDO_BLOCK_MINUTES * 60)) / 60));
+    return 'Too many failed verification attempts. For your security, sign-in from a new device is locked. Please try again in '
+        . $mins . ' minute' . ($mins === 1 ? '' : 's') . '.';
+}
+
 function parseDeviceLabel(string $ua): string {
     return parseDeviceParts($ua)['label'];
 }
@@ -447,55 +678,156 @@ function parseDeviceLabel(string $ua): string {
 // in the DB yet — this creates it if needed (an empty `data` placeholder,
 // immediately overwritten by the real write() at request end) or just
 // updates the ownership columns if it's already there.
+// "Known device" check, shared by tagSessionOwner() below (decides
+// whether a just-completed login is worth a "New Sign-in Detected"
+// notification) and login.php (decides whether a login gets to complete
+// at all, or has to clear an emailed OTP first — see checkKnownDevice()'s
+// own call site there). Two separate reasons a device counts as known:
+//   1. Same User-Agent already among this account's OTHER sessions —
+//      this is the same browser/device signing in again (a fresh login
+//      after the old session expired or was signed out, "remember me"
+//      renewing, etc.), not a new device.
+//   2. No session exists at all yet — this is the account's very
+//      first-ever sign-in. There's nothing yet for it to be "new"
+//      relative to, and nothing for the owner to have missed or need to
+//      review/verify — Google/Facebook don't gate an account's first
+//      login on anything extra either, only an additional device
+//      joining one that's already established.
+// Deliberately NOT the basis for auto-revoking anything: a User-Agent
+// match can't tell "the same browser logging in again" apart from "a
+// second tab of the same still-open session." Not a perfect device
+// fingerprint (a cleared/GC'd session for that same device reads as
+// "new" again), but a reasonable one without adding a separate
+// persistent devices table — sessions already survive 30+ days (see
+// DbSessionHandler::gc() above), which doubles as this check's own
+// trust window.
+// $excludeSid: tagSessionOwner() passes the current request's own
+// session id so a row it may have already written for itself this same
+// request doesn't just match against itself; login.php's pre-login gate
+// has no session row yet to worry about, so it omits this entirely.
+// ── Device identity ───────────────────────────────────────────────
+// Each browser gets a random, long-lived, httponly device cookie the first
+// time it completes a login. That token — not the user-agent string, which
+// every identical browser shares — is what makes a device "known". It
+// works like a Google account's remembered devices: once a device has passed
+// the new-device OTP it stays remembered — after Log Out, after being signed
+// out from another device, and after a password change/reset. Those end its
+// session (email + password needed again), but never ask for the OTP again.
+const DEVICE_COOKIE = 'cana_dev';
+
+function deviceToken(bool $create = false): ?string {
+    $tok = $_COOKIE[DEVICE_COOKIE] ?? '';
+    if (preg_match('/^[a-f0-9]{64}$/', $tok)) return $tok;
+    if (!$create) return null;
+    $tok = bin2hex(random_bytes(32));
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    setcookie(DEVICE_COOKIE, $tok, [
+        'expires'  => time() + 400 * 86400,
+        'path'     => '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+        'secure'   => $isHttps,
+    ]);
+    $_COOKIE[DEVICE_COOKIE] = $tok;
+    return $tok;
+}
+
+function checkKnownDevice(PDO $pdo, int $userId, string $ua): array {
+    $known     = false;
+    $firstEver = false;
+    try {
+        // Reads `known_devices`, not `sessions` — sessions are deleted on
+        // logout (see logout.php), so a device check backed by that table
+        // would "forget" a device the moment its owner signed out. Rows are
+        // added by rememberKnownDevice() (completeLogin()) and never removed
+        // by a sign-out of any kind.
+        // "First ever" = the account has genuinely never signed in, not just
+        // "no trusted devices on record" — an account that has signed in
+        // before (on devices since removed from the table by hand, say) still
+        // gets the OTP on a new device instead of being waved through.
+        $cnt = $pdo->prepare(
+            'SELECT (SELECT COUNT(*) FROM known_devices WHERE users_id = ?) = 0
+                AND (SELECT last_login_at IS NULL FROM users WHERE id = ?)'
+        );
+        $cnt->execute([$userId, $userId]);
+        $firstEver = (bool)$cnt->fetchColumn();
+
+        $tok = deviceToken();
+        if ($tok) {
+            $chk = $pdo->prepare('SELECT 1 FROM known_devices WHERE users_id = ? AND device_token = ? LIMIT 1');
+            $chk->execute([$userId, $tok]);
+            $known = (bool)$chk->fetchColumn();
+        }
+        // Legacy rows from before device cookies existed (device_token NULL)
+        // still match by user-agent once — rememberKnownDevice() then binds
+        // that row to this browser's cookie, so it can't match any other
+        // device with the same browser afterwards.
+        if (!$known && $ua !== '') {
+            $chk = $pdo->prepare('SELECT 1 FROM known_devices WHERE users_id = ? AND device_token IS NULL AND user_agent = ? LIMIT 1');
+            $chk->execute([$userId, $ua]);
+            $known = (bool)$chk->fetchColumn();
+        }
+    } catch (PDOException) {
+        // Fail open — worst case a login gets treated as "new" when it
+        // wasn't (an extra notification, or login.php's OTP gate firing
+        // once more than strictly necessary), never the other way round.
+    }
+    return ['known' => $known, 'firstEver' => $firstEver];
+}
+
+// Records (or refreshes) this device as trusted for future logins. Called
+// once per completed login (completeLogin() below) — after tagSessionOwner()
+// has already made its own checkKnownDevice() call for the "New Sign-in
+// Detected" notification, so writing here first would never suppress that
+// notification for a genuinely new device.
+function rememberKnownDevice(PDO $pdo, int $userId, string $ua): void {
+    $tok = deviceToken(true);
+    if (!$tok) return;
+    try {
+        // Bind one legacy (pre-cookie) row for this browser to the cookie
+        // instead of leaving it around to keep matching by user-agent.
+        if ($ua !== '') {
+            $pdo->prepare(
+                'UPDATE known_devices SET device_token = ? WHERE users_id = ? AND device_token IS NULL AND user_agent = ? LIMIT 1'
+            )->execute([$tok, $userId, $ua]);
+        }
+        // The device's record: browser, IP, its current session and when it
+        // last signed in (last_logout_at is filled by logout.php). Kept after
+        // Log Out, so this device only needs email + password next time.
+        $pdo->prepare(
+            'INSERT INTO known_devices (users_id, user_agent, device_token, ip_address, last_session_id, first_seen_at, last_seen_at, last_login_at)
+             VALUES (?, ?, ?, ?, ?, NOW(), NOW(), NOW())
+             ON DUPLICATE KEY UPDATE last_seen_at = NOW(), last_login_at = NOW(), user_agent = VALUES(user_agent),
+                                     ip_address = VALUES(ip_address), last_session_id = VALUES(last_session_id)'
+        )->execute([$userId, $ua, $tok, clientIp(), session_id() ?: null]);
+    } catch (PDOException) {
+        // Non-critical — worst case this device gets re-verified once more
+        // than strictly necessary on its next login.
+    }
+}
+
 function tagSessionOwner(PDO $pdo, int $userId): void {
     $sid = session_id();
     if (!$sid) return;
     $ua = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
     $ip = clientIp();
 
-    // "Known device" check — before writing this session's own row (which
-    // would otherwise always match itself), look at every OTHER still-live
-    // session on this account. Two separate reasons this login might not
-    // be worth a notification:
-    //   1. Same User-Agent already among them — this is the same browser/
-    //      device signing in again (a fresh login after the old session
-    //      expired or was signed out, "remember me" renewing, etc.), not a
-    //      new device.
-    //   2. No OTHER session exists at all — this is the account's very
-    //      first-ever sign-in. There's nothing yet for it to be "new"
-    //      relative to, and nothing for the owner to have missed or need
-    //      to review — Google/Facebook don't alert on an account's first
-    //      login either, only on an additional device joining one that's
-    //      already established.
-    // Deliberately NOT auto-revoked for case 1: a User-Agent match can't
-    // tell "the same browser logging in again" apart from "a second tab of
-    // the same still-open session," and auto-revoking the latter silently
-    // signs a legitimate, currently-in-use tab out with no warning —
-    // Google's own Your Devices page doesn't do this either; it just lists
-    // every session and lets the account owner sign each one out manually.
-    // Not a perfect device fingerprint (a cleared/GC'd session for that
-    // same device would read as "new" again), but a reasonable one
-    // without adding a separate persistent devices table.
-    $knownDevice        = false;
-    $isFirstEverSession = false;
-    try {
-        $chk = $pdo->prepare('SELECT user_agent FROM sessions WHERE user_id = ? AND id != ?');
-        $chk->execute([$userId, $sid]);
-        $otherAgents        = $chk->fetchAll(PDO::FETCH_COLUMN);
-        $knownDevice        = $ua !== '' && in_array($ua, $otherAgents, true);
-        $isFirstEverSession = count($otherAgents) === 0;
-    } catch (PDOException) {
-        // Fail open — worst case this login gets notified as "new" when it
-        // wasn't, not the other way around.
-    }
+    $device              = checkKnownDevice($pdo, $userId, $ua);
+    $knownDevice         = $device['known'];
+    $isFirstEverSession  = $device['firstEver'];
 
+    // Which device this session belongs to — lets a remote sign-out end all
+    // of that device's sessions (endDeviceSessions()).
+    $tok = deviceToken(true);
     $stmt = $pdo->prepare(
-        'INSERT INTO sessions (id, data, last_access, user_id, user_agent, ip_address, created_at)
-         VALUES (?, \'\', ?, ?, ?, ?, NOW())
+        'INSERT INTO sessions (id, data, last_access, user_id, user_agent, ip_address, device_token, created_at)
+         VALUES (?, \'\', ?, ?, ?, ?, ?, NOW())
          ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), user_agent = VALUES(user_agent),
-                                  ip_address = VALUES(ip_address), created_at = VALUES(created_at)'
+                                  ip_address = VALUES(ip_address), device_token = VALUES(device_token),
+                                  created_at = VALUES(created_at)'
     );
-    $stmt->execute([$sid, time(), $userId, $ua, $ip]);
+    $stmt->execute([$sid, time(), $userId, $ua, $ip, $tok]);
 
     if ($knownDevice || $isFirstEverSession) return;
 
@@ -509,6 +841,75 @@ function tagSessionOwner(PDO $pdo, int $userId): void {
     createNotification($pdo, $userId, 'new_login', 'New Sign-in Detected',
         "A new sign-in to your account was detected on {$deviceLabel} (IP: {$ip}). If this wasn't you, review your sessions in Sessions &amp; Sign-in and change your password."
     );
+}
+
+// Everything that happens once a login is actually allowed to succeed —
+// shared by login.php (device already known/first-ever, completes
+// immediately) and verify-login-device.php (device wasn't known,
+// completes only after the emailed OTP is confirmed), so the two paths
+// can never drift into returning differently-shaped responses or
+// skipping one of these steps. $user is a full row from `users`
+// (whatever SELECT * FROM users ... already fetched). Caller is
+// expected to have already called startSession() with the right
+// lifetime for this login — this only sets the session's own contents.
+function completeLogin(PDO $pdo, array $user): array {
+    $role   = $user['role'];
+    $result = loadUserProfile($pdo, (int)$user['id'], $role);
+    if (!$result) {
+        return ['success' => false, 'message' => 'User profile not found. Contact support.'];
+    }
+
+    $userObj = buildUserObject($role, $result['profile'], $user['email'], $result['days'], (int)$user['id']);
+
+    // Every successful login gets a brand-new session id. Ended sessions are
+    // kept as signed-out records and can't be reused (DbSessionHandler), so a
+    // browser still holding an old cookie must not land back on that row —
+    // and it's the standard defence against session fixation anyway. The
+    // old row is left as-is (false = don't delete it).
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        $oldSid = session_id();
+        session_regenerate_id(false);
+        // A previously signed-in session on this same browser is superseded
+        // by this login — kept as a record, but no longer usable.
+        try {
+            $pdo->prepare(
+                'UPDATE sessions SET data = \'\', signed_out_at = NOW()
+                  WHERE id = ? AND user_id IS NOT NULL AND signed_out_at IS NULL'
+            )->execute([$oldSid]);
+        } catch (PDOException) { /* non-critical */ }
+    }
+
+    $_SESSION['user_id']    = (int)$user['id'];
+    $_SESSION['profile_id'] = $result['profile']['id'];
+    $_SESSION['role']       = $role;
+
+    // Tag this session row with its owner + device/IP so it shows up in
+    // that user's own Settings > Active Sessions list.
+    tagSessionOwner($pdo, (int)$user['id']);
+
+    // Record this device as trusted going forward. Must run AFTER
+    // tagSessionOwner() above — that call makes its own "is this a new
+    // device" check for the sign-in notification, and this would
+    // overwrite the answer to that if it ran first.
+    rememberKnownDevice($pdo, (int)$user['id'], substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255));
+
+    // Record this login time (used for the 1-year inactivity check)
+    try {
+        $pdo->prepare('UPDATE users SET last_login_at = NOW() WHERE id = ?')
+            ->execute([(int)$user['id']]);
+    } catch (PDOException $e) { /* non-critical */ }
+
+    // Persist login to activity log
+    try {
+        $fullName = ($role === 'doctor' ? 'Dr. ' : '') . trim(($result['profile']['first_name'] ?? '') . ' ' . ($result['profile']['last_name'] ?? ''));
+        $logId    = 'L' . date('YmdHis') . substr((string)microtime(true), -3);
+        $pdo->prepare(
+            'INSERT IGNORE INTO activity_log (id, users_id, user_name, role, action, timestamp, type, ip_address)
+             VALUES (?,?,?,?,\'Logged in to the system\',NOW(),\'login\',?)'
+        )->execute([substr($logId, 0, 20), (int)$user['id'], $fullName, ucfirst($role), clientIp()]);
+    } catch (PDOException $e) { /* non-critical */ }
+
+    return ['success' => true, 'role' => $role, 'user' => $userObj];
 }
 
 // A short, opaque, non-sensitive handle for a session row — returned to
@@ -528,41 +929,72 @@ function _sessionShortId(string $sid): string {
 // request's own session marked isCurrent so the UI can label it
 // "This device" and skip offering it a Log Out button.
 function listSessions(PDO $pdo, int $userId): array {
-    $stmt = $pdo->prepare(
-        'SELECT id, user_agent, ip_address, created_at, last_access FROM sessions
-         WHERE user_id = ? ORDER BY last_access DESC'
-    );
-    $stmt->execute([$userId]);
-    $rows = $stmt->fetchAll();
+    // Like Google's "Your devices": every device that has signed in to this
+    // account at least once (known_devices), whether it's signed in right
+    // now or signed out — a normal Log Out keeps the device here (and
+    // trusted). Only removing it from another device takes it off this list
+    // (removeTrustedDevice()). Older sessions from before device cookies
+    // existed are still listed as plain active sessions underneath.
     $currentSid = session_id();
+    $myTok      = deviceToken();
 
-    // Repeated sign-ins from the exact same browser on the exact same
-    // device each get a brand-new PHP session id (an unavoidable, normal
-    // side effect of how sessions work) — without collapsing those here,
-    // this list would grow a near-duplicate "Chrome" row every time
-    // someone just reopens the app or logs back in, piling up fast.
-    // This only changes what gets RETURNED to the client — the rows
-    // themselves are never touched (no DELETE), so nothing is revoked and
-    // no device is ever forced signed out by this; an older duplicate
-    // simply stops being listed once a newer one for the same user_agent
-    // exists. This is deliberately NOT the same thing as the auto-revoke
-    // behavior tagSessionOwner() above explicitly decided against — that
-    // killed a still-open second tab outright; this only hides a listing
-    // row for what's realistically a dead, replaced session.
-    $seenAgents = [];
-    $deduped = [];
-    foreach ($rows as $r) {
-        $agent = $r['user_agent'] ?? '';
-        $isCurrent = $r['id'] === $currentSid;
-        if (!$isCurrent && $agent !== '' && isset($seenAgents[$agent])) continue;
-        if ($agent !== '') $seenAgents[$agent] = true;
-        $deduped[] = $r;
+    $act = $pdo->prepare(
+        'SELECT id, user_agent, device_model, platform_version, ip_address, device_token, created_at, last_access FROM sessions
+          WHERE user_id = ? AND signed_out_at IS NULL ORDER BY last_access DESC'
+    );
+    $act->execute([$userId]);
+    $active = $act->fetchAll();
+    $activeByTok = [];
+    foreach ($active as $r) {
+        if (!empty($r['device_token']) && !isset($activeByTok[$r['device_token']])) $activeByTok[$r['device_token']] = $r;
     }
 
-    return array_map(function (array $r) use ($currentSid): array {
-        $parts = parseDeviceParts($r['user_agent'] ?? '');
-        return [
+    $dev = $pdo->prepare(
+        'SELECT id, user_agent, device_model, platform_version, device_token, ip_address, first_seen_at, last_seen_at, last_login_at, last_logout_at
+           FROM known_devices WHERE users_id = ? AND device_token IS NOT NULL'
+    );
+    $dev->execute([$userId]);
+
+    $out = [];
+    foreach ($dev->fetchAll() as $d) {
+        $sess  = $activeByTok[$d['device_token']] ?? null;
+        $uaStr = $sess['user_agent'] ?? $d['user_agent'] ?? '';
+        $parts = parseDeviceParts($uaStr);
+        $name  = deviceDisplayName($uaStr,
+            $sess['device_model'] ?? $d['device_model'] ?? null,
+            $sess['platform_version'] ?? $d['platform_version'] ?? null,
+            $parts['os'], $parts['type']);
+        $lastActive = $sess && $sess['last_access']
+            ? date('Y-m-d H:i:s', (int)$sess['last_access'])
+            : ($d['last_logout_at'] ?: $d['last_seen_at']);
+        $out[] = [
+            'id'         => 'd' . $d['id'],
+            'name'       => $name,
+            'os'         => $parts['os'],
+            'type'       => $parts['type'],
+            'browser'    => $parts['browser'],
+            'device'     => $parts['label'],
+            'ip'         => $sess['ip_address'] ?? $d['ip_address'],
+            'createdAt'  => $d['first_seen_at'],
+            'lastActive' => $lastActive,
+            'status'     => $sess ? 'active' : 'signed_out',
+            'isCurrent'  => $myTok !== null && $d['device_token'] === $myTok,
+        ];
+    }
+
+    // Legacy: active sessions with no device cookie (signed in before this
+    // existed) — one row per browser, as before.
+    $seen = [];
+    foreach ($active as $r) {
+        if (!empty($r['device_token'])) continue;
+        $ua = $r['user_agent'] ?? '';
+        $isCurrent = $r['id'] === $currentSid;
+        if (!$isCurrent && $ua !== '' && isset($seen[$ua])) continue;
+        if ($ua !== '') $seen[$ua] = true;
+        $parts = parseDeviceParts($ua);
+        $out[] = [
             'id'         => _sessionShortId($r['id']),
+            'name'       => deviceDisplayName($ua, $r['device_model'] ?? null, $r['platform_version'] ?? null, $parts['os'], $parts['type']),
             'os'         => $parts['os'],
             'type'       => $parts['type'],
             'browser'    => $parts['browser'],
@@ -570,9 +1002,39 @@ function listSessions(PDO $pdo, int $userId): array {
             'ip'         => $r['ip_address'] ?? null,
             'createdAt'  => $r['created_at'],
             'lastActive' => $r['last_access'] ? date('Y-m-d H:i:s', (int)$r['last_access']) : null,
-            'isCurrent'  => $r['id'] === $currentSid,
+            'status'     => 'active',
+            'isCurrent'  => $isCurrent,
         ];
-    }, $deduped);
+    }
+
+    // Current device first, then signed-in devices, then most recent
+    usort($out, function ($a, $b) {
+        if ($a['isCurrent'] !== $b['isCurrent']) return $a['isCurrent'] ? -1 : 1;
+        if ($a['status'] !== $b['status']) return $a['status'] === 'active' ? -1 : 1;
+        return strcmp((string)$b['lastActive'], (string)$a['lastActive']);
+    });
+    return $out;
+}
+
+// Removes a remembered device from the account — the "Sign Out" / "Remove"
+// button on another device's Sessions & Sign-in page. Ends every session
+// still open on it AND forgets it as trusted, so its next sign-in needs the
+// emailed OTP again (and it drops off the device list). $deviceId is the
+// known_devices.id. Returns sessions ended + 1 for the device, or 0 if not found.
+function removeTrustedDevice(PDO $pdo, int $userId, int $deviceId): int {
+    $d = $pdo->prepare('SELECT device_token FROM known_devices WHERE id = ? AND users_id = ? LIMIT 1');
+    $d->execute([$deviceId, $userId]);
+    $tok = $d->fetchColumn();
+    if ($tok === false) return 0;
+    $ended = 0;
+    if ($tok) {
+        $s = $pdo->prepare('UPDATE sessions SET data = \'\', signed_out_at = NOW()
+                             WHERE signed_out_at IS NULL AND user_id = ? AND device_token = ?');
+        $s->execute([$userId, $tok]);
+        $ended = $s->rowCount();
+    }
+    $pdo->prepare('DELETE FROM known_devices WHERE id = ? AND users_id = ?')->execute([$deviceId, $userId]);
+    return $ended + 1;
 }
 
 // Revokes one of $userId's own sessions, identified by the short id
@@ -596,19 +1058,56 @@ function listSessions(PDO $pdo, int $userId): array {
 // row actually has both (an old row with a blank/unknown one never
 // cascades, so it can't sweep unrelated rows that merely share the same
 // blankness).
+// Signing a device out (from another device's Sessions & Sign-in) ends every
+// session still open on that same device — matched by its device cookie
+// token. Like a Google account, the device itself stays REMEMBERED in
+// known_devices: its next login asks for email + password again, but never
+// the new-device OTP. Older sessions without a token have nothing extra to
+// end here (revokeSessionByShortId() handles them by browser + IP). The
+// caller's own current device is never touched.
+function endDeviceSessions(PDO $pdo, int $userId, array $sessionRows): void {
+    $myTok = deviceToken();
+    foreach ($sessionRows as $row) {
+        $tok = $row['device_token'] ?? null;
+        if (!$tok || $tok === $myTok) continue;
+        try {
+            $pdo->prepare('UPDATE sessions SET data = \'\', signed_out_at = NOW() WHERE signed_out_at IS NULL AND user_id = ? AND device_token = ? AND id != ?')
+                ->execute([$userId, $tok, session_id()]);
+        } catch (PDOException) { /* best effort */ }
+    }
+}
+
 function revokeSessionByShortId(PDO $pdo, int $userId, string $shortId): int {
-    $stmt = $pdo->prepare('SELECT id, user_agent, ip_address FROM sessions WHERE user_id = ?');
+    $stmt = $pdo->prepare('SELECT id, user_agent, ip_address, device_token FROM sessions WHERE user_id = ? AND signed_out_at IS NULL');
     $stmt->execute([$userId]);
     foreach ($stmt->fetchAll() as $row) {
         if (_sessionShortId($row['id']) !== $shortId) continue;
         $currentSid = session_id();
+        endDeviceSessions($pdo, $userId, [$row]);
+        // Signed out from another device = no longer trusted: a pre-cookie
+        // legacy trust record for this browser is forgotten too, so its next
+        // sign-in needs the OTP (same rule as removeTrustedDevice()).
+        if (empty($row['device_token']) && !empty($row['user_agent'])) {
+            try {
+                $pdo->prepare('DELETE FROM known_devices WHERE users_id = ? AND device_token IS NULL AND user_agent = ?')
+                    ->execute([$userId, $row['user_agent']]);
+            } catch (PDOException) {}
+        }
+        if (!empty($row['device_token'])) {
+            // endDeviceSessions() already ended this device's other
+            // sessions by token — only this exact device, never another one
+            // that merely shares its browser + IP.
+            $del = $pdo->prepare('UPDATE sessions SET data = \'\', signed_out_at = NOW() WHERE signed_out_at IS NULL AND id = ? AND user_id = ?');
+            $del->execute([$row['id'], $userId]);
+            return max(1, $del->rowCount());
+        }
         if ($row['user_agent'] && $row['ip_address']) {
             $del = $pdo->prepare(
-                'DELETE FROM sessions WHERE user_id = ? AND user_agent = ? AND ip_address = ? AND id != ?'
+                'UPDATE sessions SET data = \'\', signed_out_at = NOW() WHERE signed_out_at IS NULL AND user_id = ? AND user_agent = ? AND ip_address = ? AND id != ?'
             );
             $del->execute([$userId, $row['user_agent'], $row['ip_address'], $currentSid]);
         } else {
-            $del = $pdo->prepare('DELETE FROM sessions WHERE id = ? AND user_id = ?');
+            $del = $pdo->prepare('UPDATE sessions SET data = \'\', signed_out_at = NOW() WHERE signed_out_at IS NULL AND id = ? AND user_id = ?');
             $del->execute([$row['id'], $userId]);
         }
         return $del->rowCount();
@@ -621,7 +1120,9 @@ function revokeSessionByShortId(PDO $pdo, int $userId, string $shortId): int {
 // stays signed in (same convention as Facebook/Google), but every other
 // open session is signed out as a security measure.
 function revokeOtherSessions(PDO $pdo, int $userId, string $exceptSessionId): void {
-    $pdo->prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?')->execute([$userId, $exceptSessionId]);
+    // Those devices are signed out (they'll need the password again) but stay
+    // remembered as trusted devices — no new-device OTP on their next login.
+    $pdo->prepare('UPDATE sessions SET data = \'\', signed_out_at = NOW() WHERE signed_out_at IS NULL AND user_id = ? AND id != ?')->execute([$userId, $exceptSessionId]);
 }
 
 // Revokes every session on the account, no exceptions — used by the
@@ -631,7 +1132,9 @@ function revokeOtherSessions(PDO $pdo, int $userId, string $exceptSessionId): vo
 // isn't the account owner, so none of that account's sessions are theirs
 // to keep).
 function revokeAllSessions(PDO $pdo, int $userId): void {
-    $pdo->prepare('DELETE FROM sessions WHERE user_id = ?')->execute([$userId]);
+    // Every device is signed out (password needed again), but devices that
+    // already passed the OTP stay remembered — no OTP on their next login.
+    $pdo->prepare('UPDATE sessions SET data = \'\', signed_out_at = NOW() WHERE signed_out_at IS NULL AND user_id = ?')->execute([$userId]);
 }
 
 // Parses clinic_settings.min_advance_booking ('Same day','1 day','2 days','3 days')
@@ -663,6 +1166,58 @@ function checkApptConflict(PDO $pdo, string $doctorId, string $date, string $tim
     $stmt = $pdo->prepare($q);
     $stmt->execute($params);
     $newMins = apptTimeToMinutes($time);
+    // Slots held by a clinic-proposed reschedule awaiting the patient's answer count as taken too.
+    $times = array_merge($stmt->fetchAll(PDO::FETCH_COLUMN), heldProposalTimes($pdo, $doctorId, $date, $excludeId));
+    foreach ($times as $existing) {
+        $existMins = apptTimeToMinutes($existing);
+        if ($existMins >= 0 && $newMins >= 0 && abs($newMins - $existMins) < $durationMin) {
+            return $existing;
+        }
+    }
+    return null;
+}
+
+// Times on $date held by a pending reschedule of this doctor's appointments,
+// in either direction — a clinic-proposed new slot awaiting the patient
+// (appointments.reschedule_proposal) or a patient's requested slot awaiting
+// the clinic (appointments.reschedule_request, when it names a time) — so
+// nobody else can book that slot in the meantime. Each entry is
+// ['time' => …, 'patientId' => …] when $withPatient, else just the time.
+function heldProposalTimes(PDO $pdo, string $doctorId, string $date, string $excludeId = '', bool $withPatient = false): array {
+    try {
+        $st = $pdo->prepare("SELECT id, patient_id, reschedule_proposal, reschedule_request FROM appointments
+                              WHERE doctor_id = ? AND status IN ('pending','approved')
+                                AND (reschedule_proposal IS NOT NULL OR reschedule_request IS NOT NULL)");
+        $st->execute([$doctorId]);
+    } catch (PDOException) { return []; }
+    $out = [];
+    foreach ($st->fetchAll() as $r) {
+        if ($excludeId !== '' && $r['id'] === $excludeId) continue;
+        $slots = [];
+        $p = json_decode($r['reschedule_proposal'] ?? '', true);
+        if (is_array($p)) $slots[] = [$p['date'] ?? '', $p['time'] ?? ''];
+        $q = json_decode($r['reschedule_request'] ?? '', true);
+        if (is_array($q)) $slots[] = [$q['preferredDate'] ?? '', $q['preferredTime'] ?? ''];
+        foreach ($slots as [$d, $t]) {
+            if ($d !== $date || !$t) continue;
+            $out[] = $withPatient ? ['time' => $t, 'patientId' => $r['patient_id']] : $t;
+        }
+    }
+    return $out;
+}
+// Same overlap rule as checkApptConflict(), but for the PATIENT instead of
+// the doctor: does this patient already hold an appointment (any doctor,
+// booked online or by the clinic) overlapping this date+time? Returns the
+// conflicting time string, or null if clear.
+function checkPatientApptConflict(PDO $pdo, string $patientId, string $date, string $time, int $durationMin, string $excludeId = ''): ?string {
+    if ($patientId === '') return null;
+    $q = "SELECT time FROM appointments
+          WHERE patient_id = ? AND date = ? AND status NOT IN ('cancelled','disapproved')"
+       . ($excludeId ? ' AND id != ?' : '');
+    $params = $excludeId ? [$patientId, $date, $excludeId] : [$patientId, $date];
+    $stmt = $pdo->prepare($q);
+    $stmt->execute($params);
+    $newMins = apptTimeToMinutes($time);
     foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $existing) {
         $existMins = apptTimeToMinutes($existing);
         if ($existMins >= 0 && $newMins >= 0 && abs($newMins - $existMins) < $durationMin) {
@@ -678,7 +1233,10 @@ function checkApptConflict(PDO $pdo, string $doctorId, string $date, string $tim
 // doctor chosen yet) to decide which time slots are even worth showing,
 // and again server-side at submission to verify at least one of them is
 // actually free before accepting a doctor-less request.
-function eligibleDoctorsForDate(PDO $pdo, string $date): array {
+// With $time, also drops doctors whose own hours that weekday
+// (doctor_days.start_time/end_time) don't cover it — NULL hours = the
+// clinic's full day, so those always pass.
+function eligibleDoctorsForDate(PDO $pdo, string $date, string $time = ''): array {
     $dow = date('D', strtotime($date)); // 'Mon','Tue',… — matches doctor_days' ENUM
     $stmt = $pdo->prepare(
         "SELECT d.id, d.first_name, d.middle_name, d.last_name
@@ -689,10 +1247,286 @@ function eligibleDoctorsForDate(PDO $pdo, string $date): array {
           ORDER BY d.sort_order, d.id"
     );
     $stmt->execute([$dow, $date]);
+    $rows = $stmt->fetchAll();
+
+    if ($time !== '') {
+        $toMin = fn(string $t) => (($ts = strtotime($t)) === false) ? null : ((int)date('G', $ts) * 60 + (int)date('i', $ts));
+        $tMin  = $toMin($time);
+        $hours = doctorDayHoursMap($pdo);
+        if ($tMin !== null) {
+            $rows = array_values(array_filter($rows, function ($r) use ($hours, $dow, $tMin, $toMin) {
+                $h = $hours[$r['id']][$dow] ?? null;
+                if (!$h) return true;
+                $s = $toMin($h['start']); $e = $toMin($h['end']);
+                return $s === null || $e === null || ($tMin >= $s && $tMin < $e);
+            }));
+        }
+    }
+
     return array_map(fn($r) => [
         'id'   => $r['id'],
         'name' => 'Dr. ' . trim($r['first_name'] . _mi($r['middle_name']) . ' ' . $r['last_name']),
-    ], $stmt->fetchAll());
+    ], $rows);
+}
+
+// ── Doctor's schedule vs. a requested time ───────────────────────
+// Server-side check that $time on $date fits the doctor's CURRENT weekly
+// schedule — they still work that weekday, and the time falls inside that
+// day's hours (doctor_days.start_time/end_time, fitted to the clinic's own
+// hours; NULL = full clinic hours). The booking page's slot list can be
+// stale if the doctor's schedule changed after it loaded, so this is the
+// real enforcement, same as blocked dates. Returns a patient-facing reason,
+// or null when the time is fine.
+function doctorScheduleProblem(PDO $pdo, string $doctorId, string $date, string $time): ?string {
+    if ($doctorId === '' || $date === '' || $time === '') return null;
+    $dow      = date('D', strtotime($date));            // Mon, Tue, …
+    $dowLong  = date('l', strtotime($date));            // Monday, …
+    $toMin = function (?string $t): ?int {
+        if (!$t || !preg_match('/^\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*$/i', $t, $m)) return null;
+        return ((int)$m[1] % 12 + (strtoupper($m[3]) === 'PM' ? 12 : 0)) * 60 + (int)$m[2];
+    };
+
+    $dn = $pdo->prepare("SELECT CONCAT('Dr. ', first_name, ' ', last_name) FROM doctors WHERE id = ? LIMIT 1");
+    $dn->execute([$doctorId]);
+    $docName = $dn->fetchColumn() ?: 'The doctor';
+
+    try {
+        $s = $pdo->prepare('SELECT start_time, end_time FROM doctor_days WHERE doctor_id = ? AND day_of_week = ? LIMIT 1');
+        $s->execute([$doctorId, $dow]);
+        $day = $s->fetch();
+    } catch (PDOException) {
+        // Pre-migration database without start_time/end_time — days only.
+        $s = $pdo->prepare('SELECT 1 FROM doctor_days WHERE doctor_id = ? AND day_of_week = ? LIMIT 1');
+        $s->execute([$doctorId, $dow]);
+        $day = $s->fetch() ? ['start_time' => null, 'end_time' => null] : false;
+    }
+    if (!$day) {
+        return "{$docName} is no longer available on {$dowLong}s. The schedule was updated, so please choose another date.";
+    }
+
+    $cs = $pdo->query('SELECT morning_start, afternoon_end FROM clinic_settings WHERE id = 1 LIMIT 1')->fetch() ?: [];
+    $open  = $toMin($cs['morning_start'] ?? '8:00 AM') ?? 480;
+    $close = $toMin($cs['afternoon_end'] ?? '5:00 PM') ?? 1020;
+    $start = max($open,  $toMin($day['start_time']) ?? $open);
+    $end   = min($close, $toMin($day['end_time'])   ?? $close);
+
+    $t = $toMin($time);
+    if ($t === null || $t < $start || $t >= $end) {
+        $fmt = fn(int $m) => date('g:i A', mktime(intdiv($m, 60), $m % 60));
+        return "{$time} is not within {$docName}'s available time on {$dowLong}s ({$fmt($start)} – {$fmt($end)}). The schedule was updated, so please choose another time.";
+    }
+    return null;
+}
+
+// ── Upcoming appointments affected by a doctor-schedule change ───
+// Pending/approved appointments of this doctor that haven't happened yet,
+// optionally limited to one date. Used before saving a schedule, blocking a
+// date, or marking a doctor unavailable, so staff see who'd be affected
+// instead of the change silently going through.
+function upcomingDoctorAppointments(PDO $pdo, string $doctorId, ?string $onDate = null): array {
+    $sql = "SELECT id, patient_name, date, time, status, type FROM appointments
+             WHERE doctor_id = ? AND status IN ('pending','approved') AND date >= CURDATE()"
+         . ($onDate ? ' AND date = ?' : '') . ' ORDER BY date, time';
+    $st = $pdo->prepare($sql);
+    $st->execute($onDate ? [$doctorId, $onDate] : [$doctorId]);
+    $now = time();
+    return array_values(array_filter($st->fetchAll(), function ($r) use ($now) {
+        $dt = DateTime::createFromFormat('Y-m-d g:i A', $r['date'] . ' ' . $r['time']);
+        return !$dt || $dt->getTimestamp() > $now;   // drop ones already past today
+    }));
+}
+
+// Shape sent to the browser for the "affected appointments" modal.
+function _affectedAppt(array $r, string $why): array {
+    return ['id' => $r['id'], 'patientName' => $r['patient_name'] ?? '', 'date' => $r['date'],
+            'time' => $r['time'], 'status' => $r['status'], 'type' => $r['type'] ?? '', 'why' => $why];
+}
+
+// Which upcoming appointments would fall outside a NEW weekly schedule —
+// a weekday no longer worked, or a time outside that day's new hours
+// ($dayHours like api/doctors/update.php: day => ['start','end'] | null =
+// full clinic hours, fitted to the clinic's own hours).
+function scheduleChangeConflicts(PDO $pdo, string $doctorId, array $days, array $dayHours): array {
+    $toMin = function (?string $t): ?int {
+        if (!$t || !preg_match('/^\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s*$/i', $t, $m)) return null;
+        return ((int)$m[1] % 12 + (strtoupper($m[3]) === 'PM' ? 12 : 0)) * 60 + (int)$m[2];
+    };
+    $fmt = fn(int $m) => date('g:i A', mktime(intdiv($m, 60), $m % 60));
+    $cs    = $pdo->query('SELECT morning_start, afternoon_end FROM clinic_settings WHERE id = 1 LIMIT 1')->fetch() ?: [];
+    $open  = $toMin($cs['morning_start'] ?? '8:00 AM') ?? 480;
+    $close = $toMin($cs['afternoon_end'] ?? '5:00 PM') ?? 1020;
+    $out = [];
+    foreach (upcomingDoctorAppointments($pdo, $doctorId) as $r) {
+        $dow = date('D', strtotime($r['date']));
+        if (!in_array($dow, $days, true)) {
+            $out[] = _affectedAppt($r, 'No longer a working day (' . date('l', strtotime($r['date'])) . ')');
+            continue;
+        }
+        $h     = $dayHours[$dow] ?? null;
+        $start = max($open,  $toMin($h['start'] ?? null) ?? $open);
+        $end   = min($close, $toMin($h['end']   ?? null) ?? $close);
+        $t     = $toMin($r['time']);
+        if ($t !== null && ($t < $start || $t >= $end)) {
+            $out[] = _affectedAppt($r, "Outside the new hours ({$fmt($start)} – {$fmt($end)})");
+        }
+    }
+    return $out;
+}
+
+// ── Unsaved examination drafts: reminders + expiry ───────────────
+// An appointment with an auto-saved exam draft (exam_drafts) is never
+// auto-marked a no-show (appointments/index.php) — but left alone it would
+// sit "approved" for a past date forever. So:
+//  1. Reminder — once its appointment date has passed, the appointment's
+//     doctor and every admin get one notification to finish or discard it.
+//  2. Expiry — a draft untouched for EXAM_DRAFT_EXPIRY_DAYS is deleted;
+//     its appointment then follows the normal no-show rule (an admin can
+//     still revert that). Doctor + admins are told it expired.
+// Runs from the cron and on appointment loads. Returns counts.
+const EXAM_DRAFT_EXPIRY_DAYS = 30;
+
+function _examDraftRecipients(PDO $pdo, ?string $doctorId): array {
+    $ids = array_map('intval', $pdo->query("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")->fetchAll(PDO::FETCH_COLUMN));
+    if ($doctorId) {
+        $d = $pdo->prepare('SELECT d.user_id FROM doctors d JOIN users u ON u.id = d.user_id WHERE d.id = ? AND u.is_active = 1 LIMIT 1');
+        $d->execute([$doctorId]);
+        if ($uid = $d->fetchColumn()) $ids[] = (int)$uid;
+    }
+    return array_values(array_unique($ids));
+}
+
+function processExamDrafts(PDO $pdo): array {
+    $res = ['reminded' => 0, 'expired' => 0];
+    try {
+        // 1. Reminders — appointment date passed, still approved, not reminded yet.
+        $due = $pdo->query(
+            "SELECT d.id AS draft_id, d.saved_by, d.updated_at, a.id AS appt_id, a.patient_name, a.doctor_id, a.date, a.time
+               FROM exam_drafts d
+               JOIN appointments a ON a.id = d.appt_id AND a.patient_id = d.patient_id
+              WHERE d.appt_id <> '' AND d.reminded_at IS NULL
+                AND a.status = 'approved' AND a.date < CURDATE()"
+        )->fetchAll();
+        foreach ($due as $r) {
+            $upd = $pdo->prepare('UPDATE exam_drafts SET reminded_at = NOW() WHERE id = ? AND reminded_at IS NULL');
+            $upd->execute([$r['draft_id']]);
+            if ($upd->rowCount() === 0) continue;   // another request already sent it
+            $fmt     = date('M j, Y', strtotime($r['date']));
+            $expires = date('M j, Y', strtotime($r['updated_at'] . ' +' . EXAM_DRAFT_EXPIRY_DAYS . ' days'));
+            $body = "The examination for {$r['patient_name']}'s appointment on {$fmt} at {$r['time']} was started but never saved. "
+                  . "Open the appointment to continue and save it, or discard the draft. "
+                  . "If it's left untouched, the draft expires on {$expires} and the appointment will be treated as a no-show.";
+            foreach (_examDraftRecipients($pdo, $r['doctor_id']) as $uid) {
+                createNotification($pdo, $uid, 'exam_draft', 'Unsaved Examination', $body, $r['appt_id']);
+            }
+            $res['reminded']++;
+        }
+
+        // 2. Expiry — untouched for EXAM_DRAFT_EXPIRY_DAYS.
+        $old = $pdo->prepare(
+            "SELECT d.id AS draft_id, d.appt_id, a.patient_name, a.doctor_id, a.date, a.time, a.status
+               FROM exam_drafts d
+               LEFT JOIN appointments a ON a.id = d.appt_id AND a.patient_id = d.patient_id
+              WHERE d.updated_at < NOW() - INTERVAL ? DAY"
+        );
+        $old->execute([EXAM_DRAFT_EXPIRY_DAYS]);
+        foreach ($old->fetchAll() as $r) {
+            $del = $pdo->prepare('DELETE FROM exam_drafts WHERE id = ?');
+            $del->execute([$r['draft_id']]);
+            if ($del->rowCount() === 0) continue;
+            $res['expired']++;
+            // Only worth telling anyone about when it was holding an appointment open.
+            if ($r['appt_id'] === '' || $r['status'] !== 'approved') continue;
+            $fmt  = date('M j, Y', strtotime($r['date']));
+            $body = "The unsaved examination draft for {$r['patient_name']}'s appointment on {$fmt} at {$r['time']} expired after "
+                  . EXAM_DRAFT_EXPIRY_DAYS . " days without being saved, so the appointment is now handled as a no-show. "
+                  . "If the patient was seen, an admin can revert the no-show and record the examination.";
+            foreach (_examDraftRecipients($pdo, $r['doctor_id']) as $uid) {
+                createNotification($pdo, $uid, 'exam_draft_expired', 'Examination Draft Expired', $body, $r['appt_id']);
+            }
+        }
+    } catch (PDOException) { /* exam_drafts not migrated yet — nothing to do */ }
+    return $res;
+}
+
+// A patient's age right now, from their date of birth — computed at read
+// time so it rolls over on their birthday by itself. patients.age is only
+// written when the DOB is saved, so on its own it goes stale every year;
+// it's used here only as a fallback for a record with no (valid) DOB.
+function patientAge(?string $dob, $storedAge = 0): int {
+    if ($dob) {
+        try {
+            $bd = new DateTime(substr($dob, 0, 10));
+            return max(0, (int)$bd->diff(new DateTime('today'))->y);
+        } catch (Exception) { /* malformed DOB — fall through */ }
+    }
+    return (int)($storedAge ?? 0);
+}
+
+// SQL condition: the appointment's own start time (date + "2:00 PM"-style
+// time) is already in the past. Every connection runs on +08:00, same as PHP.
+const APPT_START_PASSED_SQL =
+    "(date < CURDATE() OR (date = CURDATE() AND STR_TO_DATE(time, '%l:%i %p') <= CURTIME()))";
+
+// Requests still "pending" once their appointment time has arrived — staff
+// or admin never approved or declined them, and nothing else would ever
+// resolve them. They're declined (kept on record, never deleted) with a
+// reason, and the patient gets an in-app + email notice. Called by the cron
+// (api/cron/appointment_reminders.php) and on every appointments load
+// (api/appointments/index.php), so it still happens without the cron.
+// Returns how many were declined.
+function expireUnactionedPending(PDO $pdo): int {
+    $due = $pdo->query(
+        "SELECT id, patient_id, doctor_name, date, time FROM appointments
+         WHERE status = 'pending' AND " . APPT_START_PASSED_SQL
+    )->fetchAll();
+
+    $count = 0;
+    foreach ($due as $r) {
+        $upd = $pdo->prepare(
+            "UPDATE appointments SET status = 'disapproved', disapproval_reason = ?, reschedule_request = NULL
+             WHERE id = ? AND status = 'pending'"
+        );
+        $upd->execute(['Automatically declined. This request was not reviewed before its appointment time.', $r['id']]);
+        if ($upd->rowCount() === 0) continue; // acted on (or expired by another request) in the meantime
+        $count++;
+
+        if (!$r['patient_id']) continue;
+        $ps = $pdo->prepare('SELECT user_id FROM patients WHERE id = ? LIMIT 1');
+        $ps->execute([$r['patient_id']]);
+        $userId = $ps->fetchColumn();
+        if (!$userId) continue;
+
+        $fmtDate   = date('M j, Y', strtotime($r['date']));
+        $withWho   = $r['doctor_name'] ? "with {$r['doctor_name']} " : '';
+        $noticeMsg = "Your appointment request {$withWho}on {$fmtDate} at {$r['time']} has been automatically declined.";
+        $reason    = 'The clinic wasn\'t able to review your request before its appointment time.';
+        createNotification($pdo, (int)$userId, 'disapproved', 'Appointment Request Expired',
+            "{$noticeMsg} {$reason} Please book a new appointment if you'd still like to be seen.", $r['id']);
+        _emailPatientNotice($pdo, (int)$userId, 'Appointment Request Expired',
+            $noticeMsg . ' Please book a new appointment if you\'d still like to be seen.',
+            appointmentLinkUrl($r['id']), 'View Appointment', $r['date'], 'Reason', $reason);
+    }
+    return $count;
+}
+
+// Each doctor's own hours per working day, from doctor_days.start_time/
+// end_time: [doctorId => ['Mon' => ['start' => '9:00 AM', 'end' => '12:00 PM'],
+// 'Thu' => null, …]]. null = that day follows the clinic's full hours.
+// Own try/catch so a database without the columns yet still loads doctors.
+function doctorDayHoursMap(PDO $pdo, ?string $doctorId = null): array {
+    $map = [];
+    try {
+        $sql = 'SELECT doctor_id, day_of_week, start_time, end_time FROM doctor_days'
+             . ($doctorId !== null ? ' WHERE doctor_id = ?' : '');
+        $st = $pdo->prepare($sql);
+        $st->execute($doctorId !== null ? [$doctorId] : []);
+        foreach ($st->fetchAll() as $r) {
+            $map[$r['doctor_id']][$r['day_of_week']] = ($r['start_time'] && $r['end_time'])
+                ? ['start' => $r['start_time'], 'end' => $r['end_time']]
+                : null;
+        }
+    } catch (PDOException) { /* columns not yet migrated — every day = clinic hours */ }
+    return $map;
 }
 
 // ── Build the frontend-compatible user object ─────────────────────
@@ -724,6 +1558,7 @@ function buildUserObject(string $role, array $p, string $email, array $days = []
             'available'      => (bool)($p['available'] ?? true),
             'days'           => $days,
             'hours'          => $p['work_hours'] ?? '',
+            'dayHours'       => (object)(doctorDayHoursMap(getDB(), (string)$p['id'])[$p['id']] ?? []),
         ]);
     }
 
@@ -731,10 +1566,12 @@ function buildUserObject(string $role, array $p, string $email, array $days = []
         return array_merge($base, [
             'gender'         => $p['gender']          ?? '',
             'dob'            => $p['dob']              ?? '',
-            'age'            => (int)($p['age']        ?? 0),
+            'age'            => patientAge($p['dob'] ?? null, $p['age'] ?? 0),
             'address'        => $p['address']          ?? '',
             'occupation'     => $p['occupation']       ?? '',
             'medicalHistory' => $p['medical_history']  ?? '',
+            'medicalHistoryByPatient' => !empty($p['medical_history_by_patient']),
+            'medicalHistoryPatientSubmitted' => !empty($p['medical_history_patient_at']),
             'qrData'         => $p['qr_data']          ?? '',
             'registeredDate' => $p['registered_date']  ?? '',
             'lastVisit'      => $p['last_visit'] ?: '—',
@@ -805,20 +1642,21 @@ function recordNoShow(PDO $pdo, string $patientId): bool {
     return false;
 }
 
-// ── Appointment reminders, confirmation & waitlist ─────────────────
+// ── Appointment reminders & confirmation ─────────────────────────
 // The reminder is sent at the configured reminder time the day before the
-// appointment; if the patient hasn't confirmed by the configured deadline
-// that same day, api/cron/appointment_reminders.php auto-cancels it. Both
-// are checked against the clinic's local time (Asia/Manila, set in this
-// file above). Admin-configurable via Clinic Settings → Scheduling Rules
-// (clinic_settings.reminder_time / confirm_deadline_time — same "H:MM AM/PM"
-// string format as the rest of clinic_settings' time fields), rather than
-// fixed at noon/9:00 PM for every clinic.
+// appointment, asking the patient to confirm they're coming. Confirming is
+// informational only (it tells the front desk to expect them) — nothing is
+// ever auto-cancelled for not confirming. Checked against the clinic's
+// local time (Asia/Manila, set in this file above). Admin-configurable via
+// Clinic Settings → Scheduling Rules (clinic_settings.reminder_time — same
+// "H:MM AM/PM" string format as the rest of clinic_settings' time fields).
 function reminderTimeSetting(PDO $pdo): string {
-    return $pdo->query('SELECT reminder_time FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn() ?: '12:00 PM';
+    return $pdo->query('SELECT reminder_time FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn() ?: '12:00 AM';
 }
-function confirmDeadlineTimeSetting(PDO $pdo): string {
-    return $pdo->query('SELECT confirm_deadline_time FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn() ?: '9:00 PM';
+// Second reminder, sent the same day only to patients who still haven't
+// confirmed by then (Clinic Settings → Scheduling Rules, default noon).
+function followupReminderTimeSetting(PDO $pdo): string {
+    return $pdo->query('SELECT followup_reminder_time FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn() ?: '12:00 PM';
 }
 // Converts a clinic_settings "H:MM AM/PM" time string into "HH:MM:SS" for
 // direct comparison against CURTIME() in the cron's SQL.
@@ -827,20 +1665,91 @@ function settingTimeTo24h(string $t): string {
     return $ts !== false ? date('H:i:s', $ts) : '00:00:00';
 }
 
+// ── Per-patient upcoming-appointment limit ───────────────────────
+// Clinic Settings → Scheduling Rules → Max Upcoming Appointments Per
+// Patient (default 1): how many open appointments a patient may book for
+// themselves at once. Open = booked online by the patient, pending or
+// approved, dated today or later. Completed / cancelled / disapproved /
+// no-show / past ones free the patient to book again. Admin/staff
+// bookings (source 'walk-in', e.g. follow-ups) neither count nor are
+// limited. Returns the message to show, or null.
+//
+// Stored in clinic_settings.max_appts_per_patient_per_day — the column of
+// the per-day limit this replaced, reused under the new meaning so no
+// database migration was needed.
+function maxUpcomingApptsPerPatient(PDO $pdo): int {
+    try {
+        $v = (int)$pdo->query('SELECT max_appts_per_patient_per_day FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn();
+    } catch (PDOException $e) {
+        $v = 0;   // column missing on an older database → the default
+    }
+    return $v > 0 ? $v : 1;
+}
+function patientOpenAppointments(PDO $pdo, string $patientId): array {
+    $s = $pdo->prepare(
+        "SELECT id, date, time FROM appointments
+          WHERE patient_id = ? AND source = 'online' AND status IN ('pending','approved') AND date >= CURDATE()
+          ORDER BY date, time"
+    );
+    $s->execute([$patientId]);
+    return $s->fetchAll();
+}
+function patientUpcomingLimitError(PDO $pdo, string $patientId): ?string {
+    if ($patientId === '') return null;
+    $max  = maxUpcomingApptsPerPatient($pdo);
+    $open = patientOpenAppointments($pdo, $patientId);
+    if (count($open) < $max) return null;
+    if ($max === 1) {
+        $when = date('M j, Y', strtotime($open[0]['date'])) . " at {$open[0]['time']}";
+        return "You already have an upcoming appointment on {$when}. You can book another once it's done, or reschedule or cancel it from My Appointments.";
+    }
+    return "You already have {$max} upcoming appointments, the most you can book at once. You can book another once one is done, or reschedule or cancel one from My Appointments.";
+}
+
+// ── Links back into the system (used in emails) ──────────────────
+// The site's base address, e.g. https://canaoptical.com, in this order:
+//   1. APP_URL in .env, if set (most reliable on any host);
+//   2. worked out from the current request — correct on localhost
+//      (http://localhost/canaopticalclinic) and on the live site alike,
+//      including when the reminder job is triggered over HTTP;
+//   3. no request at all (the job run from the command line): a local
+//      XAMPP install under htdocs → http://localhost/<folder>; anything
+//      else → the live domain.
+function appBaseUrl(): string {
+    $env = getenv('APP_URL');
+    if ($env) return rtrim($env, '/');
+    if (!empty($_SERVER['HTTP_HOST'])) {
+        $https  = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+               || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+        $script = $_SERVER['SCRIPT_NAME'] ?? '';
+        $pos    = strpos($script, '/api/');
+        $path   = $pos !== false ? substr($script, 0, $pos) : '';
+        return ($https ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $path;
+    }
+    $root = str_replace('\\', '/', (string)realpath(__DIR__ . '/..'));
+    if (preg_match('#/htdocs/(.+)$#i', $root, $m)) {
+        return 'http://localhost/' . implode('/', array_map('rawurlencode', explode('/', $m[1])));
+    }
+    return 'https://canaoptical.com';
+}
+// Opens the patient portal straight on one appointment (app.html handles
+// #appt=ID): the confirm prompt when it's waiting for confirmation,
+// otherwise its details. Signing in first if needed.
+function appointmentLinkUrl(string $apptId): string {
+    return appBaseUrl() . '/app.html#appt=' . rawurlencode($apptId);
+}
+
 // Builds a Google Calendar "add event" link for an approved appointment —
 // Google's own URL-based /calendar/render?action=TEMPLATE endpoint, not
 // the OAuth Calendar API, so no account connection or credentials are
 // needed on either side; it just opens Google Calendar pre-filled and the
-// patient hits Save. From there Google's own reminder options (popup/
-// email, however far in advance) apply on top of this app's own email/
-// in-app reminders — more choices, not a replacement for them. Only
-// surfaced in emails (the approval email + the day-before reminder
-// email), never inside the app itself.
+// patient hits Save. From there Google's own reminder options apply on top
+// of this app's own email/in-app reminders. Shown as the secondary "Add to
+// Google Calendar" button in the approval, reschedule and first reminder
+// emails (systemEmailBody(), config/smtp.php).
 // Times are sent as plain local wall-clock numbers with an explicit
-// ctz=Asia/Manila (the timezone this whole app already runs in — see
-// date_default_timezone_set above) so Google renders them at the correct
-// local time regardless of the recipient's own device timezone, instead
-// of us having to convert to UTC ourselves.
+// ctz=Asia/Manila (the timezone this whole app runs in) so Google renders
+// them at the correct local time regardless of the recipient's device.
 function googleCalendarUrl(PDO $pdo, string $date, string $time, ?string $doctorName, ?string $apptType): string {
     $durStr = $pdo->query('SELECT default_duration FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn();
     preg_match('/(\d+)/', $durStr ?: '45', $dm);
@@ -865,58 +1774,118 @@ function googleCalendarUrl(PDO $pdo, string $date, string $time, ?string $doctor
     return "https://calendar.google.com/calendar/render?{$params}";
 }
 
-// How long a waitlist offer stays claimable — admin-configurable (Clinic
-// Settings → Scheduling Rules, default 3), deliberately not scaled by how
-// far out the appointment is. A longer window for distant appointments
-// sounds more lenient, but it also means every other patient behind the
-// first one in the FIFO queue has to wait out that same long window before
-// the offer can cascade down to them if it's ignored — with several people
-// in line, that compounds fast. A single short window bounds that worst
-// case regardless of queue length or appointment distance. Also doubles as
-// the minimum runway a slot needs before it's even offered (see
-// waitlistHasEnoughLeadTime below) — there's no point offering a window
-// longer than what could ever fit before the appointment happens.
-function waitlistOfferHoursSetting(PDO $pdo): int {
-    $v = $pdo->query('SELECT waitlist_offer_hours FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn();
-    $v = (int)$v;
-    return $v > 0 ? $v : 3;
+// One-tap "Confirm Appointment" link for the reminder emails — confirms
+// without signing in (api/appointments/confirm-link.php). The token is an
+// HMAC of the appointment id, so a link only ever works for its own
+// appointment and can't be guessed or edited into another one. The key is
+// APP_KEY from .env if set, otherwise derived from this server's own DB
+// credentials (private to the server, and stable across requests).
+function appSigningKey(): string {
+    $k = getenv('APP_KEY');
+    return $k ?: hash('sha256', 'cana-appt-confirm|' . DB_NAME . '|' . DB_USER . '|' . DB_PASS);
+}
+function appointmentConfirmToken(string $apptId): string {
+    return hash_hmac('sha256', 'confirm|' . $apptId, appSigningKey());
+}
+function appointmentConfirmUrl(string $apptId): string {
+    return appBaseUrl() . '/api/appointments/confirm-link.php?id=' . rawurlencode($apptId)
+         . '&t=' . appointmentConfirmToken($apptId);
 }
 
-// True if a doctor+date+time slot has enough runway left to bother offering
-// it via the waitlist. This is purely an hours-based feasibility check —
-// can the patient realistically see the notification, respond, and get to
-// the clinic — not the day-level minimum-advance-booking policy (Minimum
-// Advance Booking exists to stop a brand-new *self-service* booking from
-// being made with too little planning lead-time; a waitlisted patient
-// already opted in to be notified about this exact slot in advance, so
-// applying that same "no same-day" rule here just blocks a same-day
-// cancellation from ever being offered to them, even with hours of runway
-// still left — the hours floor below already covers the real constraint).
-function waitlistHasEnoughLeadTime(PDO $pdo, string $date, string $time): bool {
-    $apptAt = strtotime("$date $time");
-    if ($apptAt === false) return false;
-    return ($apptAt - time()) / 3600 >= waitlistOfferHoursSetting($pdo);
+// Patients can cancel or request a reschedule online up to this many hours
+// before the appointment (mirrors pages.js's CANCEL_DEADLINE_HOURS /
+// RESCHEDULE_DEADLINE_HOURS and api/appointments/update.php's checks).
+const PATIENT_CHANGE_CUTOFF_HOURS = 24;
+
+// Unix timestamp of an appointment's date+time, or null if unparseable.
+function apptTimestamp(array $appt): ?int {
+    $dt = DateTime::createFromFormat('Y-m-d g:i A', $appt['date'] . ' ' . $appt['time']);
+    return $dt ? $dt->getTimestamp() : null;
 }
 
-// Claim-window length for a specific doctor+date+time slot — a flat
-// waitlistOfferHoursSetting(), only ever called after
-// waitlistHasEnoughLeadTime() has confirmed that much runway actually
-// exists. The cap here is just a safety net for the sliver of time right
-// at that boundary (e.g. exactly 3.0 hours left rounding down a touch due
-// to fractional seconds).
-function waitlistOfferHours(PDO $pdo, string $date, string $time): int {
-    $maxHours = waitlistOfferHoursSetting($pdo);
-    $apptAt   = strtotime("$date $time");
-    if ($apptAt === false) return $maxHours;
-
-    $hoursUntil = ($apptAt - time()) / 3600;
-    return max(1, min($maxHours, (int)floor($hoursUntil)));
+// "If you can't make it" guidance that's actually true at the moment it's
+// read: while online cancellation is still open, say until when; once
+// inside the 24-hour cutoff, point to the clinic instead (online cancel
+// is blocked by then).
+// $now overrides the current time (for previewing a reminder as it would
+// read when sent later); defaults to now.
+function apptChangeGuidance(PDO $pdo, array $appt, ?int $now = null): string {
+    $now      = $now ?? time();
+    $ts       = apptTimestamp($appt);
+    $cutoffTs = $ts !== null ? $ts - PATIENT_CHANGE_CUTOFF_HOURS * 3600 : null;
+    if ($cutoffTs !== null && $now < $cutoffTs) {
+        $when = date('Y-m-d', $cutoffTs) === date('Y-m-d', $now) ? 'today at ' . date('g:i A', $cutoffTs) : date('M j, g:i A', $cutoffTs);
+        return "If you can no longer make it, you can cancel or request a reschedule from your account until {$when}.";
+    }
+    $phone = trim((string)$pdo->query('SELECT phone FROM clinic_settings WHERE id = 1 LIMIT 1')->fetchColumn());
+    return 'If you can no longer make it, please contact the clinic' . ($phone ? " at {$phone}" : '')
+         . '. Online cancellation closes ' . PATIENT_CHANGE_CUTOFF_HOURS . ' hours before your visit.';
 }
 
-// Builds the next A00N id and inserts the appointment row. Shared by
-// api/appointments/create.php (normal booking, status usually 'pending')
-// and api/waitlist/respond.php (claiming an offer, status 'approved' —
-// the slot was already implicitly vetted when it was first offered).
+// In-app + email notice for a missed appointment — shared by the manual
+// "Mark No-Show" (api/appointments/update.php) and the automatic
+// next-day transition (api/appointments/index.php). When this no-show
+// just triggered the booking restriction, that's spelled out in the
+// email's highlighted box rather than buried in the sentence.
+function notifyPatientNoShow(PDO $pdo, int $userId, array $appt, bool $justRestricted): void {
+    $fmtDate = date('M j, Y', strtotime($appt['date']));
+    $doctor  = $appt['doctor_name'] ?: 'your doctor';
+    $base    = "You were marked as a no-show for your appointment with {$doctor} on {$fmtDate} at {$appt['time']}.";
+    $restrictMsg = 'Due to repeated missed appointments, online booking has been temporarily restricted for your account. Please contact the clinic directly to schedule your next visit.';
+    createNotification($pdo, $userId, 'no_show', 'Missed Appointment', $base . ($justRestricted ? " {$restrictMsg}" : ''), $appt['id']);
+    _emailPatientNotice($pdo, $userId, 'Missed Appointment',
+        $base . ' If this is a mistake, please contact the clinic.',
+        appointmentLinkUrl($appt['id']), 'View Appointment', $appt['date'],
+        $justRestricted ? 'Online Booking Restricted' : '', $justRestricted ? $restrictMsg : '');
+}
+
+// Title + message for the day-before reminders (api/cron/
+// appointment_reminders.php). $which: 1 = first reminder, 2 = second
+// reminder (sent only if still unconfirmed). Confirming is informational —
+// nothing is cancelled for not confirming.
+function buildReminderNotice(PDO $pdo, array $appt, int $which, ?int $now = null): array {
+    $doctor  = $appt['doctor_name'] ?: 'your doctor';
+    $fmtDate = date('M j, Y', strtotime($appt['date']));
+    $when    = "tomorrow ({$fmtDate}) at {$appt['time']}";
+    $guide   = apptChangeGuidance($pdo, $appt, $now);
+    if ($which === 2) {
+        return ['Please Confirm Your Appointment',
+            "This is a second reminder: you haven't confirmed your appointment with {$doctor} {$when} yet. "
+          . "Please tap Confirm Appointment so the clinic knows to expect you. {$guide}"];
+    }
+    return ['Confirm Your Appointment',
+        "You have an appointment with {$doctor} {$when}. "
+      . "Please tap Confirm Appointment to let the clinic know you'll be attending. {$guide}"];
+}
+
+// Marks an approved, reminded appointment as confirmed and tells
+// admin/staff. Shared by the in-app button (confirm.php) and the email
+// link (confirm-link.php) so both follow exactly the same rules. Returns
+// [ok, message]; already-confirmed counts as ok.
+function confirmAppointmentAttendance(PDO $pdo, array $appt): array {
+    if ($appt['status'] !== 'approved') {
+        return [false, $appt['status'] === 'cancelled'
+            ? 'This appointment has already been cancelled, so it can no longer be confirmed.'
+            : 'Only approved appointments can be confirmed.'];
+    }
+    if (!$appt['reminder_sent_at']) return [false, 'There is no pending confirmation for this appointment yet.'];
+    if ($appt['confirmed_at'])      return [true, 'already'];
+
+    $upd = $pdo->prepare("UPDATE appointments SET confirmed_at = NOW() WHERE id = ? AND confirmed_at IS NULL AND status = 'approved'");
+    $upd->execute([$appt['id']]);
+    if ($upd->rowCount() === 0) return [true, 'already']; // confirmed a moment ago from elsewhere
+
+    // Let admin/staff know — so the front desk isn't left guessing whether
+    // tomorrow's slot is still a go.
+    $fmtDate = date('M j, Y', strtotime($appt['date']));
+    notifyAdminStaff($pdo, 'appointment_confirmed', 'Patient Confirmed Attendance',
+        "{$appt['patient_name']} confirmed attendance for their appointment with {$appt['doctor_name']} on {$fmtDate} at {$appt['time']}."
+    );
+    return [true, 'confirmed'];
+}
+
+// Builds the next A00N id and inserts the appointment row
+// (api/appointments/create.php).
 function createAppointmentRecord(PDO $pdo, array $data): string {
     $last = $pdo->query("SELECT id FROM appointments ORDER BY id DESC LIMIT 1")->fetchColumn();
     $next = 1;
@@ -933,11 +1902,7 @@ function createAppointmentRecord(PDO $pdo, array $data): string {
         $newId = 'A' . str_pad($next, 3, '0', STR_PAD_LEFT);
     }
 
-    // 'online' unless the caller explicitly says otherwise — every existing
-    // caller before this field existed effectively meant 'online' anyway
-    // (a patient booking themselves, or claiming their own waitlist offer),
-    // so this default keeps every call site that hasn't been updated working
-    // exactly as before instead of silently mislabeling walk-ins.
+    // 'online' unless the caller explicitly says 'walk-in'.
     $source = ($data['source'] ?? 'online') === 'walk-in' ? 'walk-in' : 'online';
 
     $pdo->prepare(
@@ -951,122 +1916,6 @@ function createAppointmentRecord(PDO $pdo, array $data): string {
     ]);
 
     return $newId;
-}
-
-// Exact-match check (unlike checkApptConflict's fuzzy duration-window
-// overlap) for whether this precise doctor+date+time is currently held
-// by an active, unexpired waitlist offer to a different patient.
-function checkWaitlistHold(PDO $pdo, string $doctorId, string $date, string $time, string $excludePatientId = ''): bool {
-    $q = "SELECT id FROM appointment_waitlist
-          WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'offered' AND offer_expires_at > NOW()"
-       . ($excludePatientId ? ' AND patient_id != ?' : '');
-    $params = $excludePatientId ? [$doctorId, $date, $time, $excludePatientId] : [$doctorId, $date, $time];
-    $stmt = $pdo->prepare($q);
-    $stmt->execute($params);
-    return (bool)$stmt->fetch();
-}
-
-// Where a given waiting entry currently sits in line for its doctor+date+
-// time slot, and how many people total are waiting for that same slot.
-// Uses the identical ordering offerNextWaitlistSlot() uses to pick who's
-// next (status='waiting', created_at ASC, id as a tiebreaker for same-
-// timestamp entries) so the number shown to a patient always matches who'd
-// actually be offered the slot next — never shows other patients' details,
-// just where this one entry ranks.
-function waitlistPosition(PDO $pdo, string $doctorId, string $date, string $time, string $createdAt, int $id): array {
-    $stmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM appointment_waitlist
-         WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'waiting'
-           AND (created_at < ? OR (created_at = ? AND id <= ?))"
-    );
-    $stmt->execute([$doctorId, $date, $time, $createdAt, $createdAt, $id]);
-    $position = (int)$stmt->fetchColumn();
-
-    $stmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM appointment_waitlist WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'waiting'"
-    );
-    $stmt->execute([$doctorId, $date, $time]);
-    $total = (int)$stmt->fetchColumn();
-
-    return ['position' => $position, 'total' => $total];
-}
-
-// Offers a freshly-opened slot to the next patient in line, if anyone is
-// waiting for that exact doctor+date+time. Call this any time an
-// appointment for that slot is cancelled/no-showed, a waitlist offer is
-// declined, or a stale offer expires. No-op if nobody's waiting.
-function offerNextWaitlistSlot(PDO $pdo, string $doctorId, string $date, string $time): void {
-    // Claiming an offer is functionally a new booking — a patient can't be
-    // expected to see the notification, respond, and travel to the clinic
-    // if the slot doesn't leave enough runway. Don't manufacture an offer
-    // nobody could realistically act on — leave the entry as 'waiting'
-    // (a no-op here, same as if nobody were in line).
-    if (!waitlistHasEnoughLeadTime($pdo, $date, $time)) return;
-
-    $stmt = $pdo->prepare(
-        "SELECT id, patient_id, doctor_name FROM appointment_waitlist
-         WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'waiting'
-         ORDER BY created_at ASC LIMIT 1"
-    );
-    $stmt->execute([$doctorId, $date, $time]);
-    $row = $stmt->fetch();
-    if (!$row) return;
-
-    $expiresAt = date('Y-m-d H:i:s', time() + waitlistOfferHours($pdo, $date, $time) * 3600);
-    $pdo->prepare(
-        "UPDATE appointment_waitlist SET status = 'offered', offered_at = NOW(), offer_expires_at = ?
-         WHERE id = ? AND status = 'waiting'"
-    )->execute([$expiresAt, $row['id']]);
-
-    $ps = $pdo->prepare('SELECT user_id FROM patients WHERE id = ? LIMIT 1');
-    $ps->execute([$row['patient_id']]);
-    $userId = $ps->fetchColumn();
-    if ($userId) {
-        $fmtDate      = date('M j, Y', strtotime($date));
-        $expiresLabel = date('g:i A', strtotime($expiresAt));
-        $noticeMsg = "The slot with {$row['doctor_name']} on {$fmtDate} at {$time} you were waitlisted for is now available. "
-          . "Claim it by {$expiresLabel} or it will be offered to the next patient in line.";
-        // This is the single most time-critical notice in the whole waitlist
-        // system — a live countdown claim window, same urgency as the
-        // appointment reminder cron. In-app only meant a patient who wasn't
-        // actively logged in right then would simply never find out in time.
-        createNotification($pdo, (int)$userId, 'waitlist_offer', 'A Waitlisted Slot Is Open', $noticeMsg);
-        _emailPatientNotice($pdo, (int)$userId, 'A Waitlisted Slot Is Open', $noticeMsg);
-    }
-}
-
-// Removes any still-'waiting' waitlist entries for a doctor+date+time slot
-// that just became locked in for good — the patient confirmed attendance
-// (api/appointments/confirm.php), or the visit already happened
-// (api/appointments/update.php marking it 'completed'). Either way that
-// slot is no longer a realistic prospect, so leaving anyone queued on it
-// just delays them from picking something actually available. Notifies
-// each one removed, in-app and by email — same reasoning as
-// offerNextWaitlistSlot() above, this isn't something to leave someone to
-// discover only by happening to check the app.
-function clearWaitlistForLockedSlot(PDO $pdo, string $doctorId, string $date, string $time, string $reasonMsg): void {
-    $waiters = $pdo->prepare(
-        "SELECT patient_id FROM appointment_waitlist
-         WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'waiting'"
-    );
-    $waiters->execute([$doctorId, $date, $time]);
-    $waiting = $waiters->fetchAll();
-    if (!$waiting) return;
-
-    $pdo->prepare(
-        "UPDATE appointment_waitlist SET status = 'cancelled'
-         WHERE doctor_id = ? AND date = ? AND time = ? AND status = 'waiting'"
-    )->execute([$doctorId, $date, $time]);
-
-    foreach ($waiting as $w) {
-        $ps = $pdo->prepare('SELECT user_id FROM patients WHERE id = ? LIMIT 1');
-        $ps->execute([$w['patient_id']]);
-        $userId = $ps->fetchColumn();
-        if ($userId) {
-            createNotification($pdo, (int)$userId, 'waitlist_removed', 'Removed From Waitlist', $reasonMsg);
-            _emailPatientNotice($pdo, (int)$userId, 'Removed From Waitlist', $reasonMsg);
-        }
-    }
 }
 
 // ── Notification helpers ─────────────────────────────────────────
@@ -1101,12 +1950,12 @@ function notifyAdminStaff(PDO $pdo, string $type, string $title, string $body, ?
 
 // Companion to createNotification() — sends the same notice by email too,
 // so a patient not actively logged in when it fires still finds out
-// (appointment reminders/cancellations, waitlist removal, etc). Shared
+// (appointment reminders, cancellations, etc). Shared
 // here rather than duplicated per call site (originally lived only in
 // api/cron/appointment_reminders.php). Its own try/catch so one failed
 // delivery never interrupts whatever loop is calling it in a batch.
-// $ctaUrl/$ctaLabel are optional (e.g. the "Add to Google Calendar" link
-// on the approval/reminder emails) and passed straight through to
+// $ctaUrl/$ctaLabel are optional (e.g. the "View Appointment" / "Confirm
+// Appointment" link into the patient portal on the approval/reminder emails) and passed straight through to
 // systemEmailBody() for the HTML button; the plain-text fallback gets the
 // same link as a plain line since it can't render a styled button.
 // $ctaDate ('Y-m-d', optional) drives that button's small calendar-icon
@@ -1117,7 +1966,7 @@ function notifyAdminStaff(PDO $pdo, string $type, string $title, string $body, ?
 // in-app Appointment Details modal already shows a Cancellation/
 // Disapproval Reason as its own highlighted block, not just appended
 // text.
-function _emailPatientNotice(PDO $pdo, int $userId, string $subject, string $message, string $ctaUrl = '', string $ctaLabel = '', string $ctaDate = '', string $reasonLabel = '', string $reasonText = '', string $reasonTone = 'negative'): void {
+function _emailPatientNotice(PDO $pdo, int $userId, string $subject, string $message, string $ctaUrl = '', string $ctaLabel = '', string $ctaDate = '', string $reasonLabel = '', string $reasonText = '', string $reasonTone = 'negative', string $calendarUrl = ''): void {
     try {
         $s = $pdo->prepare(
             'SELECT u.email, p.first_name, p.last_name
@@ -1130,8 +1979,9 @@ function _emailPatientNotice(PDO $pdo, int $userId, string $subject, string $mes
         $name = trim($row['first_name'] . ' ' . $row['last_name']) ?: 'there';
         $text = "$subject\n\n$message"
             . ($reasonText ? "\n\n" . ($reasonLabel ?: 'Reason') . ": $reasonText" : '')
-            . ($ctaUrl ? "\n\n" . ($ctaLabel ?: 'View Details') . ": $ctaUrl" : '');
-        sendEmail($row['email'], $name, $subject, systemEmailBody($name, $subject, $message, $ctaUrl, $ctaLabel, $ctaDate, $reasonLabel, $reasonText, $reasonTone), $text);
+            . ($ctaUrl ? "\n\n" . ($ctaLabel ?: 'View Details') . ": $ctaUrl" : '')
+            . ($calendarUrl ? "\n\nAdd to Google Calendar: $calendarUrl" : '');
+        sendEmailLater($row['email'], $name, $subject, systemEmailBody($name, $subject, $message, $ctaUrl, $ctaLabel, $ctaDate, $reasonLabel, $reasonText, $reasonTone, $calendarUrl), $text);
     } catch (\Throwable $e) {
         error_log('[email] Notice "' . $subject . '" failed for user ' . $userId . ': ' . $e->getMessage());
     }

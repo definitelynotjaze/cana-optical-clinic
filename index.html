@@ -10,9 +10,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <!-- Bootstrap 5.3 — loaded first so our CSS rules take precedence -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/public.css?v=20260806">
-  <link rel="stylesheet" href="assets/css/navbar.css?v=20260806">
-  <link rel="stylesheet" href="assets/css/landing.css?v=20260806">
+  <link rel="stylesheet" href="assets/css/public.css?v=2026100407">
+  <link rel="stylesheet" href="assets/css/navbar.css?v=2026100104">
+  <link rel="stylesheet" href="assets/css/landing.css?v=2026100407">
 </head>
 <body>
 
@@ -67,46 +67,43 @@
 <section id="about">
   <!-- Full-width fan photo strip -->
   <div class="about-gallery-strip">
-    <div class="about-carousel" id="about-carousel">
+    <div class="about-carousel" id="about-carousel" role="region" aria-roledescription="carousel" aria-label="Clinic photo gallery">
       <div class="ac-track" id="ac-track"></div>
-      <button class="ac-btn ac-btn-prev ac-hidden" id="ac-prev" aria-label="Previous">
+      <button class="ac-btn ac-btn-prev ac-hidden" id="ac-prev" aria-label="Previous photo">
         <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
-      <button class="ac-btn ac-btn-next ac-hidden" id="ac-next" aria-label="Next">
+      <button class="ac-btn ac-btn-next ac-hidden" id="ac-next" aria-label="Next photo">
         <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
     </div>
+    <div class="ac-dots" id="ac-dots" hidden></div>
   </div>
 
   <!-- About details below the gallery -->
   <div class="about-info">
+    <!-- Left: who we are (heading + founder byline). Right: our story + next
+         step (paragraphs + CTA). Stacks in that same order on mobile. -->
     <div class="about-info-inner">
       <div class="about-info-lead">
         <span class="about-eyebrow">About Us</span>
         <h2 class="about-heading">Trusted Eye Care<br>Since <span id="about-founded-year">2008</span></h2>
+        <span class="about-accent" aria-hidden="true"></span>
+        <div class="about-founder">
+          <div class="about-founder-avatar" id="about-founder-avatar" aria-hidden="true">LC</div>
+          <div>
+            <div class="about-founder-name">Dr. Lalaine Cana</div>
+            <div class="about-founder-role">Founder, Cana Optical Clinic</div>
+          </div>
+        </div>
+      </div>
+      <div class="about-info-body">
+        <p class="about-desc about-desc-lead">At Cana Optical Clinic, we provide exceptional eye care services to our community in Carmona, Cavite. Founded by Dr. Lalaine Cana, the clinic has grown from a single-doctor practice to a team of five licensed optometrists serving thousands of patients across Carmona and neighboring areas.</p>
+        <p class="about-desc">From routine eye examinations to precision prescription fitting and a wide selection of optical frames, every patient receives the highest standard of care in a warm, welcoming environment.</p>
         <div class="about-cta">
           <a href="pages/services.html" class="about-cta-btn">
             Explore Our Services
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
           </a>
-        </div>
-      </div>
-      <div class="about-info-body">
-        <p class="about-desc">At Cana Optical Clinic, we provide exceptional eye care services to our community in Carmona, Cavite. Founded by Dr. Lalaine Cana, the clinic has grown from a single-doctor practice to a team of five licensed optometrists serving thousands of patients across Carmona and neighboring areas.</p>
-        <p class="about-desc">From routine eye examinations to precision prescription fitting and a wide selection of optical frames, every patient receives the highest standard of care in a warm, welcoming environment.</p>
-        <div class="about-stats">
-          <div class="about-stat" style="padding-left:0">
-            <div class="about-stat-num" id="stat-years">18</div>
-            <div class="about-stat-label">Years of Service</div>
-          </div>
-          <div class="about-stat" style="padding-left:24px">
-            <div class="about-stat-num" id="stat-patients">5,000+</div>
-            <div class="about-stat-label">Happy Patients</div>
-          </div>
-          <div class="about-stat" style="padding-left:24px;border-right:none;padding-right:0">
-            <div class="about-stat-num" id="stat-doctors">5</div>
-            <div class="about-stat-label">Specialist Doctors</div>
-          </div>
         </div>
       </div>
     </div>
@@ -251,7 +248,7 @@
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="assets/js/public-nav.js"></script>
+<script src="assets/js/public-nav.js?v=2026100407"></script>
 <script>
   const navbar = document.getElementById('navbar');
   const hero   = document.getElementById('hero');
@@ -591,8 +588,6 @@
         document.getElementById('hero-bg').style.backgroundImage = "url('" + d.clinic.heroUrl + '?t=' + Date.now() + "')";
       }
       const fy = d.clinic.foundedYear || 2008;
-      const fyEl = document.getElementById('stat-years');
-      if (fyEl) fyEl.textContent = new Date().getFullYear() - fy;
       const headingYearEl = document.getElementById('about-founded-year');
       if (headingYearEl) headingYearEl.textContent = fy;
 
@@ -610,106 +605,216 @@
     .catch(() => {});
 
   // ── About Gallery Carousel ─────────────────────────────────────
+  // The strip loops: the last photo joins straight on to the first, so it
+  // keeps going in either direction, with one dot per photo. Every input
+  // moves one photo at a time — drag/swipe (with flick momentum), the
+  // arrows, the dots, ←/→ on a focused photo and a sideways trackpad
+  // swipe. For the loop the photos are repeated either side of the real
+  // set; when the strip nears the end of those copies it swaps to an
+  // identical-looking spot further in, so it never runs out. On phones the
+  // current photo sits centred with both neighbours peeking in. Clicking
+  // or tapping a photo opens it full size in the photo viewer (second half
+  // of this block).
   (function () {
     const el      = document.getElementById('about-carousel');
     const track   = document.getElementById('ac-track');
     const btnPrev = document.getElementById('ac-prev');
     const btnNext = document.getElementById('ac-next');
+    const dotsEl  = document.getElementById('ac-dots');
+    const navbar  = document.getElementById('navbar');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const EASE = 'cubic-bezier(.22,1,.36,1)';   // smooth ease-out, no overshoot
 
-    const GAP = 16;
+    let images = [], cards = [], dots = [];
+    let n = 0;                  // number of photos
+    let PV = 1;                 // photos fully in view: 3 desktop, 2 tablet, 1 phone
+    let loop = false;           // more photos than fit, so the strip loops
+    let base = 0;               // index of the first real card (copies sit before and after)
+    let STEP = 0, SIDE = 0;     // card width + gap; inset of the first card in view
+    let cur = 0;                // index of the first card in view
+    let offset = 0;             // track translate, px
+    let eagerImgs = false;
+    let drag = null, suppressClick = false;
 
-    let STEP        = 0;
-    let offset      = 0;
-    let currentIdx  = 0;
-    let dragging    = false, touchActive = false;
-    let dragX = 0, dragOff = 0;
-    let images      = [];
+    const srcOf    = s => 'assets/images/about/' + encodeURIComponent(s.filename);
+    const mod      = (a, m) => ((a % m) + m) % m;
+    const xOf      = c => SIDE - c * STEP;
+    const currentX = () => new DOMMatrixReadOnly(getComputedStyle(track).transform).m41;
+    // Range the first card in view is kept within, clear of the ends of the copies
+    const lo = () => base - Math.floor(n / 2);
+    const hi = () => base + n + Math.floor(n / 2) - PV;
 
     function perView() {
       const vw = el.clientWidth;
-      if (vw < 640)  return 1;
-      if (vw < 1024) return 2;
-      return 3;
+      return vw < 640 ? 1 : vw < 1024 ? 2 : 3;
     }
 
-    function calcCardW() {
-      const n = perView(), vw = el.clientWidth;
-      if (n === 1) return Math.floor(vw * 0.82); // mobile: show 18% peek of next card
-      return Math.floor((vw - GAP * (n - 1)) / n);
+    // ── Build ───────────────────────────────────────────────────
+    function makeCard(photo, i, real) {
+      const card = document.createElement('div');
+      card.className = 'ac-fan-card';
+      card.dataset.idx = i;                  // which photo
+      card.dataset.e = cards.length;         // position in the strip
+      if (real) {
+        card.tabIndex = 0;
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-label', `View photo ${i + 1} of ${n}` + (photo.caption ? `: ${photo.caption}` : ''));
+      } else {
+        card.setAttribute('aria-hidden', 'true');   // loop copies: skipped by Tab and screen readers
+      }
+      const img = document.createElement('img');
+      img.alt = '';
+      img.draggable = false;
+      img.decoding = 'async';
+      img.loading = eagerImgs ? 'eager' : 'lazy';
+      img.src = srcOf(photo);
+      const zoom = document.createElement('span');
+      zoom.className = 'ac-zoom';
+      zoom.setAttribute('aria-hidden', 'true');
+      zoom.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+      card.append(img, zoom);
+      return card;
     }
 
-    function isCentered() { return images.length <= perView(); }
+    // The real photos, plus enough copies either side to loop when they
+    // don't all fit (rebuilt when the layout changes between phone/tablet/desktop)
+    function render() {
+      PV   = perView();
+      loop = n > PV;
+      const sets = loop ? Math.ceil((Math.floor(n / 2) + 2) / n) : 0;
+      base  = sets * n;
+      cards = [];
+      for (let set = -sets; set <= sets; set++) {
+        images.forEach((photo, i) => cards.push(makeCard(photo, i, set === 0)));
+      }
+      track.replaceChildren(...cards);
+      layout();
+    }
+
+    function layout() {
+      const gap = parseFloat(getComputedStyle(track).columnGap) || 16;   // 12px on phones
+      const vw  = el.clientWidth;
+      const w   = PV === 1 ? Math.floor(vw * 0.82)                        // phone: neighbours peek in
+                           : Math.floor((vw - gap * (PV - 1)) / PV);
+      STEP = w + gap;
+      SIDE = (vw - PV * w - gap * (PV - 1)) / 2;                          // centres the photos in view
+      track.style.justifyContent = loop ? 'flex-start' : 'center';
+      cards.forEach(c => { c.style.width = w + 'px'; });
+    }
 
     // ── Arc: desktop only (3-per-view). Mobile/tablet stay flat ───
     function updateCardStyles() {
-      const cards = Array.from(track.querySelectorAll('.ac-fan-card'));
-      const pv = perView(), n = images.length;
-      cards.forEach((card, i) => {
-        let rot = '0deg', ty = '0px', s = '1';
-        if (pv >= 3 && n > 1) {
-          if (n <= pv) {
-            const center = (n - 1) / 2;
-            const dist   = i - center;
-            if (Math.abs(dist) < 0.01) { ty = '-26px'; }
-            else { rot = `${dist < 0 ? -2 : 2}deg`; }
-          } else {
-            const pos = i - currentIdx;
-            if      (pos === 0) { rot = '-2deg'; }
-            else if (pos === 1) { ty  = '-26px'; }
-            else if (pos === 2) { rot =  '2deg'; }
-          }
+      cards.forEach((card, e) => {
+        let rot = '0deg', ty = '0px';
+        if (PV >= 3 && n > 1) {
+          // -1 / 0 / +1 = left / middle / right photo in view
+          const pos = loop ? e - cur - 1 : e - (n - 1) / 2;
+          if (Math.abs(pos) < 0.01)    ty  = '-26px';
+          else if (Math.abs(pos) <= 1) rot = (pos < 0 ? -2 : 2) + 'deg';
         }
         card.style.setProperty('--rot', rot);
         card.style.setProperty('--ty',  ty);
-        card.style.setProperty('--s',   s);
       });
     }
 
-    // ── Layout helpers ──────────────────────────────────────────
-    function applyWidths() {
-      const w = calcCardW();
-      STEP = w + GAP;
-
-      track.querySelectorAll('.ac-fan-card').forEach(c => { c.style.width = w + 'px'; });
-
-      track.style.justifyContent = isCentered() ? 'center' : 'flex-start';
-      updateCardStyles();
-    }
-
-    function maxOff() {
-      return isCentered() ? 0 : Math.max(0, track.scrollWidth - el.clientWidth);
-    }
-    function clamp(v) { return Math.max(-maxOff(), Math.min(0, v)); }
-
-    function move(x, animate) {
+    // ── Moving ──────────────────────────────────────────────────
+    function move(x, ms) {
       offset = x;
-      track.style.transition = animate ? 'transform .52s cubic-bezier(.25,.46,.45,.94)' : 'none';
-      track.style.transform  = `translateX(${x}px)`;
+      track.style.transition = ms && !reduceMotion.matches ? `transform ${ms}ms ${EASE}` : 'none';
+      track.style.transform  = `translate3d(${x}px,0,0)`;
     }
 
-    function goTo(idx, animate) {
-      currentIdx = Math.max(0, Math.min(idx, images.length - 1));
-      move(clamp(-currentIdx * STEP), animate !== false);
+    // Apply changes with the cards' own transitions off (for invisible repositioning)
+    let instantDepth = 0;
+    function instantly(fn) {
+      if (instantDepth++ === 0) el.classList.add('ac-instant');
+      try { fn(); } finally {
+        if (--instantDepth === 0) { void track.offsetWidth; el.classList.remove('ac-instant'); }
+      }
+    }
+
+    // Swap to the identical-looking copy `delta` cards along (a multiple of
+    // n), carrying on with any glide or drag in progress
+    function rebase(delta) {
+      if (!delta) return;
+      const x = currentX(), target = offset, gliding = Math.abs(x - target) > 0.5;
+      instantly(() => {
+        cur += delta;
+        if (drag && drag.live) drag.from -= delta * STEP;
+        move(x - delta * STEP, 0);
+        updateCardStyles();
+      });
+      if (gliding) move(target - delta * STEP, 400);
+    }
+
+    function goTo(c, ms) {
+      if (!loop) return;
+      // Keep the target among the rendered copies (same photos, another copy)
+      let k = 0;
+      while (c + k * n < lo()) k++;
+      while (c + k * n > hi()) k--;
+      if (k) { rebase(k * n); c += k * n; }
+      const from = cur;
+      cur = c;
+      if (ms === undefined) ms = Math.min(780, 500 + 90 * Math.abs(cur - from));
+      move(xOf(cur), ms);
       updateCardStyles();
       updateUI();
     }
 
-    function snap() {
-      const idx = STEP > 0 ? Math.round(-offset / STEP) : 0;
-      goTo(Math.max(0, Math.min(idx, images.length - 1)));
+    function jumpTo(c) {
+      instantly(() => {
+        cur = c;
+        move(loop ? xOf(cur) : 0, 0);
+        updateCardStyles();
+      });
+      updateUI();
+    }
+
+    // Bring card e fully into view the short way round: if a copy of the
+    // same photo is nearer, go to that and swap it for card e (looks the same)
+    function reveal(e, ms) {
+      if (!loop) return;
+      let best = null;
+      for (let j = -1; j <= 1; j++) {
+        const d  = e + j * n - cur;                                   // where that copy sits in view
+        const mv = d < 0 ? d : d > PV - 1 ? d - (PV - 1) : 0;         // how far the strip must move
+        if (!best || Math.abs(mv) < Math.abs(best.mv)) best = { j, mv };
+      }
+      rebase(-best.j * n);
+      if (best.mv) goTo(cur + best.mv, ms);
     }
 
     function updateUI() {
-      const centered = isCentered();
-      const atStart  = offset >= 0;
-      const atEnd    = offset <= -(maxOff() - 1) || currentIdx >= images.length - perView();
-      btnPrev.classList.toggle('ac-hidden', centered || atStart);
-      btnNext.classList.toggle('ac-hidden', centered || atEnd);
+      btnPrev.classList.toggle('ac-hidden', !loop); btnPrev.tabIndex = loop ? 0 : -1;
+      btnNext.classList.toggle('ac-hidden', !loop); btnNext.tabIndex = loop ? 0 : -1;
+      const count = loop ? n : 0;
+      if (dots.length !== count) buildDots(count);
+      const active = loop ? mod(cur, n) : -1;
+      dots.forEach((d, i) => d.setAttribute('aria-current', i === active ? 'true' : 'false'));
+      dotsEl.hidden = count < 2;
+    }
+
+    // One dot per photo; the dot of the first photo in view is lit
+    function buildDots(count) {
+      dots = Array.from({ length: count }, (_, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ac-dot';
+        b.setAttribute('aria-label', `Go to photo ${i + 1}`);
+        b.addEventListener('click', () => {
+          let d = mod(i - cur, n);
+          if (d > n / 2) d -= n;               // the short way round the loop
+          goTo(cur + d);
+        });
+        return b;
+      });
+      dotsEl.replaceChildren(...dots);
     }
 
     // ── Controls ────────────────────────────────────────────────
-    btnPrev.addEventListener('click', () => { goTo(currentIdx - perView()); btnPrev.blur(); });
-    btnNext.addEventListener('click', () => { goTo(currentIdx + perView()); btnNext.blur(); });
+    btnPrev.addEventListener('click', () => goTo(cur - 1));
+    btnNext.addEventListener('click', () => goTo(cur + 1));
 
     [btnPrev, btnNext].forEach(btn => {
       btn.addEventListener('touchstart', () => btn.classList.add('ac-btn-pressed'), { passive: true });
@@ -717,65 +822,147 @@
       btn.addEventListener('touchcancel',() => btn.classList.remove('ac-btn-pressed'), { passive: true });
     });
 
-    // Mouse drag
-    el.addEventListener('mousedown', e => {
-      if (e.button !== 0 || isCentered() || e.target.closest('button')) return;
-      dragging = true; dragX = e.clientX; dragOff = offset;
-      el.classList.add('is-dragging');
-      window.getSelection()?.removeAllRanges();
-      document.activeElement?.blur();
-      move(offset, false);
-      e.preventDefault();
+    // ── Drag / swipe (mouse, touch and pen alike) ───────────────
+    el.addEventListener('pointerdown', e => {
+      if (drag || !e.isPrimary || e.button !== 0 || e.target.closest('.ac-btn')) return;
+      suppressClick = false;
+      drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, from: offset, live: false, pts: [[e.clientX, e.timeStamp]] };
     });
-    document.addEventListener('mousemove', e => {
-      if (!dragging) return;
-      move(clamp(dragOff + (e.clientX - dragX)), false);
+
+    el.addEventListener('pointermove', e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+      if (!drag.live) {
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        // Mostly vertical (a page scroll) or nothing to move: not a carousel drag
+        if (!loop || Math.abs(dy) > Math.abs(dx)) { drag = null; suppressClick = true; return; }
+        drag.live = true;
+        // Pick the track up exactly where it is, even mid-glide
+        drag.from = currentX() - dx;
+        try { el.setPointerCapture(e.pointerId); } catch (_) {}
+        el.classList.add('is-dragging');
+        window.getSelection()?.removeAllRanges();
+      }
+      // On a very long drag, swap to an identical copy before the cards run out
+      const pos = (SIDE - (drag.from + dx)) / STEP;
+      if (pos < lo())      rebase(n);
+      else if (pos > hi()) rebase(-n);
+      move(drag.from + dx, 0);
+      drag.pts.push([e.clientX, e.timeStamp]);
+      if (drag.pts.length > 10) drag.pts.shift();
     });
-    document.addEventListener('mouseup', () => {
-      if (!dragging) return;
-      dragging = false;
+
+    function endDrag(e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      const d = drag;
+      drag = null;
+      if (!d.live) return;
       el.classList.remove('is-dragging');
-      snap();
+      // The click that ends a drag (fired straight after this) isn't a tap
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 0);
+      // Release speed over the last ~100ms (px/ms; negative = towards later photos)
+      let v = 0;
+      if (e.type === 'pointerup') {
+        d.pts.push([e.clientX, e.timeStamp]);
+        const recent = d.pts.filter(p => e.timeStamp - p[1] <= 100);
+        if (recent.length > 1) {
+          const a = recent[0], b = recent[recent.length - 1];
+          v = (b[0] - a[0]) / Math.max(1, b[1] - a[1]);
+        }
+      }
+      const raw  = (SIDE - offset) / STEP;      // fractional index of the first card in view
+      const near = Math.round(raw);
+      let target = Math.round(raw - v * 160 / STEP);                  // momentum carries a flick on…
+      if (v < -0.3)     target = Math.max(target, Math.ceil(raw));    // …a flick always moves at least one photo…
+      else if (v > 0.3) target = Math.min(target, Math.floor(raw));
+      target = Math.max(near - 1, Math.min(near + 1, target));        // …but never more than one past the finger
+      // Glide off at the speed the finger let go, so the hand-off feels continuous
+      const travel = xOf(target) - offset;
+      const ms = Math.abs(v) > 0.05 && Math.sign(travel) === Math.sign(v)
+        ? Math.min(760, Math.max(280, 4.5 * Math.abs(travel) / Math.abs(v)))
+        : 480;
+      goTo(target, Math.round(ms));
+    }
+    el.addEventListener('pointerup', endDrag);
+    el.addEventListener('pointercancel', endDrag);
+
+    // ── Open a photo ────────────────────────────────────────────
+    track.addEventListener('click', e => {
+      if (suppressClick) { suppressClick = false; return; }
+      const card = e.target.closest('.ac-fan-card');
+      if (!card) return;
+      const c = +card.dataset.e, d = c - cur;
+      // A photo only peeking in from the side slides into view first
+      if (loop && (d < 0 || d > PV - 1)) goTo(d < 0 ? c : c - PV + 1);
+      else openViewer(+card.dataset.idx, card);
     });
 
-    // Touch drag
-    el.addEventListener('touchstart', e => {
-      if (isCentered() || e.target.closest('button')) return;
-      touchActive = true; dragX = e.touches[0].clientX; dragOff = offset;
-      window.getSelection()?.removeAllRanges();
-      document.activeElement?.blur();
-      move(offset, false);
-    }, { passive: true });
-    el.addEventListener('touchmove', e => {
-      if (!touchActive) return;
-      move(clamp(dragOff + (e.touches[0].clientX - dragX)), false);
-    }, { passive: true });
-    el.addEventListener('touchend', e => {
-      if (!touchActive) return;
-      touchActive = false;
-      Math.abs(e.changedTouches[0].clientX - dragX) > 20 ? snap() : updateUI();
-    }, { passive: true });
-
-    // Resize
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        applyWidths();
-        // rAF ensures card widths are reflowed before we read scrollWidth in clamp()
-        requestAnimationFrame(() => {
-          currentIdx = Math.max(0, Math.min(currentIdx, images.length - 1));
-          offset = isCentered() ? 0 : clamp(-currentIdx * STEP);
-          move(offset, false);
-          updateUI();
-        });
-      }, 120);
+    // Enter opens on keydown and Space on keyup, like a real button (opening
+    // Space on keydown would let its keyup "click" the viewer's ✕ at once)
+    track.addEventListener('keydown', e => {
+      const card = e.target.closest('.ac-fan-card');
+      if (!card) return;
+      const i = +card.dataset.idx;
+      if (e.key === 'Enter') { e.preventDefault(); openViewer(i, card); }
+      else if (e.key === ' ') e.preventDefault();
+      else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        let j = i + (e.key === 'ArrowRight' ? 1 : -1);
+        if (loop) j = mod(j, n);                // the last photo leads on to the first
+        if (j >= 0 && j < n) { e.preventDefault(); cards[base + j].focus({ preventScroll: true }); }
+      }
+    });
+    track.addEventListener('keyup', e => {
+      const card = e.target.closest('.ac-fan-card');
+      if (card && e.key === ' ') openViewer(+card.dataset.idx, card);
     });
 
-    // ── Build ───────────────────────────────────────────────────
+    // Keep a keyboard-focused photo in view (Tab / arrow keys)
+    track.addEventListener('focusin', e => {
+      const card = e.target.closest('.ac-fan-card');
+      if (!card || !loop) return;
+      let keyboard = true;
+      try { keyboard = card.matches(':focus-visible'); } catch (_) {}
+      if (keyboard) reveal(+card.dataset.e);
+    });
+
+    // Trackpad: a sideways two-finger swipe moves one photo; its momentum
+    // tail is ignored until the gesture settles
+    let wheelAcc = 0, wheelLocked = false, wheelTimer = 0;
+    el.addEventListener('wheel', e => {
+      const k  = e.deltaMode === 1 ? 16 : 1;
+      const dx = e.deltaX * k, dy = e.deltaY * k;
+      if (!loop || Math.abs(dx) <= Math.abs(dy)) return;
+      e.preventDefault();
+      clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => { wheelLocked = false; wheelAcc = 0; }, 160);
+      if (wheelLocked) return;
+      wheelAcc += dx;
+      if (Math.abs(wheelAcc) >= 30) {
+        goTo(cur + Math.sign(wheelAcc));
+        wheelLocked = true;
+        wheelAcc = 0;
+      }
+    }, { passive: false });
+
+    // ── Resize ──────────────────────────────────────────────────
+    let resizeRaf = 0;
+    function relayout() {
+      cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        if (!n) return;
+        const first = loop ? mod(cur, n) : 0;   // keep the same photos in view
+        if (perView() !== PV) render(); else layout();
+        jumpTo(loop ? base + first : 0);
+      });
+    }
+    if ('ResizeObserver' in window) new ResizeObserver(relayout).observe(el);
+    else window.addEventListener('resize', relayout);
+
     function buildCarousel(imgs) {
-      images = imgs;
-      if (!images.length) {
+      images = imgs || [];
+      n = images.length;
+      if (!n) {
         track.innerHTML = `<div class="ac-empty" style="width:100%;min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px">
           <div style="width:60px;height:60px;border-radius:15px;
                       background:rgba(251,191,36,.10);
@@ -794,19 +981,325 @@
             <div style="font-size:.72rem;color:#9ca3af;margin-top:3px">Clinic photos will appear here</div>
           </div>
         </div>`;
-        btnPrev.classList.add('ac-hidden');
-        btnNext.classList.add('ac-hidden');
+        updateUI();
         return;
       }
 
-      track.innerHTML = images.map(s =>
-        `<div class="ac-fan-card" style="background-image:url('assets/images/about/${s.filename}')"></div>`
-      ).join('');
+      render();
+      jumpTo(loop ? base : 0);
 
-      currentIdx = 0; offset = 0;
-      track.style.transform = 'translateX(0)';
+      // Photos waiting off to the side are clipped by the strip, so native
+      // lazy loading would hold them back until they slide in (a visible
+      // pop-in). Load them all once the strip nears the screen instead.
+      if ('IntersectionObserver' in window) {
+        const io = new IntersectionObserver(entries => {
+          if (!entries.some(en => en.isIntersecting)) return;
+          io.disconnect();
+          eagerImgs = true;
+          track.querySelectorAll('img').forEach(im => { im.loading = 'eager'; });
+        }, { rootMargin: '400px 0px' });
+        io.observe(el);
+      }
+    }
 
-      requestAnimationFrame(() => { applyWidths(); updateUI(); });
+    // ── Photo viewer ────────────────────────────────────────────
+    // The clicked photo grows out of its card to full size over a dark
+    // backdrop. ✕, Esc, the phone/browser Back button, a tap on the dark
+    // area or a swipe up/down closes it (it shrinks back into its card);
+    // the arrows, ←/→ and sideways swipes move between photos.
+    let lb = null, lbBack, lbStage, lbImg, lbUi, lbCount, lbCaption, lbClose, lbPrev, lbNext;
+    let lbOpen = false, lbIdx = 0, lbSeq = 0, lbSwitching = false, lbInHistory = false;
+    let lbGesture = null, lbSuppressClick = false;
+
+    // Animate transform/opacity from wherever the node is now, then keep the end state
+    function tween(node, frames, ms, easing) {
+      stopTween(node);
+      const list = Array.isArray(frames) ? frames : [frames];
+      const anim = node.animate(list, { duration: reduceMotion.matches ? 1 : ms, easing: easing || EASE, fill: 'forwards' });
+      node._acAnim = anim;
+      const end = list[list.length - 1];
+      return anim.finished.then(() => {
+        if (node._acAnim !== anim) return;
+        node._acAnim = null;
+        if (end.transform !== undefined) node.style.transform = end.transform;
+        if (end.opacity   !== undefined) node.style.opacity   = end.opacity;
+        anim.cancel();
+      }, () => {});
+    }
+    // Freeze a running tween on its current frame
+    function stopTween(node) {
+      const anim = node._acAnim;
+      if (!anim) return;
+      node._acAnim = null;
+      try { anim.commitStyles(); } catch (_) {}
+      anim.cancel();
+    }
+
+    function buildViewer() {
+      lb = document.createElement('div');
+      lb.className = 'ac-lb';
+      lb.hidden = true;
+      lb.setAttribute('role', 'dialog');
+      lb.setAttribute('aria-modal', 'true');
+      lb.setAttribute('aria-label', 'Clinic photos');
+      lb.innerHTML = `
+        <div class="ac-lb-backdrop"></div>
+        <div class="ac-lb-stage"><img class="ac-lb-img" alt="" draggable="false"></div>
+        <div class="ac-lb-ui">
+          <span class="ac-lb-count" aria-live="polite"></span>
+          <button type="button" class="ac-lb-btn ac-lb-close" aria-label="Close photo">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <button type="button" class="ac-lb-btn ac-lb-prev" aria-label="Previous photo">
+            <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <button type="button" class="ac-lb-btn ac-lb-next" aria-label="Next photo">
+            <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <p class="ac-lb-caption"></p>
+        </div>`;
+      document.body.appendChild(lb);
+      const q = s => lb.querySelector(s);
+      lbBack  = q('.ac-lb-backdrop'); lbStage = q('.ac-lb-stage'); lbImg = q('.ac-lb-img');
+      lbUi    = q('.ac-lb-ui');       lbCount = q('.ac-lb-count'); lbCaption = q('.ac-lb-caption');
+      lbClose = q('.ac-lb-close');    lbPrev  = q('.ac-lb-prev');  lbNext = q('.ac-lb-next');
+
+      lbClose.addEventListener('click', () => closeViewer());
+      lbPrev.addEventListener('click', () => stepViewer(-1));
+      lbNext.addEventListener('click', () => stepViewer(1));
+      // A tap/click on the dark area around the photo closes the viewer
+      lbStage.addEventListener('click', e => {
+        if (lbSuppressClick) { lbSuppressClick = false; return; }
+        if (e.target === lbStage) closeViewer();
+      });
+      lbStage.addEventListener('pointerdown', lbDown);
+      lbStage.addEventListener('pointermove', lbMove);
+      lbStage.addEventListener('pointerup', lbUp);
+      lbStage.addEventListener('pointercancel', lbUp);
+    }
+
+    function lockScroll(on) {
+      const root = document.documentElement;
+      root.classList.toggle('ac-viewer-open', on);   // also hides the back-to-top button (public.css)
+      if (on) {
+        // Fill in for the scrollbar that's about to go, so nothing behind the backdrop shifts
+        const bar = window.innerWidth - root.clientWidth;
+        root.style.overflow = 'hidden';
+        if (bar > 0) {
+          document.body.style.paddingRight = bar + 'px';
+          if (navbar) navbar.style.paddingRight = bar + 'px';
+        }
+      } else {
+        root.style.overflow = '';
+        document.body.style.paddingRight = '';
+        if (navbar) navbar.style.paddingRight = '';
+      }
+    }
+
+    function showPhoto(i) {
+      const s = images[i];
+      lbIdx = i;
+      lbCount.textContent = `${i + 1} / ${n}`;
+      lbCaption.textContent = s.caption || '';
+      lbCaption.hidden = !s.caption;
+      lbImg.alt = s.caption || `Clinic photo ${i + 1} of ${n}`;
+      lbImg.src = srcOf(s);
+      // Warm up the neighbours so the next swipe has its photo ready
+      if (n > 1) [i - 1, i + 1].forEach(j => { new Image().src = srcOf(images[mod(j, n)]); });
+      return imgReady(lbImg);
+    }
+
+    // Resolves once the photo can be shown: loaded, and decoded if that's
+    // quick (capped, so a slow decode never holds the viewer up)
+    function imgReady(img) {
+      if (img.complete) {
+        return img.naturalWidth && img.decode
+          ? Promise.race([img.decode().catch(() => {}), new Promise(r => setTimeout(r, 150))])
+          : Promise.resolve();
+      }
+      return new Promise(r => {
+        img.addEventListener('load', r, { once: true });
+        img.addEventListener('error', r, { once: true });
+      });
+    }
+
+    // card: the strip card it was opened from (the photo grows out of it)
+    function openViewer(i, card) {
+      if (lbOpen || !images[i]) return;
+      if (!lb) buildViewer();
+      lbOpen = true;
+      lbSwitching = false;
+      const seq = ++lbSeq;
+      card = card || cards[base + i];
+      lbCount.hidden = lbPrev.hidden = lbNext.hidden = n < 2;
+      lockScroll(true);
+      lb.classList.remove('is-closing');
+      lb.hidden = false;
+      [lbBack, lbUi, lbImg].forEach(stopTween);
+      lbBack.style.opacity = lbUi.style.opacity = lbImg.style.opacity = '0';
+      lbImg.style.transform = 'none';
+      tween(lbBack, { opacity: 1 }, 300, 'ease-out');
+      tween(lbUi, { opacity: 1 }, 300, 'ease-out');
+      showPhoto(i).then(() => {
+        if (seq !== lbSeq) return;
+        // Grow the photo out of the card that was clicked
+        const from = card.getBoundingClientRect(), to = lbImg.getBoundingClientRect();
+        if (from.width && to.width) {
+          const s = Math.min(from.width / to.width, from.height / to.height);
+          lbImg.style.transform = `translate3d(${from.left + from.width / 2 - (to.left + to.width / 2)}px,${from.top + from.height / 2 - (to.top + to.height / 2)}px,0) scale(${s})`;
+          lbImg.style.opacity = '.35';
+        }
+        tween(lbImg, { transform: 'none', opacity: 1 }, 480);
+      });
+      // The phone/browser Back button closes the viewer instead of leaving the page
+      history.pushState({ acViewer: true }, '');
+      lbInHistory = true;
+      window.addEventListener('popstate', onViewerBack);
+      document.addEventListener('keydown', onViewerKey, true);
+      lbClose.focus({ preventScroll: true });
+    }
+
+    function onViewerBack() { lbInHistory = false; closeViewer(); }
+
+    function onViewerKey(e) {
+      if (e.key === 'Escape')          { e.preventDefault(); closeViewer(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); stepViewer(1); }
+      else if (e.key === 'ArrowLeft')  { e.preventDefault(); stepViewer(-1); }
+      else if (e.key === 'Tab') {      // keep focus inside the viewer
+        const items = [lbClose, lbPrev, lbNext].filter(b => !b.hidden);
+        const at = items.indexOf(document.activeElement);
+        e.preventDefault();
+        items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length].focus();
+      }
+    }
+
+    function stepViewer(dir, fromX = 0) {
+      if (!lbOpen || n < 2) return;
+      const seq = ++lbSeq, next = mod(lbIdx + dir, n);
+      lbIdx = next;
+      lbCount.textContent = `${next + 1} / ${n}`;
+      lbSwitching = true;
+      // Slide the current photo out, swap, slide the next one in from the other side
+      tween(lbImg, { transform: `translate3d(${fromX - dir * 80}px,0,0)`, opacity: 0 }, 160, 'cubic-bezier(.4,0,1,1)')
+        .then(() => (seq === lbSeq ? showPhoto(next) : null))
+        .then(() => {
+          if (seq !== lbSeq) return;
+          lbSwitching = false;
+          lbImg.style.transform = `translate3d(${dir * 80}px,0,0)`;
+          tween(lbImg, { transform: 'none', opacity: 1 }, 380);
+        });
+    }
+
+    function settleViewer() {
+      tween(lbImg, { transform: 'none', opacity: 1 }, 380);
+      tween(lbBack, { opacity: 1 }, 300, 'ease-out');
+      tween(lbUi, { opacity: 1 }, 300, 'ease-out');
+    }
+
+    function closeViewer() {
+      if (!lbOpen) return;
+      lbOpen = false;
+      const seq = ++lbSeq;
+      document.removeEventListener('keydown', onViewerKey, true);
+      window.removeEventListener('popstate', onViewerBack);
+      if (lbInHistory) { lbInHistory = false; history.back(); }   // drop the entry the viewer added
+      lb.classList.add('is-closing');                              // the page is usable again at once
+      lb.classList.remove('is-dragging');
+      lbGesture = null;
+      [lbImg, lbBack, lbUi].forEach(stopTween);
+
+      // Leave the strip showing the photo viewed last (on its real card,
+      // which is the one keyboard focus returns to), then shrink back into it
+      const i = lbIdx;
+      instantly(() => reveal(base + i, 0));
+      const card = cards[base + i];
+      let frames = { transform: 'translate3d(0,24px,0) scale(.94)', opacity: 0 };
+      const r = card.getBoundingClientRect();
+      if (!lbSwitching && r.bottom > 0 && r.top < window.innerHeight) {
+        const now = lbImg.style.transform;
+        lbImg.style.transform = 'none';
+        const b = lbImg.getBoundingClientRect();
+        lbImg.style.transform = now;
+        if (b.width) {
+          const s = Math.min(r.width / b.width, r.height / b.height);
+          frames = [
+            { opacity: 1, offset: 0.6 },
+            { transform: `translate3d(${r.left + r.width / 2 - (b.left + b.width / 2)}px,${r.top + r.height / 2 - (b.top + b.height / 2)}px,0) scale(${s})`, opacity: 0 }
+          ];
+        }
+      }
+      lbSwitching = false;
+      tween(lbUi, { opacity: 0 }, 160, 'ease-out');
+      tween(lbBack, { opacity: 0 }, 340, 'ease-out');
+      tween(lbImg, frames, 360, 'cubic-bezier(.4,0,.2,1)').then(() => {
+        if (seq !== lbSeq) return;
+        lb.hidden = true;
+        lockScroll(false);
+        card.focus({ preventScroll: true });
+      });
+    }
+
+    // ── Viewer gestures: swipe sideways to change photo, up/down to close ──
+    function lbDown(e) {
+      lbSuppressClick = false;
+      if (lbGesture) {                       // a second finger: drop the gesture
+        lbGesture = null;
+        lb.classList.remove('is-dragging');
+        settleViewer();
+        return;
+      }
+      if (!e.isPrimary || e.button !== 0 || lbSwitching) return;
+      lbGesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, axis: '', pts: [[e.clientX, e.clientY, e.timeStamp]] };
+    }
+
+    function lbMove(e) {
+      const g = lbGesture;
+      if (!g || e.pointerId !== g.id) return;
+      const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+      if (!g.axis) {
+        if (Math.hypot(dx, dy) < 8) return;
+        g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        [lbImg, lbBack, lbUi].forEach(stopTween);
+        try { lbStage.setPointerCapture(e.pointerId); } catch (_) {}
+        lb.classList.add('is-dragging');
+      }
+      g.pts.push([e.clientX, e.clientY, e.timeStamp]);
+      if (g.pts.length > 10) g.pts.shift();
+      if (g.axis === 'x') {
+        // Follows the finger; with a single photo it only gives a little
+        lbImg.style.transform = `translate3d(${n > 1 ? dx : dx * 0.25}px,0,0)`;
+      } else {
+        // Pulling up/down shrinks the photo a touch and fades the backdrop
+        const p = Math.min(Math.abs(dy) / 360, 1);
+        lbImg.style.transform = `translate3d(0,${dy}px,0) scale(${1 - p * 0.12})`;
+        lbBack.style.opacity = 1 - p * 0.7;
+        lbUi.style.opacity = Math.max(0, 1 - p * 2);
+      }
+    }
+
+    function lbUp(e) {
+      const g = lbGesture;
+      if (!g || e.pointerId !== g.id) return;
+      lbGesture = null;
+      if (!g.axis) return;                   // a plain tap — the click handler decides
+      lbSuppressClick = true;
+      lb.classList.remove('is-dragging');
+      if (e.type === 'pointercancel') { settleViewer(); return; }
+      const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+      g.pts.push([e.clientX, e.clientY, e.timeStamp]);
+      const recent = g.pts.filter(p => e.timeStamp - p[2] <= 100);
+      let vx = 0, vy = 0;
+      if (recent.length > 1) {
+        const a = recent[0], b = recent[recent.length - 1], dt = Math.max(1, b[2] - a[2]);
+        vx = (b[0] - a[0]) / dt;
+        vy = (b[1] - a[1]) / dt;
+      }
+      // Far enough or flicked — unless the flick was back the other way
+      const commit = (d, v, far) =>
+        !(Math.abs(v) > 0.3 && Math.sign(v) !== Math.sign(d)) && (Math.abs(d) > far || Math.abs(v) > 0.4);
+      if (g.axis === 'x' && n > 1 && commit(dx, vx, 70)) stepViewer(dx < 0 ? 1 : -1, dx);
+      else if (g.axis === 'y' && commit(dy, vy, 110)) closeViewer();
+      else settleViewer();
     }
 
     fetch('api/clinic/gallery.php')
@@ -814,11 +1307,22 @@
       .then(d => { if (d.success) buildCarousel(d.images); })
       .catch(() => {});
   })();
-  fetch('api/stats/public.php').then(r => r.json()).then(d => {
-    if (!d.success) return;
-    if (d.doctors > 0)  document.getElementById('stat-doctors').textContent  = d.doctors;
-    if (d.patients > 0) document.getElementById('stat-patients').textContent = d.patients.toLocaleString();
-  }).catch(() => {});
+
+  // About Us founder card — swap the orange "LC" initials for Dr. Lalaine
+  // Cana's real profile photo when she has one (same public doctor list the
+  // Doctors page uses). Initials stay if there's no photo or it fails to load.
+  fetch('api/doctors/public.php')
+    .then(r => r.json())
+    .then(d => {
+      const founder = (d.doctors || []).find(doc => /lalaine/i.test(doc.name || ''));
+      const avatar  = document.getElementById('about-founder-avatar');
+      if (!founder || !founder.photoUrl || !avatar) return;
+      const img = new Image();
+      img.alt = '';
+      img.onload  = () => { avatar.textContent = ''; avatar.appendChild(img); };
+      img.src = founder.photoUrl;
+    })
+    .catch(() => {});
 
 </script>
 

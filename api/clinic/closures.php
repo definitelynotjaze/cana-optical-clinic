@@ -13,6 +13,8 @@
 //                                          appointments (listed back), same as
 //                                          blocking a doctor's date.
 //  POST { action:'remove', id }          → admin/staff, reopens the date.
+//  POST { action:'update', id, reason }  → admin/staff, changes the reason
+//                                          only (who closed it stays).
 // ================================================================
 
 require_once '../../config/db.php';
@@ -43,6 +45,17 @@ try {
     if ($action === 'remove') {
         $id = (int)($b['id'] ?? 0);
         $pdo->prepare('DELETE FROM clinic_closures WHERE id = ?')->execute([$id]);
+        jsonResponse(['success' => true]);
+    }
+
+    if ($action === 'update') {
+        $id     = (int)($b['id'] ?? 0);
+        $reason = mb_substr(trim($b['reason'] ?? ''), 0, 255);
+        if ($reason === '') jsonResponse(['success' => false, 'message' => 'Please give a reason for closing the clinic.']);
+        $ex = $pdo->prepare('SELECT 1 FROM clinic_closures WHERE id = ?');
+        $ex->execute([$id]);
+        if (!$ex->fetch()) jsonResponse(['success' => false, 'message' => 'That closure no longer exists. The date may have been reopened.']);
+        $pdo->prepare('UPDATE clinic_closures SET reason = ? WHERE id = ?')->execute([$reason, $id]);
         jsonResponse(['success' => true]);
     }
 

@@ -5775,8 +5775,17 @@ button.pc-day.is-off:hover { background: #F1F1F3; border-color: #E5E7EB; }
 .pc-p-today { flex-shrink: 0; padding: 2px 9px; border-radius: 999px; background: #FFF3E4; color: #C4620A; font-size: .66rem; font-weight: 700; }
 .pc-note { display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border-radius: 10px; font-size: .78rem; line-height: 1.5; }
 .pc-note svg { flex-shrink: 0; margin-top: 2px; }
+/* A reason typed as one long word (no spaces) wraps instead of running out of the panel. */
+.pc-note > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .pc-note b { font-weight: 700; }
 .pc-note small { display: block; margin-top: 3px; font-size: .72rem; opacity: .85; }
+/* "Edit reason" under a closure / blocked day's reason */
+.pc-link { display: inline-flex; align-items: center; gap: 4px; padding: 1px 2px; margin: 0 -2px; border: 0; border-radius: 4px; background: none; font: inherit; font-weight: 700; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.pc-link:hover { text-decoration-thickness: 2px; background: rgba(0, 0, 0, .04); }
+.pc-link:active { transform: scale(.97); }
+.pc-link:focus-visible { outline: 2px solid #E8760A; outline-offset: 1px; }
+.pc-btn-row { display: flex; gap: 8px; }
+.pc-btn-row > button { flex: 1; justify-content: center; }
 .pc-note.is-free    { background: #ECFDF5; color: #065F46; }
 .pc-note.is-appts   { background: #FFFBEB; color: #92400E; }
 .pc-note.is-closed  { background: #FFF7ED; color: #9A3412; }

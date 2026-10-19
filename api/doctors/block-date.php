@@ -4,6 +4,8 @@
 //  POST { doctorId, date, reason } — admin/staff only.
 //  Marks a single date as unavailable for a doctor (leave, conference,
 //  holiday, etc.) — separate from their recurring weekly schedule.
+//  Posting a date that's already blocked just changes its reason (Block
+//  Dates → Edit reason).
 // ================================================================
 
 require_once '../../config/db.php';
@@ -23,7 +25,7 @@ if (!in_array($role, ['admin', 'staff'], true)) {
 $b         = getBody();
 $doctorId  = trim($b['doctorId']  ?? '');
 $date      = trim($b['date']      ?? '');
-$reason    = trim($b['reason']    ?? '');
+$reason    = mb_substr(trim($b['reason'] ?? ''), 0, 255);   // the column's size
 $blockedBy = trim($b['blockedBy'] ?? '') ?: 'Staff';
 
 if (!$doctorId || !$date) {

@@ -15774,14 +15774,30 @@ function _pcPanelHtml() {
       <div class="pc-p-date">${new Date(info.date + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div>
       ${info.today ? '<span class="pc-p-today">Today</span>' : ''}
     </div>`
+  // A closure (Clinic Closures) or a blocked day (Block Dates) can have its
+  // reason changed without reopening it first.
+  const canEdit = isClinic ? !!(info.closure && info.closureId) : !!info.blocked && !info.closure
+  if (_pc.editing && canEdit) {
+    return head + `
+      <div class="form-group pc-form">
+        <label class="form-label">Reason <span class="req">*</span></label>
+        ${reasonFieldHtml('pc-edit-reason', isClinic ? 'clinicClosure' : 'blockDate')}
+      </div>
+      <div class="pc-btn-row">
+        <button class="btn-secondary" onclick="window._pcEditReason(false)">Cancel</button>
+        <button class="btn-primary" id="pc-save-reason-btn" onclick="window._pcSaveReason(this)">${icon('check', 'icon-sm')} Save reason</button>
+      </div>`
+  }
+  const editLink = canEdit ? `<button type="button" class="pc-link" onclick="window._pcEditReason(true)">${icon('edit', 'icon-xs')}Edit reason</button>` : ''
   let body
   if (info.closure) {
-    body = note('closed', 'lock', `<b>The clinic is closed this day.</b> ${esc(info.closure)}${info.closureBy ? `<small>Closed by ${esc(info.closureBy)}</small>` : ''}`)
+    const meta = [info.closureBy && `Closed by ${esc(info.closureBy)}`, isClinic && editLink].filter(Boolean).join(' · ')
+    body = note('closed', 'lock', `<b>The clinic is closed this day.</b> ${esc(info.closure)}${meta ? `<small>${meta}</small>` : ''}`)
       + (isClinic
         ? (info.closureId ? `<button class="btn-secondary pc-act" id="pc-reopen-btn" onclick="window.doReopenClinic(${info.closureId},'${info.date}')">${icon('rotate-ccw', 'icon-sm')} Reopen the clinic on ${short}</button>` : '')
         : '<p class="pc-hint">It applies to every doctor. To open it again, use Clinic Closures.</p>')
   } else if (!isClinic && info.blocked) {
-    body = note('blocked', 'x-circle', `<b>Blocked for ${who}.</b> ${esc(info.blocked)}`)
+    body = note('blocked', 'x-circle', `<b>Blocked for ${who}.</b> ${esc(info.blocked)}<small>${editLink}</small>`)
       + `<button class="btn-secondary pc-act" id="pc-unblock-btn" onclick="window.doUnblockDate('${_pc.doctorId}','${info.date}')">${icon('rotate-ccw', 'icon-sm')} Unblock ${short}</button>`
   } else if (info.holiday) {
     body = note('holiday', 'calendar', `<b>Public holiday: ${esc(info.holiday)}.</b> The clinic doesn't take bookings on public holidays, so there's nothing to ${isClinic ? 'close' : 'block'}.`)
@@ -15812,8 +15828,58 @@ function _pcPanelHtml() {
 }
 function _pcRenderPanel() {
   const el = document.getElementById('pc-panel')
-  if (_pc && el) el.innerHTML = _pcPanelHtml()
+  if (!_pc || !el) return
+  el.innerHTML = _pcPanelHtml()
+  // "Other" reasons are kept to the 255 characters the database stores.
+  el.querySelectorAll('.rsn-detail').forEach(t => { t.maxLength = 255 })
 }
+
+// Edit reason: the form opens with the current reason already chosen (a
+// preset, or "Other" with its text).
+function _pcEditReason(on) {
+  if (!_pc?.sel) return
+  _pc.editing = !!on
+  _pcRenderPanel()
+  if (!on) return
+  const info    = _pcDay(_pc.sel, _pcApptsByDate(), getPHHolidays(+_pc.sel.slice(0, 4)))
+  const current = _pc.mode === 'clinic' ? info.closure : info.blocked
+  const preset  = (REASON_PRESETS[_pc.mode === 'clinic' ? 'clinicClosure' : 'blockDate'] || []).includes(current) ? current : 'Other'
+  setSelectFieldValue('pc-edit-reason-preset', preset)
+  const ta = document.getElementById('pc-edit-reason-detail')
+  if (ta && preset === 'Other') ta.value = current
+  window._rsnCompose('pc-edit-reason')
+}
+async function _pcSaveReason(btn) {
+  if (!_pc?.sel) return
+  const isClinic = _pc.mode === 'clinic'
+  const reason   = (document.getElementById('pc-edit-reason')?.value || '').trim()
+  if (!reason) { markFieldError('pc-edit-reason-preset'); toast('Please choose a reason.', 'error'); return }
+  const info = _pcDay(_pc.sel, _pcApptsByDate(), getPHHolidays(+_pc.sel.slice(0, 4)))
+  if (reason === (isClinic ? info.closure : info.blocked)) { _pcEditReason(false); return }   // unchanged
+  if (_btnBusy(btn, 'primary', 'Saving…')) return
+  try {
+    const d = await (await fetch(isClinic ? 'api/clinic/closures.php' : 'api/doctors/block-date.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(isClinic
+        ? { action: 'update', id: info.closureId, reason }
+        : { doctorId: _pc.doctorId, date: _pc.sel, reason, blockedBy: state.user?.name || '' }),
+    })).json()
+    if (!d.success) { toast(d.message || 'Could not save the reason.', 'error'); return }
+    addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
+      action: isClinic ? `Changed why the clinic is closed on ${_pc.sel}: ${reason}`
+                       : `Changed why ${_pc.sel} is blocked for ${_pcDoc()?.name || 'the doctor'}: ${reason}`,
+      timestamp: nowTimestamp(), type: 'settings' })
+    toast('Reason updated.')
+    _pc.editing = false
+    if (isClinic) await _loadClinicClosures()
+    if (window._syncDoctors) await window._syncDoctors()
+    _pcRefresh()
+  } catch (_) {
+    toast('Network error — the reason was not saved.', 'error')
+  } finally { _btnIdle(btn) }
+}
+window._pcEditReason = _pcEditReason
+window._pcSaveReason = _pcSaveReason
 
 // What's coming up, across months: closures (and, for a doctor, their
 // blocked days). A row jumps the calendar to that day.
@@ -15847,6 +15913,7 @@ function _pcPick(dateStr) {
   if (!_pc) return
   _pc.sel = _pc.sel === dateStr ? null : dateStr
   _pc.conflicts = null
+  _pc.editing = false
   _pcRenderGrid()
   _pcRenderPanel()
   // On a phone the details sit below the calendar: bring them into view.
@@ -15873,7 +15940,7 @@ window._pcJump = _pcJump
 
 function _openPlanner(mode, { doctorId = null, title, intro, listTitle }) {
   const now = new Date()
-  _pc = { mode, doctorId, year: now.getFullYear(), month: now.getMonth(), sel: null, conflicts: null }
+  _pc = { mode, doctorId, year: now.getFullYear(), month: now.getMonth(), sel: null, conflicts: null, editing: false }
   const legend = [['appts', 'Appointments'], ['closed', 'Clinic closed'], ...(mode === 'doctor' ? [['blocked', 'Blocked']] : []),
     ['holiday', 'Public holiday'], ['off', mode === 'doctor' ? 'Day off' : 'Not a clinic day']]
   showModal(`

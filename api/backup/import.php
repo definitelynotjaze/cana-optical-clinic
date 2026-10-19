@@ -1,7 +1,8 @@
 <?php
 // ================================================================
 //  CANAOPTICALCLINIC — api/backup/import.php
-//  POST multipart/form-data { backup: File, password, confirmPhrase } —
+//  POST multipart/form-data { uploadId (a finished upload.php upload) or
+//  backup: File, password, confirmPhrase } —
 //  Admin only. The actual Restore: wipes and repopulates every table
 //  covered by the uploaded backup, restores uploaded files, forces a
 //  global logout, and logs the event. See _lib.php for the exact
@@ -33,24 +34,26 @@ if (!isset($_SESSION['user_id'])) {
 if (($_SESSION['role'] ?? '') !== 'admin') {
     jsonResponse(['success' => false, 'message' => 'Only admins can restore a system backup.'], 403);
 }
+$uid = (int)$_SESSION['user_id'];
+// Saved now, never again: written back at the end of the request, this
+// session would reappear right after the restore signs everyone out.
+session_write_close();
 
 // Deliberately tight — this is the single most destructive action in
 // the app (it replaces the entire database), so a handful of attempts
 // per hour is plenty for genuine use and still stops a stolen/left-open
 // admin session from being used to hammer it.
-rateLimit('backup-import:' . $_SESSION['user_id'], 3, 3600);
+rateLimit('backup-import:' . $uid, 3, 3600);
+
+// The file first: one PHP refuses as too big also empties the fields
+// below, which would otherwise read as "type RESTORE".
+$backupPath = backupRequestFile($uid);
 
 $password      = (string)($_POST['password'] ?? '');
 $confirmPhrase = trim((string)($_POST['confirmPhrase'] ?? ''));
 
 if ($confirmPhrase !== 'RESTORE') {
     jsonResponse(['success' => false, 'message' => 'Please type RESTORE to confirm. This replaces all current data.']);
-}
-if (empty($_FILES['backup']) || $_FILES['backup']['error'] !== UPLOAD_ERR_OK) {
-    jsonResponse(['success' => false, 'message' => 'No backup file was uploaded.']);
-}
-if (!class_exists('ZipArchive')) {
-    jsonResponse(['success' => false, 'message' => 'The server\'s PHP zip extension is not available, so a backup file can\'t be restored.'], 500);
 }
 
 try {
@@ -70,7 +73,7 @@ try {
            FROM admins a JOIN users u ON u.id = a.user_id
           WHERE a.user_id = ? LIMIT 1'
     );
-    $adminStmt->execute([$_SESSION['user_id']]);
+    $adminStmt->execute([$uid]);
     $adminRow = $adminStmt->fetch();
     if (!$adminRow || !password_verify($password, $adminRow['password_hash'])) {
         jsonResponse(['success' => false, 'message' => 'Incorrect password.']);
@@ -80,8 +83,8 @@ try {
     // ── Validate the uploaded backup (same checks as inspect.php,
     //    independently re-run — this endpoint never assumes a prior
     //    inspect() call on the same file actually happened) ──────────
-    $zip = new ZipArchive();
-    if ($zip->open($_FILES['backup']['tmp_name']) !== true) {
+    $zip = backupZipOpen($backupPath);
+    if (!$zip) {
         jsonResponse(['success' => false, 'message' => 'That file isn\'t a valid .zip archive.']);
     }
     $manifestRaw = $zip->getFromName('manifest.json');
@@ -117,6 +120,9 @@ try {
     // an app version newer than the backup), and never let a restore
     // silently erase this system's own live audit trail with an older
     // one (activity_log/qr_scan_log — see BACKUP_NON_RESTORABLE_TABLES).
+    // Tables this app creates on first use are made first (when the backup
+    // has them), so they're part of "the current schema" here.
+    backupPrepareSchema($pdo, array_keys($backupData));
     $currentTables = backupRestorableTables($pdo);
     $restoreTables = array_values(array_intersect(array_keys($backupData), $currentTables));
 
@@ -134,18 +140,19 @@ try {
     }
     $safetyName = 'pre-restore-' . date('Y-m-d_His') . '.zip';
     $safetyPath = $safetyDir . '/' . $safetyName;
-    $safetyZip = new ZipArchive();
-    if ($safetyZip->open($safetyPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+    $safetyZip  = backupZipCreate($safetyPath);
+    $safetyOk   = $safetyZip
+        && $safetyZip->addFromString('manifest.json', json_encode([
+            'app' => 'Cana Optical Clinic', 'formatVersion' => BACKUP_FORMAT_VERSION,
+            'createdAt' => date('c'), 'reason' => 'automatic-pre-restore-safety-copy',
+        ], JSON_PRETTY_PRINT))
+        && $safetyZip->addFromString('database.sql', $safetyDump['sql'])
+        && $safetyZip->addFromString('database.json', json_encode($safetyDump['json'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    if (!$safetyZip || !$safetyZip->close() || !$safetyOk) {
+        @unlink($safetyPath);
         $zip->close();
-        jsonResponse(['success' => false, 'message' => 'Could not write a pre-restore safety backup, so the restore was not started.'], 500);
+        jsonResponse(['success' => false, 'message' => 'Could not write a pre-restore safety backup, so the restore was not started. Check the server\'s free disk space.'], 500);
     }
-    $safetyZip->addFromString('manifest.json', json_encode([
-        'app' => 'Cana Optical Clinic', 'formatVersion' => BACKUP_FORMAT_VERSION,
-        'createdAt' => date('c'), 'reason' => 'automatic-pre-restore-safety-copy',
-    ], JSON_PRETTY_PRINT));
-    $safetyZip->addFromString('database.sql', $safetyDump['sql']);
-    $safetyZip->addFromString('database.json', json_encode($safetyDump['json'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-    $safetyZip->close();
 
     // Keep only the last 3 safety copies — this is a short-lived local
     // net for THIS operation, not long-term storage (and on Railway,
@@ -157,7 +164,7 @@ try {
     // ── The restore itself ───────────────────────────────────────────
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
     try {
-        $restoredCounts = backupApplyJsonToDb($pdo, $restoreTables, $backupData);
+        $restoredCounts = backupApplyJsonToDb($pdo, $restoreTables, $backupData, $skippedColumns);
     } catch (RuntimeException $e) {
         // Attempt a same-shaped rollback from the safety copy just taken,
         // restricted to whichever tables the failed restore may have
@@ -183,6 +190,9 @@ try {
     // ── Restore uploaded files (logo, gallery, hero, profile photos) ──
     $fileResult = backupRestoreFiles($zip);
     $zip->close();
+    // The uploaded copy has served its purpose (it holds every patient's
+    // record, so it doesn't linger on the server).
+    backupDiscardUpload((string)($_POST['uploadId'] ?? ''));
 
     // Every session — including the one making this request — just had
     // its underlying users/passwords data replaced wholesale. Nobody's
@@ -229,11 +239,13 @@ try {
     jsonResponse([
         'success' => true,
         'summary' => [
-            'tables'       => $restoredCounts,
-            'filesRestored'=> $fileResult['restored'],
-            'filesFailed'  => $fileResult['failed'],
-            'safetyBackup' => $safetyName,
-            'backupDate'   => $manifest['createdAt'] ?? null,
+            'tables'         => $restoredCounts,
+            'records'        => array_sum($restoredCounts),
+            'filesRestored'  => $fileResult['restored'],
+            'filesFailed'    => $fileResult['failed'],
+            'skippedColumns' => $skippedColumns ?? [],
+            'safetyBackup'   => $safetyName,
+            'backupDate'     => $manifest['createdAt'] ?? null,
         ],
     ]);
 

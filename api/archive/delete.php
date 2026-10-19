@@ -4,7 +4,8 @@
 //  Admin only. Permanently deletes an archived account/patient —
 //  removes the role row (cascading to appointments/examinations/
 //  prescriptions/consultations), the login row, and the archive
-//  entry itself. This is irreversible.
+//  entry itself — or an archived service or previous clinic record
+//  (with its uploaded files). This is irreversible.
 //
 //  POST { id }   — archived_records.id
 // ================================================================
@@ -46,6 +47,14 @@ try {
         jsonResponse(['success' => true]);
     }
 
+    // A previous clinic record: its row and uploaded files go for good.
+    // (The Activity Log entry comes from the page, as for every delete.)
+    if ($rec['type'] === PREV_RECORD_ARCHIVE_TYPE) {
+        deletePreviousRecordPermanently($pdo, (int)$rec['ref_id']);
+        $pdo->prepare('DELETE FROM archived_records WHERE id = ?')->execute([$id]);
+        jsonResponse(['success' => true]);
+    }
+
     // Examination records are permanent medical records — never deleted.
     // One archived before this rule can still be restored from Archives.
     if ($rec['type'] === 'Examination') {
@@ -62,8 +71,25 @@ try {
         $rs->execute([$rec['ref_id']]);
         $row = $rs->fetch();
 
+        // Their archived previous clinic records leave Archives too — the
+        // records themselves are about to go with the patient.
+        if ($table === 'patients') {
+            try {
+                $ids = $pdo->prepare('SELECT id FROM previous_clinic_records WHERE patient_id = ?');
+                $ids->execute([$rec['ref_id']]);
+                $ids = array_map('strval', $ids->fetchAll(PDO::FETCH_COLUMN));
+                if ($ids) {
+                    $in = implode(',', array_fill(0, count($ids), '?'));
+                    $pdo->prepare("DELETE FROM archived_records WHERE type = ? AND ref_id IN ($in)")
+                        ->execute([PREV_RECORD_ARCHIVE_TYPE, ...$ids]);
+                }
+            } catch (PDOException) {}   // no previous_clinic_records table yet
+        }
+
         // Cascades to appointments/examinations/prescriptions/consultations
+        // (and previous clinic records, whose uploaded files go below)
         $pdo->prepare("DELETE FROM `{$table}` WHERE id = ?")->execute([$rec['ref_id']]);
+        if ($table === 'patients') deletePreviousRecordFiles($rec['ref_id']);
 
         if ($row && $row['user_id']) {
             // Captured before the users row goes — this is the one thing

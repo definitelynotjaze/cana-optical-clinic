@@ -51,11 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
 
 requireMethod('POST');
 
-if (empty($_FILES['photo']) || $_FILES['photo']['error'] !== UPLOAD_ERR_OK) {
-    jsonResponse(['success' => false, 'message' => 'No file uploaded.']);
-}
-
-$file     = $_FILES['photo'];
+// The browser crops and re-encodes the photo to 480 px first (~100 KB).
+$file     = requireUploadedFile('photo', UPLOAD_MAX_PROFILE_PHOTO, 'That photo');
 $mimeType = mime_content_type($file['tmp_name']);
 $allowed  = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 

@@ -18,11 +18,8 @@ if (($_SESSION['role'] ?? '') !== 'admin') {
     jsonResponse(['success' => false, 'message' => 'Only admins may change the clinic logo.'], 403);
 }
 
-if (empty($_FILES['logo']) || $_FILES['logo']['error'] !== UPLOAD_ERR_OK) {
-    jsonResponse(['success' => false, 'message' => 'No file uploaded.']);
-}
-
-$file     = $_FILES['logo'];
+// The browser resizes PNG / JPG / WebP logos to 1024 px first; an SVG is sent as-is.
+$file     = requireUploadedFile('logo', UPLOAD_MAX_LOGO, 'That logo', 'Save it smaller, e.g. 1024 px wide.');
 $mimeType = mime_content_type($file['tmp_name']);
 $allowed  = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
 

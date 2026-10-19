@@ -1,14 +1,15 @@
 <?php
 // ================================================================
 //  CANAOPTICALCLINIC — api/backup/inspect.php
-//  POST multipart/form-data { backup: File } — Admin only.
+//  POST multipart/form-data { uploadId } (a finished upload.php upload)
+//  or { backup: File } — Admin only.
 //  Read-only preview/validation step for the Restore flow: unpacks the
-//  uploaded .zip just far enough to check it's actually a backup this
+//  backup .zip just far enough to check it's actually a backup this
 //  app made (manifest present, checksums match) and returns a summary
 //  for the confirmation screen. Never touches the database — the real
 //  restore only happens in import.php, and only after the admin
 //  confirms what this endpoint shows them.
-//  → { success:true, manifest:{...} }
+//  → { success:true, manifest:{...}, warnings:[] }
 //  → { success:false, message }
 // ================================================================
 
@@ -25,18 +26,13 @@ if (!isset($_SESSION['user_id'])) {
 if (($_SESSION['role'] ?? '') !== 'admin') {
     jsonResponse(['success' => false, 'message' => 'Only admins can restore a system backup.'], 403);
 }
+$uid = (int)$_SESSION['user_id'];
+session_write_close();
 
-rateLimit('backup-inspect:' . $_SESSION['user_id'], 15, 3600);
+rateLimit('backup-inspect:' . $uid, 15, 3600);
 
-if (empty($_FILES['backup']) || $_FILES['backup']['error'] !== UPLOAD_ERR_OK) {
-    jsonResponse(['success' => false, 'message' => 'No backup file was uploaded.']);
-}
-if (!class_exists('ZipArchive')) {
-    jsonResponse(['success' => false, 'message' => 'The server\'s PHP zip extension is not available, so a backup file can\'t be read.'], 500);
-}
-
-$zip = new ZipArchive();
-if ($zip->open($_FILES['backup']['tmp_name']) !== true) {
+$zip = backupZipOpen(backupRequestFile($uid));
+if (!$zip) {
     jsonResponse(['success' => false, 'message' => 'That file isn\'t a valid .zip archive.']);
 }
 
@@ -77,6 +73,7 @@ jsonResponse([
         'tables'         => $manifest['tables']          ?? [],
         'excludedTables' => $manifest['excludedTables']  ?? [],
         'fileCount'      => $manifest['fileCount']       ?? 0,
+        'videosIncluded' => !empty($manifest['videosIncluded']),
         'totalRecords'   => array_sum($manifest['tables'] ?? []),
     ],
     'warnings' => $warnings,

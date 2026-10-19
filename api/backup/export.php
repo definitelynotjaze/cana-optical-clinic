@@ -30,10 +30,7 @@ if (($_SESSION['role'] ?? '') !== 'admin') {
 // record) — scoped per admin account, generous enough for genuine
 // back-to-back retries but not for scripted hammering.
 rateLimit('backup-export:' . $_SESSION['user_id'], 5, 3600);
-
-if (!class_exists('ZipArchive')) {
-    jsonResponse(['success' => false, 'message' => 'The server\'s PHP zip extension is not available, so a backup file can\'t be built.'], 500);
-}
+session_write_close();   // read-only from here: don't hold the session while the zip builds
 
 try {
     $pdo = getDB();
@@ -94,18 +91,21 @@ try {
     ];
 
     $tmpZip = tempnam(sys_get_temp_dir(), 'coc_backup_');
-    $zip = new ZipArchive();
-    if ($zip->open($tmpZip, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+    $zip = backupZipCreate($tmpZip);
+    if (!$zip) {
         jsonResponse(['success' => false, 'message' => 'Could not create the backup archive.'], 500);
     }
 
-    $zip->addFromString('manifest.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $zip->addFromString('database.sql', $dump['sql']);
-    $zip->addFromString('database.json', $databaseJsonEncoded);
+    $ok = $zip->addFromString('manifest.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES))
+        && $zip->addFromString('database.sql', $dump['sql'])
+        && $zip->addFromString('database.json', $databaseJsonEncoded);
     foreach ($fileInventory as $rel => $realPath) {
-        $zip->addFile($realPath, $rel);
+        $ok = $ok && $zip->addFile($realPath, $rel);
     }
-    $zip->close();
+    if (!$zip->close() || !$ok) {
+        @unlink($tmpZip);
+        jsonResponse(['success' => false, 'message' => 'Could not write the backup archive. Check the server\'s free disk space.'], 500);
+    }
 
     $stamp = date('Y-m-d_His');
     $filename = "CanaOpticalClinic-Backup-{$stamp}.zip";
@@ -135,6 +135,9 @@ try {
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Content-Length: ' . filesize($tmpZip));
     header('X-Content-Type-Options: nosniff');
+    // For the "Backup downloaded" message.
+    header('X-Backup-Records: ' . array_sum($dump['counts']));
+    header('X-Backup-Files: ' . count($fileInventory));
     readfile($tmpZip);
     unlink($tmpZip);
     exit;

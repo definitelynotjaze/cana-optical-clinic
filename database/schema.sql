@@ -426,6 +426,51 @@ CREATE TABLE IF NOT EXISTS `prescriptions` (
   FOREIGN KEY (`doctor_id`)  REFERENCES `doctors`(`id`)  ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ── Previous Clinic Records ───────────────────────────────────────
+-- Exam results / prescriptions a patient brings from another optical
+-- clinic (mostly Transfer patients): the uploaded PDF / scanned images
+-- (previous_clinic_files, stored in storage/previous_records/<patient
+-- id>/) plus any values staff type in from them so doctors can compare
+-- at the next exam. Existing DB: database/previous_clinic_records.sql
+CREATE TABLE IF NOT EXISTS `previous_clinic_records` (
+  `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `patient_id`   VARCHAR(10)  NOT NULL,
+  `clinic_name`  VARCHAR(150) NOT NULL,
+  `optometrist`  VARCHAR(150) DEFAULT NULL,
+  `record_date`  DATE         DEFAULT NULL,              -- exam or issue date on the document
+  `record_type`  VARCHAR(20)  NOT NULL DEFAULT 'exam',   -- exam | prescription | other
+  `od_sph` VARCHAR(10) DEFAULT NULL, `od_cyl` VARCHAR(10) DEFAULT NULL, `od_axis` VARCHAR(10) DEFAULT NULL,
+  `od_add` VARCHAR(10) DEFAULT NULL, `od_va`  VARCHAR(10) DEFAULT NULL,
+  `os_sph` VARCHAR(10) DEFAULT NULL, `os_cyl` VARCHAR(10) DEFAULT NULL, `os_axis` VARCHAR(10) DEFAULT NULL,
+  `os_add` VARCHAR(10) DEFAULT NULL, `os_va`  VARCHAR(10) DEFAULT NULL,
+  `pd`           VARCHAR(20)  DEFAULT NULL,
+  `diagnosis`    VARCHAR(255) DEFAULT NULL,
+  `notes`        TEXT         DEFAULT NULL,
+  `created_by`   VARCHAR(150) DEFAULT NULL,
+  `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_by`   VARCHAR(150) DEFAULT NULL,
+  `updated_at`   DATETIME     DEFAULT NULL,
+  `archived_at`  DATETIME     DEFAULT NULL,   -- in Settings > Archives (api/previous_records/archive.php)
+  `record_type_other` VARCHAR(60) DEFAULT NULL,   -- what an 'other' document is ("Referral letter")
+  PRIMARY KEY (`id`),
+  KEY `idx_pcr_patient` (`patient_id`),
+  CONSTRAINT `fk_pcr_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `previous_clinic_files` (
+  `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `record_id`     INT UNSIGNED NOT NULL,
+  `patient_id`    VARCHAR(10)  NOT NULL,
+  `stored_name`   VARCHAR(100) NOT NULL,                 -- random name on disk, never the uploaded name
+  `original_name` VARCHAR(255) NOT NULL,
+  `mime_type`     VARCHAR(60)  NOT NULL,                 -- application/pdf | image/jpeg | image/png
+  `size_bytes`    INT UNSIGNED NOT NULL DEFAULT 0,
+  `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_pcf_record` (`record_id`),
+  CONSTRAINT `fk_pcf_record` FOREIGN KEY (`record_id`) REFERENCES `previous_clinic_records`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ── Notifications ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `notifications` (
   `id`         INT UNSIGNED  NOT NULL AUTO_INCREMENT,

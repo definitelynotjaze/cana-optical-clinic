@@ -2089,3 +2089,315 @@ function nextRecordId(PDO $pdo, string $table, string $prefix): string {
     }
     return $id;
 }
+
+// ════════════════════════════════════════════════════════════════
+//  UPLOAD SIZE LIMITS — each just enough for what it holds, so nobody can
+//  push a huge file onto the server (or onto every homepage visitor).
+//  Mirrored in main.js (UPLOAD_LIMITS) so the browser stops a too-big
+//  file before sending it. Previous Clinic Records: PREV_RECORD_* below.
+// ════════════════════════════════════════════════════════════════
+const UPLOAD_MAX_PROFILE_PHOTO = 1 * 1024 * 1024;     // a 480 px photo, cropped in the browser (~100 KB)
+const UPLOAD_MAX_LOGO          = 2 * 1024 * 1024;     // resized to 1024 px in the browser first; an SVG as-is
+const UPLOAD_MAX_HERO          = 5 * 1024 * 1024;     // one 1920 × 1080 photo
+const UPLOAD_MAX_VIDEO         = 100 * 1024 * 1024;   // about 2 minutes of 1080p (streamed to visitors)
+const UPLOAD_MAX_GALLERY       = 2 * 1024 * 1024;     // resized to 1600 px in the browser first
+const UPLOAD_MAX_BACKUP        = 2048 * 1024 * 1024;  // the database plus every uploaded file, for years
+
+function uploadSizeLabel(int $bytes): string {
+    if ($bytes >= 1073741824) return round($bytes / 1073741824, 1) . ' GB';
+    return $bytes >= 1048576 ? round($bytes / 1048576) . ' MB' : max(1, round($bytes / 1024)) . ' KB';
+}
+// The hosting's own PHP cap on one upload (upload_max_filesize / post_max_size,
+// "40M" style; 0 = no cap), so a too-big message names the limit that really
+// applied when the server's is lower than ours.
+function serverUploadLimit(): int {
+    $bytes = function (string $v): int {
+        $n = (int)$v;
+        return match (strtoupper(substr(trim($v), -1))) { 'G' => $n * 1073741824, 'M' => $n * 1048576, 'K' => $n * 1024, default => $n };
+    };
+    $caps = array_filter([$bytes((string)ini_get('upload_max_filesize')), $bytes((string)ini_get('post_max_size'))]);
+    return $caps ? min($caps) : PHP_INT_MAX;
+}
+
+// The file in $_FILES[$field], or a JSON error when it's missing, cut off or
+// over $maxBytes — including when PHP itself refused it as too big (then
+// $_FILES is empty and only the request size shows why). $what starts the
+// message ("That video"); $hint is added to the too-big message.
+function requireUploadedFile(string $field, int $maxBytes, string $what, string $hint = ''): array {
+    $limit  = min($maxBytes, serverUploadLimit());
+    $tooBig = "$what is too large. The limit is " . uploadSizeLabel($limit) . '.' . ($hint !== '' ? " $hint" : '');
+    $f   = $_FILES[$field] ?? null;
+    $err = $f['error'] ?? UPLOAD_ERR_NO_FILE;
+    if (!$f || $err === UPLOAD_ERR_NO_FILE) {
+        if ((int)($_SERVER['CONTENT_LENGTH'] ?? 0) > $limit) jsonResponse(['success' => false, 'message' => $tooBig]);
+        jsonResponse(['success' => false, 'message' => 'No file uploaded.']);
+    }
+    if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) jsonResponse(['success' => false, 'message' => $tooBig]);
+    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) {
+        jsonResponse(['success' => false, 'message' => 'The upload didn\'t finish. Please try again.']);
+    }
+    if ((int)filesize($f['tmp_name']) > $maxBytes) jsonResponse(['success' => false, 'message' => $tooBig]);
+    return $f;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  PREVIOUS CLINIC RECORDS — exam results / prescriptions a patient
+//  brings from another optical clinic (mostly Transfer patients): the
+//  uploaded PDF / scanned images plus any values staff type in from
+//  them. Files live in storage/previous_records/<patient id>/ (blocked
+//  from direct web access by storage/.htaccess) and are only served by
+//  api/previous_records/file.php after a login check.
+//  Tables: database/previous_clinic_records.sql
+// ════════════════════════════════════════════════════════════════
+// Pages from another clinic: a PDF up to 20 MB (a 10-page colour scan at
+// 300 dpi fits), photos up to 10 MB (the browser shrinks big phone photos to
+// about 1-2 MB first), up to 10 files and 60 MB per record. Files travel in
+// 2 MB pieces (api/previous_records/upload.php), so this doesn't depend on
+// the server's PHP upload_max_filesize / post_max_size. Mirrored in main.js
+// (PREV_REC_*).
+const PREV_RECORD_MAX_BYTES       = 20 * 1024 * 1024;   // per PDF
+const PREV_RECORD_MAX_IMAGE_BYTES = 10 * 1024 * 1024;   // per JPG / PNG
+const PREV_RECORD_MAX_TOTAL       = 60 * 1024 * 1024;   // all files of one record
+const PREV_RECORD_CHUNK_BYTES     = 2 * 1024 * 1024;    // per upload piece
+const PREV_RECORD_MAX_FILES       = 10;                 // per record
+const PREV_RECORD_TYPES       = ['exam', 'prescription', 'other'];
+// Type detected from the file's content (finfo) => extension used on disk.
+// Never the browser's claimed type or the uploaded file name.
+const PREV_RECORD_MIME_EXT    = ['application/pdf' => 'pdf', 'image/jpeg' => 'jpg', 'image/png' => 'png'];
+// archived_records.type of a record archived from the profile
+// (api/previous_records/archive.php). Restored or deleted for good from
+// Settings > Archives (api/archive/restore.php, delete.php).
+const PREV_RECORD_ARCHIVE_TYPE = 'Previous Record';
+
+// Pieces of a file being uploaded collect here (<id>.part + <id>.json)
+// until the record is saved and the finished file is moved into the
+// patient's folder. Under storage/ (not web-accessible), and outside
+// previous_records/ so half-uploaded files never end up in a backup.
+function prevRecordStagingDir(): string {
+    return __DIR__ . '/../storage/upload_staging';
+}
+// The upload's bookkeeping (who, name, size, pieces received, done,
+// detected type), or null for an unknown / malformed upload id.
+function prevRecordStagedMeta(string $uploadId): ?array {
+    if (!preg_match('/^[a-f0-9]{32}$/', $uploadId)) return null;
+    $f = prevRecordStagingDir() . "/$uploadId.json";
+    if (!is_file($f)) return null;
+    $m = json_decode((string)file_get_contents($f), true);
+    return is_array($m) ? $m : null;
+}
+function prevRecordClearStaged(string $uploadId): void {
+    if (!preg_match('/^[a-f0-9]{32}$/', $uploadId)) return;
+    @unlink(prevRecordStagingDir() . "/$uploadId.part");
+    @unlink(prevRecordStagingDir() . "/$uploadId.json");
+}
+// Uploads never saved to a record (form closed, browser gone) are
+// dropped after a day.
+function prevRecordCleanStaging(int $maxAgeSeconds = 86400): void {
+    foreach (glob(prevRecordStagingDir() . '/*.{part,json}', GLOB_BRACE) ?: [] as $f) {
+        if (is_file($f) && filemtime($f) < time() - $maxAgeSeconds) @unlink($f);
+    }
+}
+
+function previousRecordsDir(string $patientId): string {
+    // Patient IDs look like P001; anything else never reaches the filesystem.
+    if (!preg_match('/^[A-Za-z0-9_-]{1,20}$/', $patientId)) {
+        throw new InvalidArgumentException('Invalid patient id.');
+    }
+    return __DIR__ . '/../storage/previous_records/' . $patientId;
+}
+
+// Creates the tables when the database doesn't have them yet, so the first
+// upload works even if database/previous_clinic_records.sql wasn't run.
+// DDL commits implicitly in MySQL: call this before beginTransaction().
+function ensurePreviousRecordTables(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `previous_clinic_records` (
+      `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      `patient_id` VARCHAR(10) NOT NULL,
+      `clinic_name` VARCHAR(150) NOT NULL,
+      `optometrist` VARCHAR(150) DEFAULT NULL,
+      `record_date` DATE DEFAULT NULL,
+      `record_type` VARCHAR(20) NOT NULL DEFAULT 'exam',
+      `record_type_other` VARCHAR(60) DEFAULT NULL,
+      `od_sph` VARCHAR(10) DEFAULT NULL, `od_cyl` VARCHAR(10) DEFAULT NULL, `od_axis` VARCHAR(10) DEFAULT NULL,
+      `od_add` VARCHAR(10) DEFAULT NULL, `od_va` VARCHAR(10) DEFAULT NULL,
+      `os_sph` VARCHAR(10) DEFAULT NULL, `os_cyl` VARCHAR(10) DEFAULT NULL, `os_axis` VARCHAR(10) DEFAULT NULL,
+      `os_add` VARCHAR(10) DEFAULT NULL, `os_va` VARCHAR(10) DEFAULT NULL,
+      `pd` VARCHAR(20) DEFAULT NULL,
+      `diagnosis` VARCHAR(255) DEFAULT NULL,
+      `notes` TEXT DEFAULT NULL,
+      `created_by` VARCHAR(150) DEFAULT NULL,
+      `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      `updated_by` VARCHAR(150) DEFAULT NULL,
+      `updated_at` DATETIME DEFAULT NULL,
+      `archived_at` DATETIME DEFAULT NULL,
+      PRIMARY KEY (`id`),
+      KEY `idx_pcr_patient` (`patient_id`),
+      CONSTRAINT `fk_pcr_patient` FOREIGN KEY (`patient_id`) REFERENCES `patients`(`id`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `previous_clinic_files` (
+      `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      `record_id` INT UNSIGNED NOT NULL,
+      `patient_id` VARCHAR(10) NOT NULL,
+      `stored_name` VARCHAR(100) NOT NULL,
+      `original_name` VARCHAR(255) NOT NULL,
+      `mime_type` VARCHAR(60) NOT NULL,
+      `size_bytes` INT UNSIGNED NOT NULL DEFAULT 0,
+      `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (`id`),
+      KEY `idx_pcf_record` (`record_id`),
+      CONSTRAINT `fk_pcf_record` FOREIGN KEY (`record_id`) REFERENCES `previous_clinic_records`(`id`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+// Columns added after the table first shipped, each added here on first use
+// when the database predates it (database/previous_records_columns.sql does
+// the same by hand). DDL commits implicitly: call before beginTransaction().
+//  - archived_at: a record removed from a profile goes to Archives first;
+//    only an admin deletes it for good, from there.
+//  - record_type_other: what an "Other" document is ("Referral letter").
+// [column => bool]; false when the table is missing or that column couldn't
+// be added — callers then skip it (every record counts as active).
+function previousRecordExtraColumns(PDO $pdo): array {
+    static $cols = null;
+    if ($cols !== null) return $cols;
+    $want = ['archived_at' => 'DATETIME DEFAULT NULL', 'record_type_other' => 'VARCHAR(60) DEFAULT NULL'];
+    $cols = array_fill_keys(array_keys($want), false);
+    try {
+        $have = $pdo->query('SHOW COLUMNS FROM previous_clinic_records')->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($want as $c => $def) {
+            if (!in_array($c, $have, true)) $pdo->exec("ALTER TABLE previous_clinic_records ADD COLUMN `$c` $def");
+            $cols[$c] = true;
+        }
+    } catch (PDOException $e) {}
+    return $cols;
+}
+function previousRecordArchiveColumn(PDO $pdo): bool {
+    return previousRecordExtraColumns($pdo)['archived_at'];
+}
+
+// The JSON shape the frontend uses (patient.previousRecords[]).
+function previousRecordShape(array $r, array $files): array {
+    $eye = fn(string $s) => [
+        'sph'  => $r[$s . '_sph']  ?? '',
+        'cyl'  => $r[$s . '_cyl']  ?? '',
+        'axis' => $r[$s . '_axis'] ?? '',
+        'add'  => $r[$s . '_add']  ?? '',
+        'va'   => $r[$s . '_va']   ?? '',
+    ];
+    return [
+        'id'          => (int)$r['id'],
+        'patientId'   => $r['patient_id'],
+        'clinicName'  => $r['clinic_name'],
+        'optometrist' => $r['optometrist'] ?? '',
+        'date'        => $r['record_date'] ?? '',
+        'type'        => in_array($r['record_type'] ?? '', PREV_RECORD_TYPES, true) ? $r['record_type'] : 'exam',
+        // What an "Other" document is, as staff specified it ('' otherwise).
+        'typeOther'   => ($r['record_type'] ?? '') === 'other' ? (string)($r['record_type_other'] ?? '') : '',
+        'od'          => $eye('od'),
+        'os'          => $eye('os'),
+        'pd'          => $r['pd'] ?? '',
+        'diagnosis'   => $r['diagnosis'] ?? '',
+        'notes'       => $r['notes'] ?? '',
+        'createdBy'   => $r['created_by'] ?? '',
+        'createdAt'   => $r['created_at'] ?? '',
+        'updatedBy'   => $r['updated_by'] ?? '',
+        'updatedAt'   => $r['updated_at'] ?? '',
+        'files'       => array_map(fn($f) => [
+            'id'   => (int)$f['id'],
+            'name' => $f['original_name'],
+            'mime' => $f['mime_type'],
+            'size' => (int)$f['size_bytes'],
+        ], $files),
+    ];
+}
+
+// Active (not archived) records with their files, grouped by patient id,
+// newest exam date first (undated last). Only one patient's when $patientId
+// is given. [] when the tables don't exist yet.
+function previousRecordsByPatient(PDO $pdo, ?string $patientId = null): array {
+    $active = previousRecordArchiveColumn($pdo) ? 'archived_at IS NULL' : '1';
+    try {
+        if ($patientId === null) {
+            $records = $pdo->query("SELECT * FROM previous_clinic_records WHERE $active ORDER BY record_date IS NULL, record_date DESC, id DESC")->fetchAll();
+            $files   = $records ? $pdo->query('SELECT id, record_id, original_name, mime_type, size_bytes FROM previous_clinic_files ORDER BY id')->fetchAll() : [];
+        } else {
+            $st = $pdo->prepare("SELECT * FROM previous_clinic_records WHERE patient_id = ? AND $active ORDER BY record_date IS NULL, record_date DESC, id DESC");
+            $st->execute([$patientId]);
+            $records = $st->fetchAll();
+            $fs = $pdo->prepare('SELECT id, record_id, original_name, mime_type, size_bytes FROM previous_clinic_files WHERE patient_id = ? ORDER BY id');
+            $fs->execute([$patientId]);
+            $files = $fs->fetchAll();
+        }
+    } catch (PDOException) {
+        return [];
+    }
+    $filesByRecord = [];
+    foreach ($files as $f) $filesByRecord[(int)$f['record_id']][] = $f;
+    $out = [];
+    foreach ($records as $r) {
+        $out[$r['patient_id']][] = previousRecordShape($r, $filesByRecord[(int)$r['id']] ?? []);
+    }
+    return $out;
+}
+
+// Deletes one archived record for good: its row (file rows go with it, ON
+// DELETE CASCADE) and its uploaded files. Only reached from Settings >
+// Archives (api/archive/delete.php). The record's patient id and clinic,
+// or null when it was already gone.
+function deletePreviousRecordPermanently(PDO $pdo, int $recordId): ?array {
+    $st = $pdo->prepare('SELECT patient_id, clinic_name FROM previous_clinic_records WHERE id = ? LIMIT 1');
+    $st->execute([$recordId]);
+    $rec = $st->fetch();
+    if (!$rec) return null;
+    $fs = $pdo->prepare('SELECT stored_name FROM previous_clinic_files WHERE record_id = ?');
+    $fs->execute([$recordId]);
+    $stored = $fs->fetchAll(PDO::FETCH_COLUMN);
+    $pdo->prepare('DELETE FROM previous_clinic_records WHERE id = ?')->execute([$recordId]);
+    try {
+        $dir = previousRecordsDir($rec['patient_id']);
+        foreach ($stored as $n) @unlink($dir . '/' . basename($n));
+    } catch (InvalidArgumentException) {}
+    return $rec;
+}
+
+// Removes every uploaded previous-clinic file of a patient. Used when the
+// patient is permanently deleted (their rows go by ON DELETE CASCADE).
+function deletePreviousRecordFiles(string $patientId): void {
+    try { $dir = previousRecordsDir($patientId); } catch (InvalidArgumentException) { return; }
+    if (!is_dir($dir)) return;
+    foreach (glob($dir . '/*') ?: [] as $f) {
+        if (is_file($f)) @unlink($f);
+    }
+    @rmdir($dir);
+}
+
+// Display name of whoever is signed in, e.g. "Dr. Lalaine Cana".
+function sessionActorName(PDO $pdo): string {
+    $role  = $_SESSION['role'] ?? '';
+    $table = ['admin' => 'admins', 'staff' => 'staff', 'doctor' => 'doctors'][$role] ?? null;
+    if ($table) {
+        try {
+            $st = $pdo->prepare("SELECT first_name, last_name FROM `$table` WHERE user_id = ? LIMIT 1");
+            $st->execute([(int)($_SESSION['user_id'] ?? 0)]);
+            if ($r = $st->fetch()) return trim(($role === 'doctor' ? 'Dr. ' : '') . $r['first_name'] . ' ' . $r['last_name']);
+        } catch (PDOException) {}
+    }
+    return ucfirst($role ?: 'staff');
+}
+
+// Writes one Activity Log entry for the signed-in user. Never fails the request.
+function logActivity(PDO $pdo, string $action, string $type): void {
+    try {
+        $pdo->prepare('INSERT IGNORE INTO activity_log (id, users_id, user_name, role, action, timestamp, type, ip_address)
+                       VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)')
+            ->execute([
+                substr('L' . date('YmdHis') . random_int(100, 999), 0, 20),
+                ((int)($_SESSION['user_id'] ?? 0)) ?: null,
+                sessionActorName($pdo),
+                ucfirst($_SESSION['role'] ?? ''),
+                $action,
+                $type,
+                clientIp(),
+            ]);
+    } catch (PDOException) {}
+}

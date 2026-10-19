@@ -2,7 +2,8 @@
 // ================================================================
 //  CANAOPTICALCLINIC — api/archive/restore.php
 //  Admin only. Restores an archived account/patient back to the
-//  active list and re-enables login.
+//  active list and re-enables login; a service, or a previous clinic
+//  record (back onto its patient's profile).
 //
 //  POST { id }   — archived_records.id
 // ================================================================
@@ -41,6 +42,19 @@ try {
         $pdo->prepare("UPDATE clinic_services SET status = 'active' WHERE id = ?")->execute([$rec['ref_id']]);
         $pdo->prepare('DELETE FROM archived_records WHERE id = ?')->execute([$id]);
         jsonResponse(['success' => true, 'role' => 'Service']);
+    }
+
+    // A previous clinic record goes back onto its patient's profile.
+    // (The Activity Log entry comes from the page, as for every restore.)
+    if ($rec['type'] === PREV_RECORD_ARCHIVE_TYPE) {
+        $rs = $pdo->prepare('SELECT id FROM previous_clinic_records WHERE id = ? LIMIT 1');
+        $rs->execute([(int)$rec['ref_id']]);
+        if (!$rs->fetch()) {
+            jsonResponse(['success' => false, 'message' => 'The original record no longer exists.']);
+        }
+        $pdo->prepare('UPDATE previous_clinic_records SET archived_at = NULL WHERE id = ?')->execute([(int)$rec['ref_id']]);
+        $pdo->prepare('DELETE FROM archived_records WHERE id = ?')->execute([$id]);
+        jsonResponse(['success' => true, 'role' => PREV_RECORD_ARCHIVE_TYPE]);
     }
 
     // Examinations aren't a user account/role row either — unset the

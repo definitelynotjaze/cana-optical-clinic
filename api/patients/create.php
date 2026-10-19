@@ -47,6 +47,10 @@ $medHx  = trim($b['medicalHistory'] ?? '');
 if (!$first || !$last || !$gender || !$dob) {
     jsonResponse(['success' => false, 'message' => 'First name, last name, gender and date of birth are required.']);
 }
+// A Transfer must say which clinic ("Unknown" is fine).
+if ($source === 'transferred' && $sourceNote === '') {
+    jsonResponse(['success' => false, 'message' => 'Enter the previous optical clinic, or "Unknown" if the patient doesn\'t remember.']);
+}
 if ($contact && !isValidContact($contact)) {
     jsonResponse(['success' => false, 'message' => 'Please enter a valid 11-digit contact number.']);
 }
@@ -169,10 +173,15 @@ try {
         'registeredDate' => $today,
         'lastVisit'      => '—',
         'status'         => 'active',
+        // Registration Type, so the new row shows the right badge (and the
+        // Transfer prompt to upload previous records) before any reload.
+        'source'         => $source,
+        'sourceNote'     => in_array($source, ['transferred', 'referral'], true) ? $sourceNote : '',
         'photoUrl'       => null,
         'consultations'  => [],
         'examinations'   => [],
         'prescriptions'  => [],
+        'previousRecords'=> [],
     ];
 
     $response = ['success' => true, 'patient' => $patientObj];

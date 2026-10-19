@@ -246,4 +246,7 @@
   }
 
   window.initSortable = initSortable
+  // For an outside control (the record filter bar's Newest / Oldest first
+  // dropdown) to sort a table with its header arrows kept in step.
+  window.setTableSort = function (tbodyId, key, type, dir) { _setSort(tbodyId, key, type, dir) }
 })()

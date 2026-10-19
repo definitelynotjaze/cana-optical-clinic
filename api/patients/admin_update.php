@@ -54,6 +54,10 @@ $status  = isset($b['status']) ? trim($b['status']) : null;
 $source     = isset($b['source']) ? cleanPatientSource($b['source'], '') : null;
 $sourceNote = isset($b['sourceNote']) ? mb_substr(trim($b['sourceNote']), 0, 150) : null;
 
+// A Transfer must say which clinic ("Unknown" is fine).
+if ($source === 'transferred' && ($sourceNote ?? '') === '') {
+    jsonResponse(['success' => false, 'message' => 'Enter the previous optical clinic, or "Unknown" if the patient doesn\'t remember.']);
+}
 if ($gender && !in_array($gender, ['Male', 'Female', 'Prefer not to say'], true)) {
     jsonResponse(['success' => false, 'message' => 'Invalid gender value.']);
 }

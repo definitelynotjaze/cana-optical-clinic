@@ -18,11 +18,7 @@ if (($_SESSION['role'] ?? '') !== 'admin') {
     jsonResponse(['success' => false, 'message' => 'Only admins may change the hero background.'], 403);
 }
 
-if (empty($_FILES['hero']) || $_FILES['hero']['error'] !== UPLOAD_ERR_OK) {
-    jsonResponse(['success' => false, 'message' => 'No file uploaded.']);
-}
-
-$file     = $_FILES['hero'];
+$file     = requireUploadedFile('hero', UPLOAD_MAX_HERO, 'That image', 'Save it at 1920 × 1080 as a JPG.');
 $mimeType = mime_content_type($file['tmp_name']);
 $allowed  = ['image/jpeg', 'image/png', 'image/webp'];
 

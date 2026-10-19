@@ -126,8 +126,8 @@ if (!$fh) {
 }
 fseek($fh, $start);
 
-// Stream in chunks rather than reading the whole file into memory at once —
-// matches the upload side's own 2GB ceiling. 256KB (rather than a tiny 8KB)
+// Stream in chunks rather than reading the whole file into memory at once
+// (uploads are capped at UPLOAD_MAX_VIDEO). 256KB (rather than a tiny 8KB)
 // keeps memory use trivial while drastically cutting the number of
 // fread()/flush() round-trips needed per request.
 $chunkSize = 262144;

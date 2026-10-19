@@ -61,17 +61,30 @@ try {
         if (!preg_match('/^data:([\w\/\-\+]+);base64,(.+)$/s', $dataUrl, $m)) {
             jsonResponse(['success' => false, 'message' => 'Invalid file data.']);
         }
-        $mimeType = $m[1];
+        // The gallery's photo count (Clinic Information > Gallery > Show
+        // max) — the page also checks, but several photos can be sent at once.
+        try {
+            $cap = (int)($pdo->query('SELECT gallery_max_photos FROM clinic_settings WHERE id = 1')->fetchColumn() ?: 0);
+            if ($cap > 0 && (int)$pdo->query('SELECT COUNT(*) FROM about_gallery')->fetchColumn() >= $cap) {
+                jsonResponse(['success' => false, 'message' => "The gallery is full ($cap photos). Remove a photo or raise the limit first."]);
+            }
+        } catch (PDOException $e) {}
+        // The browser resizes photos to 1600 px first, so 2 MB is plenty;
+        // checked before decoding (base64 is 4 characters per 3 bytes).
+        $tooBig = 'That photo is too large. The limit is ' . uploadSizeLabel(UPLOAD_MAX_GALLERY) . '.';
+        if (strlen($m[2]) > UPLOAD_MAX_GALLERY / 3 * 4 + 4) jsonResponse(['success' => false, 'message' => $tooBig]);
 
-        $extMap  = ['image/png' => 'png', 'image/jpeg' => 'jpg'];
-        $allowed = array_keys($extMap);
-        if (!in_array($mimeType, $allowed, true)) {
-            jsonResponse(['success' => false, 'message' => 'Only PNG or JPG files are accepted.']);
-        }
-
-        $binary = base64_decode($m[2]);
+        $binary = base64_decode($m[2], true);
         if ($binary === false) {
             jsonResponse(['success' => false, 'message' => 'Could not decode file.']);
+        }
+        if (strlen($binary) > UPLOAD_MAX_GALLERY) jsonResponse(['success' => false, 'message' => $tooBig]);
+
+        // The type the content really has, not the one the request claims.
+        $extMap   = ['image/png' => 'png', 'image/jpeg' => 'jpg'];
+        $mimeType = (new finfo(FILEINFO_MIME_TYPE))->buffer($binary) ?: '';
+        if (!isset($extMap[$mimeType])) {
+            jsonResponse(['success' => false, 'message' => 'Only PNG or JPG files are accepted.']);
         }
 
         if (!is_dir(GALLERY_DIR)) mkdir(GALLERY_DIR, 0755, true);

@@ -117,10 +117,14 @@ function updateSettingsPwGate(prefix) {
 window.updateSettingsPwGate = updateSettingsPwGate
 
 // ── Login ────────────────────────────────────────────────────────
-function _showLoginError(msg) {
+// tone 'success' turns the box green with a check (e.g. "System restored…
+// please sign in again"): red is kept for things that went wrong.
+function _showLoginError(msg, tone = 'error') {
   const errEl  = document.getElementById('login-error')
   const errMsg = document.getElementById('login-error-msg')
   errMsg.textContent  = msg
+  errEl.classList.toggle('lf-success', tone === 'success')
+  errEl.setAttribute('role', tone === 'success' ? 'status' : 'alert')
   errEl.style.display = 'flex'
 }
 
@@ -208,7 +212,7 @@ async function handleLogin() {
 // both by _handleSessionRevoked() (the 30s poll notices mid-session) and
 // by restoreSession() (a fresh page load/refresh discovers it instead),
 // so the explanation is identical either way it's found out.
-const SESSION_REVOKED_MESSAGE = 'You were signed out because this session ended. It may have been signed out from another device, or your password was changed. Please sign in again.'
+const SESSION_REVOKED_MESSAGE = 'You were signed out because this session ended. It may have been signed out from another device, your password was changed, or the system was restored from a backup. Please sign in again.'
 
 // localStorage flag: "this device had a real, signed-in session at some
 // point." Set on every successful login/session-restore (_bootAfterAuth),
@@ -225,7 +229,8 @@ const HAD_SESSION_KEY = '_canaopticalclinic_hadSession'
 // out remotely (another device's Log Out, or a password change) lands on
 // a login screen that actually explains why, instead of just silently
 // stopping working. A normal manual "Sign Out" click passes nothing.
-async function logout(reason) {
+// { tone: 'success' } shows it green (a finished system restore).
+async function logout(reason, { tone = 'error' } = {}) {
   _stopSystemPolling()
   // A single fire-and-forget fetch here used to mean: any transient network
   // blip (a phone switching WiFi↔mobile data mid-request, a weak signal, a
@@ -265,7 +270,7 @@ async function logout(reason) {
   const rememberEl = document.getElementById('login-remember')
   if (rememberEl) rememberEl.checked = false
   _prefillRememberedEmail()
-  if (reason) _showLoginError(reason)
+  if (typeof reason === 'string' && reason) _showLoginError(reason, tone)
 }
 window.logout = logout
 
@@ -637,6 +642,7 @@ async function regNextStep() {
   const markError = id => document.getElementById(id)?.classList.add('error')
 
   if (step === 1) {
+    window.dateFieldSync?.('reg-dob')   // read the date exactly as typed (Enter-to-submit skips the blur check)
     const first  = (document.getElementById('reg-first')?.value  || '').trim()
     const last   = (document.getElementById('reg-last')?.value   || '').trim()
     const dob    = (document.getElementById('reg-dob')?.value    || '')
@@ -658,7 +664,9 @@ async function regNextStep() {
     const dobTyped = (document.getElementById('reg-dob-text')?.value || '').trim()
     if (!dob && dobTyped) {
       markError('reg-dob-trigger')
-      if (errMsg) errMsg.textContent = 'Please enter a valid date of birth.'
+      // The exact problem is already spelled out in red under the field
+      // (dateFieldProblem(), main.js), so this just points to it.
+      if (errMsg) errMsg.textContent = 'Please fix your date of birth. See the note under the field.'
       if (errEl)  errEl.style.display = 'flex'; return
     }
     if (!first || !last || !dob || !gender) {

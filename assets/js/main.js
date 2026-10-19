@@ -56,7 +56,7 @@ function icon(name, cls = 'icon') {
     user:          '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     // Calendar with a clock — Doctor Schedule / My Schedule sidebar items.
     'calendar-clock': '<path d="M21 10V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="12" y2="10"/><circle cx="17" cy="17" r="5"/><polyline points="17 15 17 17 18.5 18"/>',
-    // Stethoscope — the patient's "Our Doctors" sidebar item.
+    // Stethoscope — the patient's "Doctor Availability" sidebar item.
     stethoscope:   '<path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><line x1="5" y1="2" x2="5" y2="4"/><line x1="11" y1="2" x2="11" y2="4"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
     // Patient card (a person on an ID card) — the Patients sidebar item.
     'id-card':     '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10.5" r="2.5"/><path d="M5.5 17a3.5 3.5 0 0 1 7 0"/><line x1="15" y1="9" x2="18.5" y2="9"/><line x1="15" y1="13" x2="18.5" y2="13"/>',
@@ -114,6 +114,12 @@ function icon(name, cls = 'icon') {
     hash:             '<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>',
     'external-link':  '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
     copy:             '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    // Up/down arrows — the sort control on record lists.
+    sort:             '<path d="m3 8 4-4 4 4"/><path d="M7 4v16"/><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/>',
+    // Folder / image / paperclip — Previous Clinic Records (uploaded documents).
+    folder:           '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+    image:            '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+    paperclip:        '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
     key:              '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>'
   }
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}">${p[name] || ''}</svg>`
@@ -134,17 +140,16 @@ function wrapTableScroll() {
 }
 window.wrapTableScroll = wrapTableScroll
 
-// Shared empty-state row for all tables — cols = thead column count
+// Shared empty state as a table row — cols = thead column count. Same
+// component as everywhere else (emptyState(), pages.js).
 function emptyRow(cols, iconName, label, hint) {
-  return `<tr style="pointer-events:none"><td colspan="${cols}" style="padding:40px 24px;text-align:center;border:none;color:#9CA3AF;font-size:.85rem">
-    ${label}
-  </td></tr>`
+  return `<tr class="es-row"><td colspan="${cols}">${emptyState(iconName, label, hint || '')}</td></tr>`
 }
 window.emptyRow = emptyRow
 
-// Shared empty-state div for non-table contexts
+// Shared empty state for non-table contexts
 function emptyDiv(iconName, label, hint) {
-  return `<div class="table-empty">${label}</div>`
+  return emptyState(iconName, label, hint || '')
 }
 window.emptyDiv = emptyDiv
 
@@ -222,7 +227,15 @@ function dateFieldHtml(id, opts = {}) {
     // disabledWeekdays: day names the clinic is closed ('Sunday', etc.) —
     // inverse of consultationSettings.clinicDays, computed by the caller.
     // disabledDates: specific ISO dates to grey out (a doctor's blocked_dates).
-    disabledWeekdays = [], disabledDates = [] } = opts
+    disabledWeekdays = [], disabledDates = [],
+    // maxMsg/minMsg: what to tell someone who types a date past max/min
+    // (see dateFieldProblem()); a generic "on or before …" otherwise.
+    maxMsg = '', minMsg = '',
+    // errorHost: id of an element to show this field's message in, instead
+    // of under the field — for fields side by side in a filter row, where a
+    // message inside one would push the others out of line. errorLabel
+    // starts it ("Start date: …") so it's clear which field it's about.
+    errorHost = '', errorLabel = '' } = opts
   const label = value ? _dobFormat(value) : placeholder
   // style/onchange were accepted in opts but silently dropped — every call
   // site passing a custom width/font-size (Reports date range, Activity
@@ -261,6 +274,8 @@ function dateFieldHtml(id, opts = {}) {
         <span class="dob-picker-mask" id="${id}-mask" aria-hidden="true">${_dobMaskHtml(initialOut)}</span>` : ''
   return `
   <div class="dob-picker" id="${id}-wrap" data-max="${max}" data-min="${min}" data-default-years-ago="${defaultYearsAgo}" data-placeholder="${esc(placeholder)}"
+       ${maxMsg ? `data-max-msg="${esc(maxMsg)}"` : ''} ${minMsg ? `data-min-msg="${esc(minMsg)}"` : ''}
+       ${errorHost ? `data-err-host="${esc(errorHost)}"` : ''} ${errorLabel ? `data-err-label="${esc(errorLabel)}"` : ''}
        ${disabledWeekdays.length ? `data-disabled-weekdays='${JSON.stringify(disabledWeekdays)}'` : ''}
        ${disabledDates.length ? `data-disabled-dates='${JSON.stringify(disabledDates)}'` : ''}>
     <input type="hidden" id="${id}" value="${value || ''}"${onchangeAttr}>
@@ -386,80 +401,204 @@ function _dobSyncMask(id) {
 window._dobSyncMask = _dobSyncMask
 
 // ── Keyboard typing into the date field, alongside the calendar ───
-// Auto-inserts "/" as digits are typed (matching mm/dd/yyyy) — same spirit
-// as a native date input's segment auto-advance, but for a plain text
-// field. Non-digit characters are dropped rather than rejected outright,
-// so pasting a slash-formatted date ("08/19/2008") still works.
+// Typed dates follow the exact same rules as the calendar: the same
+// min/max (no max = today, 'none' = no cap, ~100 years back when there's
+// no min), the same closed weekdays and blocked dates. Anything typed that
+// the calendar wouldn't allow gets a plain message under the field saying
+// what's wrong and how to fix it, instead of only a red border.
+const DOB_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+function _dobBounds(wrap) {
+  const today  = localDateStr()
+  const maxIso = wrap.dataset.max || ''
+  const max    = maxIso === 'none' ? '' : (maxIso || today)
+  const yearMax = max ? +max.slice(0, 4) : new Date().getFullYear() + 10
+  const min    = wrap.dataset.min || `${yearMax - 100}-01-01`
+  return { max, min, minIsExplicit: !!wrap.dataset.min, today }
+}
+function _dobHuman(iso) {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// What's wrong with the date typed into a field, as a message that also
+// says what to do; '' when it's empty or valid.
+function dateFieldProblem(id) {
+  const el   = document.getElementById(id + '-text')
+  const wrap = document.getElementById(id + '-wrap')
+  if (!el || !wrap) return ''
+  const v = (el.value || '').trim()
+  if (!v) return ''
+  const b = _dobBounds(wrap)
+  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) {
+    // A sample that's actually allowed in this field.
+    const t = new Date(), back = parseInt(wrap.dataset.defaultYearsAgo || '0', 10)
+    let ex = localDateStr(new Date(t.getFullYear() - back, t.getMonth(), t.getDate()))
+    if (b.max && ex > b.max) ex = b.max
+    if (b.min && ex < b.min) ex = b.min
+    return `Finish the date, month first: mm/dd/yyyy (e.g. ${_dobFormat(ex)}).`
+  }
+  const [, mm, dd, yyyy] = m
+  if (+mm < 1 || +mm > 12) return 'The month must be 01 to 12. Type the month first: mm/dd/yyyy.'
+  const dim = new Date(+yyyy, +mm, 0).getDate()
+  if (+dd < 1 || +dd > dim) return `${DOB_MONTH_NAMES[+mm - 1]}${+mm === 2 ? ' ' + yyyy : ''} only has ${dim} days. Please check the day.`
+  const iso = `${yyyy}-${mm}-${dd}`
+  if (b.max && iso > b.max) return wrap.dataset.maxMsg
+    || (b.max === b.today ? 'The date can\'t be in the future. Enter today or an earlier date.' : `Enter a date on or before ${_dobHuman(b.max)}.`)
+  if (iso < b.min) return wrap.dataset.minMsg
+    || (!b.minIsExplicit ? `Please check the year. It should be ${b.min.slice(0, 4)} or later.`
+      : b.min === b.today ? 'The date can\'t be in the past. Enter today or a later date.' : `Enter a date on or after ${_dobHuman(b.min)}.`)
+  let offDays = [], offDates = []
+  try { offDays  = wrap.dataset.disabledWeekdays ? JSON.parse(wrap.dataset.disabledWeekdays) : [] } catch (_) {}
+  try { offDates = wrap.dataset.disabledDates    ? JSON.parse(wrap.dataset.disabledDates)    : [] } catch (_) {}
+  const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(iso + 'T00:00:00').getDay()]
+  if (offDays.includes(dayName)) return `The clinic is closed on ${dayName}s. Please pick another day.`
+  if (offDates.includes(iso)) return 'That date is unavailable. Please pick another day from the calendar.'
+  return ''
+}
+window.dateFieldProblem = dateFieldProblem
+
+// Shows (or clears, with '') the message under a date field. Created on
+// first use so it also works for the hand-written registration field.
+function _dobShowError(id, msg) {
+  const wrap    = document.getElementById(id + '-wrap')
+  const trigger = document.getElementById(id + '-trigger')
+  const text    = document.getElementById(id + '-text')
+  if (!wrap) return
+  let err = document.getElementById(id + '-err')
+  if (msg && !err) {
+    err = document.createElement('div')
+    err.id = id + '-err'
+    err.className = 'dob-err'
+    err.setAttribute('role', 'alert')
+    // A field with an errorHost (dateFieldHtml) shows its message there.
+    const host = wrap.dataset.errHost ? document.getElementById(wrap.dataset.errHost) : null
+    ;(host || wrap).appendChild(err)
+  }
+  const label = wrap.dataset.errLabel
+  if (err) { err.textContent = msg ? (label ? `${label}: ${msg}` : msg) : ''; err.hidden = !msg }
+  if (trigger) trigger.classList.toggle('error', !!msg)
+  if (text) {
+    text.setAttribute('aria-invalid', msg ? 'true' : 'false')
+    if (msg) text.setAttribute('aria-describedby', id + '-err'); else text.removeAttribute('aria-describedby')
+  }
+}
+
+function _dobSetHidden(id, iso) {
+  const hidden = document.getElementById(id)
+  if (!hidden || hidden.value === iso) return
+  hidden.value = iso
+  hidden.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+// Formats typing as mm/dd/yyyy one segment at a time:
+//  - "/" is added for you; a first month digit of 2-9 becomes 02-09 and a
+//    day digit that can't start a two-digit day becomes 0X, so "4" → "04/".
+//  - "8/" (or "8-", "8.") closes a one-digit month/day the same way.
+//  - a digit that would make month 13+ or a day past that month's last day
+//    is refused, with a note under the field saying why.
+//  - a pasted "2008-08-19" is read as Aug 19, 2008.
+// Backspacing over an auto-added "/" removes it instead of re-adding it.
 function _dobTextInput(id, el) {
-  const digits = el.value.replace(/\D/g, '').slice(0, 8)
-  let out = digits.slice(0, 2)
-  if (digits.length > 2) out += '/' + digits.slice(2, 4)
-  if (digits.length > 4) out += '/' + digits.slice(4, 8)
-  el.value = out
+  let raw = el.value
+  const isoPaste = raw.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  if (isoPaste) raw = `${isoPaste[2].padStart(2, '0')}/${isoPaste[3].padStart(2, '0')}/${isoPaste[1]}`
+  const deleting = raw.length < (el._dobPrevLen || 0)
+  let mm = '', dd = '', yy = '', seg = 0, note = ''
+  for (const ch of raw) {
+    if (ch >= '0' && ch <= '9') {
+      if (seg === 0) {
+        if (!mm && ch > '1') { mm = '0' + ch; seg = 1 }
+        else if (mm.length === 1) {
+          const v = +(mm + ch)
+          if (v >= 1 && v <= 12) { mm += ch; seg = 1 } else note = 'The month must be 01 to 12. Type the month first: mm/dd/yyyy.'
+        } else mm = ch
+      } else if (seg === 1) {
+        const dmax = new Date(2000, +mm, 0).getDate()   // leap year, so February allows 29
+        if (!dd && +ch > Math.floor(dmax / 10)) { dd = '0' + ch; seg = 2 }
+        else if (dd.length === 1) {
+          const v = +(dd + ch)
+          if (v >= 1 && v <= dmax) { dd += ch; seg = 2 } else note = `${DOB_MONTH_NAMES[+mm - 1]} has ${+mm === 2 ? 'at most 29' : 'only ' + dmax} days. Please check the day.`
+        } else dd = ch
+      } else if (yy.length < 4) yy += ch
+    } else if (ch === '/' || ch === '-' || ch === '.') {
+      if (seg === 0 && mm.length === 1 && mm !== '0') { mm = '0' + mm; seg = 1 }
+      else if (seg === 1 && dd.length === 1 && dd !== '0') { dd = '0' + dd; seg = 2 }
+    }
+  }
+  let out = mm
+  if (seg >= 1) out += '/' + dd
+  if (seg >= 2) out += '/' + yy
+  if (deleting) out = out.replace(/\/$/, '')
+  if (out !== el.value) el.value = out
+  el._dobPrevLen = out.length
   el.classList.toggle('placeholder', !out)
   _dobSyncMask(id)
-  if (digits.length === 8) _dobTextCommit(id, el)
+  if (out.length === 10) _dobTextCommit(id, el)
+  else _dobShowError(id, note)   // fixing it as you type clears the old message
 }
 window._dobTextInput = _dobTextInput
 
 function _dobTextKeydown(id, e) {
-  if (e.key === 'Enter') { e.preventDefault(); _dobTextCommit(id, e.target); closeDobPicker() }
+  if (e.key === 'Enter') { e.preventDefault(); _dobCheckTyped(id); closeDobPicker() }
   else if (e.key === 'Escape') { closeDobPicker() }
 }
 window._dobTextKeydown = _dobTextKeydown
 
-// Parses the typed mm/dd/yyyy text, validates it's a real calendar date
-// (rejects e.g. 02/30/2020) within the field's min/max, and — only if
-// valid — commits it exactly like picking a day from the calendar does:
-// same hidden-input update + 'change' event, and syncs the calendar panel
-// to that month/year if it's currently open. An incomplete typed value is
-// left alone rather than errored on mid-edit; only a genuinely invalid
-// *complete* date gets the .error treatment.
+// Commits a complete typed date exactly like picking it from the calendar
+// (hidden value + 'change', calendar jumps to that month) when it's valid.
+// When it isn't, the message shows under the field and the hidden value is
+// cleared, so a form can never submit a date other than the one on screen.
 function _dobTextCommit(id, el) {
   el = el || document.getElementById(id + '-text')
-  const wrap    = document.getElementById(id + '-wrap')
-  const trigger = document.getElementById(id + '-trigger')
-  if (!el || !wrap) return
-  const m = (el.value || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-  if (!m) return
-  const [, mm, dd, yyyy] = m
-  const iso = `${yyyy}-${mm}-${dd}`
-  const dt  = new Date(iso + 'T00:00:00')
-  const validCalendarDate = !isNaN(dt) && dt.getFullYear() === +yyyy && dt.getMonth() === +mm - 1 && dt.getDate() === +dd
-  const maxIso = wrap.dataset.max, minIso = wrap.dataset.min
-  const inRange = (!maxIso || iso <= maxIso) && (!minIso || iso >= minIso)
-  if (!validCalendarDate || !inRange) {
-    if (trigger) trigger.classList.add('error')
-    return
-  }
-  if (trigger) trigger.classList.remove('error')
-  const hidden = document.getElementById(id)
-  if (hidden) { hidden.value = iso; hidden.dispatchEvent(new Event('change', { bubbles: true })) }
+  if (!el || !/^\d{2}\/\d{2}\/\d{4}$/.test(el.value || '')) return false
+  const problem = dateFieldProblem(id)
+  _dobShowError(id, problem)
+  if (problem) { _dobSetHidden(id, ''); return false }
+  const [mm, dd, yyyy] = el.value.split('/')
+  _dobSetHidden(id, `${yyyy}-${mm}-${dd}`)
   el.classList.remove('placeholder')
   if (_dobOpenId === id) {
     _dobState.year  = +yyyy
     _dobState.month = +mm - 1
     _dobRenderPanel()
   }
+  return true
 }
 window._dobTextCommit = _dobTextCommit
 
-// Leaving the field with an incomplete/garbled typed value (e.g. tabbed
-// away after only typing "08/19") reverts the visible text back to
-// whatever was last actually committed, instead of leaving a half-typed
-// value sitting there that doesn't match the real underlying date.
+// Final check once the person is done with the field (left it, pressed
+// Enter, or closed the calendar). Empty means cleared. Anything else that
+// isn't a valid, allowed date keeps what they typed (so they can fix it)
+// and shows the message under the field. No toast: the message is right
+// at the field and stays until it's fixed, so a toast only repeated it.
+function _dobCheckTyped(id) {
+  const el = document.getElementById(id + '-text')
+  if (!el || !el.isConnected) return true
+  const v = (el.value || '').trim()
+  if (!v) {
+    _dobSetHidden(id, '')
+    _dobShowError(id, '')
+    el.classList.add('placeholder')
+    return true
+  }
+  if (_dobTextCommit(id, el)) return true
+  _dobShowError(id, dateFieldProblem(id))
+  _dobSetHidden(id, '')
+  return false
+}
+
+// Runs the moment focus leaves the text box, so a Save/Next click right
+// after typing already sees the checked value — except when the blur came
+// from clicking into this field's own calendar (_dobPopDown, set by
+// _dobOutsideClick); that's checked when the calendar closes instead.
+let _dobPopDown = false
 function _dobTextBlur(id) {
-  const el     = document.getElementById(id + '-text')
-  const hidden = document.getElementById(id)
-  if (!el || !hidden) return
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(el.value || '')) return // already committed above
-  el.value = hidden.value ? _dobFormat(hidden.value) : ''
-  el.classList.toggle('placeholder', !hidden.value)
-  _dobSyncMask(id)
-  const trigger = document.getElementById(id + '-trigger')
-  if (trigger) trigger.classList.remove('error')
+  if (_dobPopDown) return
+  _dobCheckTyped(id)
 }
 window._dobTextBlur = _dobTextBlur
+window.dateFieldSync = id => _dobCheckTyped(id)
 
 let _dobOpenId = null
 let _dobState  = {}
@@ -560,6 +699,9 @@ function _dobOutsideClick(e) {
   const pop = document.getElementById('dob-popover-root')
   if (!pop || !_dobOpenId) return
   if (pop.contains(e.target)) {
+    // Focus is about to leave the text box for the calendar: not "done".
+    _dobPopDown = true
+    setTimeout(() => { _dobPopDown = false }, 0)
     // Inside the calendar popover: a click that isn't on the open month/year
     // mini dropdown (e.g. on a day cell or blank space in the head) should
     // still close that mini dropdown so it doesn't linger open, without
@@ -572,7 +714,11 @@ function _dobOutsideClick(e) {
     return
   }
   if (e.target.closest && e.target.closest('#' + _dobOpenId + '-trigger')) return
+  const id = _dobOpenId
   closeDobPicker()
+  // Still in the text box: its blur (right after this) runs the check.
+  // Otherwise focus already went to the calendar, so check here.
+  if (document.activeElement !== document.getElementById(id + '-text')) _dobCheckTyped(id)
 }
 // Keyboard handling for the whole calendar popover. When a month/year mini
 // dropdown is open, arrow keys move its highlighted row, Enter/Space picks
@@ -602,7 +748,11 @@ function _dobKeyNav(e) {
     }
     return // swallow other keys while a mini dropdown is open
   }
-  if (e.key === 'Escape') closeDobPicker()
+  if (e.key === 'Escape') {
+    const id = _dobOpenId
+    closeDobPicker()
+    if (id && document.activeElement !== document.getElementById(id + '-text')) _dobCheckTyped(id)
+  }
 }
 
 // Moves the keyboard cursor by toggling classes on the rows already in the
@@ -782,9 +932,9 @@ function dobPickerSelectDay(iso) {
   const trigger = document.getElementById(id + '-trigger')
   const text    = document.getElementById(id + '-text')
   if (hidden) { hidden.value = iso; hidden.dispatchEvent(new Event('change', { bubbles: true })) }
-  if (text)   { text.value = _dobFormat(iso); text.classList.remove('placeholder') }
+  if (text)   { text.value = _dobFormat(iso); text.classList.remove('placeholder'); text._dobPrevLen = text.value.length }
   _dobSyncMask(id)
-  if (trigger) trigger.classList.remove('error')
+  _dobShowError(id, '')
   closeDobPicker()
 }
 window.dobPickerSelectDay = dobPickerSelectDay
@@ -793,8 +943,7 @@ window.dobPickerSelectDay = dobPickerSelectDay
 // reset previously just did `el.value = ''` on the old native input.
 function resetDobField(id) {
   setDateFieldValue(id, '')
-  const trigger = document.getElementById(id + '-trigger')
-  if (trigger) trigger.classList.remove('error')
+  _dobShowError(id, '')
 }
 window.resetDobField = resetDobField
 
@@ -813,8 +962,10 @@ function setDateFieldValue(id, iso) {
   if (text) {
     if (iso) { text.value = _dobFormat(iso); text.classList.remove('placeholder') }
     else     { text.value = ''; text.classList.add('placeholder') }
+    text._dobPrevLen = text.value.length
   }
   _dobSyncMask(id)
+  if (iso) _dobShowError(id, '')
 }
 window.setDateFieldValue = setDateFieldValue
 
@@ -840,7 +991,9 @@ window.setDobFieldMax = setDobFieldMax
 //  the same way when a real 'change' event is dispatched on it.
 // ════════════════════════════════════════════════════════════════
 function selectFieldHtml(id, opts = {}) {
-  const { value = '', options = [], placeholder = 'Select…', cls = 'form-input', onchange = '', style = '', minWidth = 160 } = opts
+  // lead: optional icon HTML shown before the selected label (e.g. the sort
+  // icon on record lists), so the control's purpose reads at a glance.
+  const { value = '', options = [], placeholder = 'Select…', cls = 'form-input', onchange = '', style = '', minWidth = 160, lead = '' } = opts
   // Normalize to [{value,label}] — a plain string option is its own value+label.
   const norm = options.map(o => (o && typeof o === 'object')
     ? { value: String(o.value), label: String(o.label) }
@@ -855,6 +1008,7 @@ function selectFieldHtml(id, opts = {}) {
     <button type="button" id="${id}-trigger" class="${cls} cust-select-trigger"${styleAttr}
             role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="cust-select-popover-root"
             onclick="window.toggleCustSelect('${id}')" onkeydown="window.custSelectTriggerKey(event,'${id}')">
+      ${lead ? `<span class="cust-select-lead" aria-hidden="true">${lead}</span>` : ''}
       <span class="cust-select-text${current ? '' : ' placeholder'}" id="${id}-text">${esc(label)}</span>
       ${icon('chevron-down', 'icon-sm')}
     </button>
@@ -1250,10 +1404,15 @@ window.setSelectFieldOptions = setSelectFieldOptions
 // ════════════════════════════════════════════════════════════════
 function toast(msg, type = 'success', duration = 3000) {
   const el = document.createElement('div')
+  el.className = 'app-toast'
   const isSuccess = type === 'success'
   const isError   = type === 'error'
+  // Stack above any toast still showing instead of covering it (e.g. a
+  // date field's message plus the form's own "fill in" toast).
+  let bottom = 24
+  document.querySelectorAll('.app-toast').forEach(t => { bottom += t.offsetHeight + 8 })
   el.style.cssText = `
-    position:fixed;bottom:24px;right:24px;z-index:9999;
+    position:fixed;bottom:${bottom}px;right:24px;z-index:9999;
     display:flex;align-items:flex-start;gap:10px;
     background:${isError ? '#FEE2E2' : isSuccess ? '#D1FAE5' : '#FFF8F0'};
     color:${isError ? '#991B1B' : isSuccess ? '#065F46' : '#92400E'};
@@ -1404,6 +1563,17 @@ function _showRegistrationQRModal(user, tempPassword, alreadyLoggedIn = false) {
       ${!hasAccount ? `
       <div style="background:#F9FAFB;border:1px solid #F0F0F2;border-radius:8px;padding:10px 14px;font-size:.76rem;color:#6B7280;text-align:left;margin-top:10px">
         If this patient later wants online access, open Edit Patient and add an email there, which sets up their login and gives you a temporary password to share.
+      </div>` : ''}
+      ${alreadyLoggedIn && user.source === 'transferred' && ['admin', 'staff', 'doctor'].includes(state.role) ? `
+      <!-- A transfer just registered by staff: offer to upload what they
+           brought from their old clinic (Previous Clinic Records). -->
+      <div class="prc-reg-callout">
+        <span class="prc-reg-ic">${icon('folder', 'icon-sm')}</span>
+        <div class="prc-reg-text">
+          <b>Transferred from ${esc(user.sourceNote || 'another clinic')}</b>
+          <span>If they brought exam results or a prescription, upload the PDF or a scan so the doctor can review it.</span>
+        </div>
+        <button class="btn-secondary" onclick="window.closeModal();window.openPrevRecordModal('${user.id}')">${icon('upload', 'icon-sm')} Upload</button>
       </div>` : ''}
     </div>
     <div class="modal-footer" style="justify-content:center;gap:10px">
@@ -2404,7 +2574,7 @@ function _qrRenderRecent(recent) {
   const listEl = document.getElementById('qr-recent-list')
   if (!listEl) return
   if (!recent.length) {
-    listEl.innerHTML = `<div style="padding:16px 0;text-align:center;font-size:.8rem;color:#9CA3AF">No scans yet today.</div>`
+    listEl.innerHTML = emptyState('qr', 'No scans yet today', 'Patients you check in by QR code will be listed here.', { size: 'sm' })
     return
   }
   listEl.innerHTML = recent.map(s => {
@@ -2436,6 +2606,7 @@ function processQRImageFile(file) {
   if (!file.type.startsWith('image/')) {
     toast('Please select an image file (PNG, JPG, WEBP).', 'error'); return
   }
+  if (uploadTooBig(file, UPLOAD_LIMITS.qrImage, 'That image', 'A screenshot or a normal photo of the QR code is enough.')) return
 
   const zone     = document.getElementById('qr-upload-zone')
   const idle     = document.getElementById('qr-upload-idle')
@@ -2545,23 +2716,22 @@ function _syncSearchEmptyState(containerId, show, kind, label) {
   const container = document.getElementById(containerId)
   if (!container) return
   const msg = label || 'No results match your search.'
+  // The grey ("nothing matches", not "nothing yet") compact empty state.
+  const stateHtml = emptyState('search', msg, 'Try another word, or clear the filters.', { size: 'sm', neutral: true })
   let el = document.getElementById(containerId + '-search-empty')
   if (show) {
     if (!el) {
       el = document.createElement(kind === 'table' ? 'tr' : 'div')
       el.id = containerId + '-search-empty'
       if (kind === 'table') {
-        // .tbl-search-empty exists purely so the CSS below can beat
-        // .tbl tbody tr:hover td's cream highlight for this one row —
-        // matches .table-empty (the same "no records at all" message
-        // every other empty table already uses) exactly instead of a
-        // one-off style, and isn't meant to look interactive since
-        // clicking it does nothing.
-        el.className = 'tbl-search-empty'
-        el.innerHTML = `<td colspan="20" class="table-empty" style="border:none">${msg}</td>`
+        // .tbl-search-empty exists purely so the CSS can beat .tbl tbody
+        // tr:hover td's cream highlight for this one row — it isn't meant
+        // to look interactive since clicking it does nothing.
+        el.className = 'tbl-search-empty es-row'
+        el.innerHTML = `<td colspan="20">${stateHtml}</td>`
       } else {
-        el.className = 'table-empty'
-        el.textContent = msg
+        el.className = 'es-wrap'
+        el.innerHTML = stateHtml
       }
       container.appendChild(el)
     }
@@ -2638,6 +2808,7 @@ const _btnSpinTint = {
   primary:   { dim: 'rgba(255,255,255,.5)',  solid: '#fff'    }, // solid orange, white text
   danger:    { dim: 'rgba(255,255,255,.5)',  solid: '#fff'    }, // solid red, white text
   secondary: { dim: 'rgba(107,114,128,.35)', solid: '#374151' }, // white bg, gray text
+  dangerOutline: { dim: 'rgba(185,28,28,.3)', solid: '#B91C1C' }, // white bg, red text
   success:   { dim: 'rgba(46,125,50,.35)',   solid: '#2E7D32' }, // light green
   warning:   { dim: 'rgba(232,137,28,.35)',  solid: '#E8891C' }, // light orange
 }
@@ -2989,6 +3160,7 @@ const REASON_PRESETS = {
   archivePatient:    ['Duplicate record', 'Requested account deletion', 'Inactive or test record'],
   archiveAccount:    ['Staff left the clinic', 'Duplicate account', 'Requested account deletion', 'Test account'],
   archiveService:    ['No longer offered', 'Merged with another service', 'Temporarily unavailable'],
+  archivePrevRecord: ['Uploaded to the wrong patient', 'Duplicate record', 'Wrong or unreadable document', 'Patient asked to remove it'],
   clinicClosure:     ['Holiday', 'Clinic outing or team building', 'Emergency', 'Power or water interruption', 'Bad weather', 'Renovation or maintenance'],
 }
 function reasonFieldHtml(id, presetKey, { oninput = '' } = {}) {
@@ -3071,19 +3243,19 @@ function rescheduleAppt(id) {
           transition:background-color .15s, color .15s; }
         .amc-day:hover:not(.amc-past):not(.amc-empty):not(.amc-far) { background:#FFF0DC; }
         .amc-day.amc-avail { background:#ECFDF5; color:#065F46; font-weight:600; }
-        .amc-day.amc-unavailable { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; }
+        .amc-day.amc-unavailable { background:#F3F4F6; color:#9CA3AF; cursor:default; }
         .amc-day.amc-today { outline:2px solid #E8760A; font-weight:700; }
         .amc-day.amc-selected { background:#E8760A !important; color:#fff !important; font-weight:700; }
         /* Solid, legible muted colors instead of opacity — same fix as the
            booking wizard's own calendar (.amc-day.amc-past, pages.js):
            opacity used to fade the day NUMBER along with the background,
            reading as barely legible instead of a clearly-muted color. */
-        .amc-day.amc-past { color:#C1C7D0; cursor:not-allowed; }
-        .amc-day.amc-far { color:#C1C7D0; cursor:not-allowed; background:#f9fafb; }
+        .amc-day.amc-past { color:#C1C7D0; cursor:default; }
+        .amc-day.amc-far { color:#C1C7D0; cursor:default; background:#f9fafb; }
         .amc-day.amc-empty { cursor:default; }
-        .amc-day.amc-holiday { background:#FFF1F2; color:#f43f5e; cursor:not-allowed; font-weight:600; }
+        .amc-day.amc-holiday { background:#FFF1F2; color:#f43f5e; cursor:default; font-weight:600; }
         .amc-holiday-lbl { position:absolute; left:2px; right:2px; top:calc(50% + 8px); font-size:.7rem; line-height:1.15; text-align:center; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; font-weight:600; padding:0 1px; }
-        .amc-day.amc-blocked { background:#FEE2E2; color:#B91C1C; cursor:not-allowed; font-weight:700; text-decoration:line-through; text-decoration-color:rgba(185,28,28,0.5); }
+        .amc-day.amc-blocked { background:#FEE2E2; color:#B91C1C; cursor:default; font-weight:700; text-decoration:line-through; text-decoration-color:rgba(185,28,28,0.5); }
         /* Same responsive shrink as the booking wizard's calendar (pages.js)
            — without this, a holiday name (e.g. "Ninoy Aquino Day") wraps
            past 2 lines and spills out of the cell on narrow/phone widths,
@@ -3117,6 +3289,7 @@ function rescheduleAppt(id) {
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFF1F2;border:1px solid #fda4af;display:inline-block"></span>PH Holiday</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFEDD5;border:1px solid #FDBA74;display:inline-block"></span>Clinic Closed</span>
         </div>
+        <p class="cal-tap-hint">${icon('info', 'icon-xs')}Tap a day that can't be picked to see why.</p>
       </div>
       <div class="form-group"><label class="form-label">New Time</label>
         <div id="re-time-slots"></div>
@@ -3409,15 +3582,15 @@ function openFollowUpPicker() {
           transition:background-color .15s, color .15s; }
         .amc-day:hover:not(.amc-past):not(.amc-empty):not(.amc-far) { background:#FFF0DC; }
         .amc-day.amc-avail { background:#ECFDF5; color:#065F46; font-weight:600; }
-        .amc-day.amc-unavailable { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; }
+        .amc-day.amc-unavailable { background:#F3F4F6; color:#9CA3AF; cursor:default; }
         .amc-day.amc-today { outline:2px solid #E8760A; font-weight:700; }
         .amc-day.amc-selected { background:#E8760A !important; color:#fff !important; font-weight:700; }
-        .amc-day.amc-past { color:#C1C7D0; cursor:not-allowed; }
-        .amc-day.amc-far { color:#C1C7D0; cursor:not-allowed; background:#f9fafb; }
+        .amc-day.amc-past { color:#C1C7D0; cursor:default; }
+        .amc-day.amc-far { color:#C1C7D0; cursor:default; background:#f9fafb; }
         .amc-day.amc-empty { cursor:default; }
-        .amc-day.amc-holiday { background:#FFF1F2; color:#f43f5e; cursor:not-allowed; font-weight:600; }
+        .amc-day.amc-holiday { background:#FFF1F2; color:#f43f5e; cursor:default; font-weight:600; }
         .amc-holiday-lbl { position:absolute; left:2px; right:2px; top:calc(50% + 8px); font-size:.7rem; line-height:1.15; text-align:center; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; font-weight:600; padding:0 1px; }
-        .amc-day.amc-blocked { background:#FEE2E2; color:#B91C1C; cursor:not-allowed; font-weight:700; text-decoration:line-through; text-decoration-color:rgba(185,28,28,0.5); }
+        .amc-day.amc-blocked { background:#FEE2E2; color:#B91C1C; cursor:default; font-weight:700; text-decoration:line-through; text-decoration-color:rgba(185,28,28,0.5); }
         @media (max-width:480px) {
           .amc-day.amc-holiday { font-size:.7rem; }
           .amc-holiday-lbl { font-size:.44rem; top:calc(50% + 4px); line-height:1.05; }
@@ -3445,6 +3618,7 @@ function openFollowUpPicker() {
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFF1F2;border:1px solid #fda4af;display:inline-block"></span>PH Holiday</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFEDD5;border:1px solid #FDBA74;display:inline-block"></span>Clinic Closed</span>
         </div>
+        <p class="cal-tap-hint">${icon('info', 'icon-xs')}Tap a day that can't be picked to see why.</p>
       </div>
       <div class="form-group" style="margin-bottom:0"><label class="form-label">Time</label>
         <div id="fu-time-slots"></div>
@@ -3729,19 +3903,19 @@ function requestReschedule(id) {
           transition:background-color .15s, color .15s; }
         .amc-day:hover:not(.amc-past):not(.amc-empty):not(.amc-far) { background:#FFF0DC; }
         .amc-day.amc-avail { background:#ECFDF5; color:#065F46; font-weight:600; }
-        .amc-day.amc-unavailable { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; }
+        .amc-day.amc-unavailable { background:#F3F4F6; color:#9CA3AF; cursor:default; }
         .amc-day.amc-today { outline:2px solid #E8760A; font-weight:700; }
         .amc-day.amc-selected { background:#E8760A !important; color:#fff !important; font-weight:700; }
         /* Solid, legible muted colors instead of opacity — same fix as the
            booking wizard's own calendar (.amc-day.amc-past, pages.js):
            opacity used to fade the day NUMBER along with the background,
            reading as barely legible instead of a clearly-muted color. */
-        .amc-day.amc-past { color:#C1C7D0; cursor:not-allowed; }
-        .amc-day.amc-far { color:#C1C7D0; cursor:not-allowed; background:#f9fafb; }
+        .amc-day.amc-past { color:#C1C7D0; cursor:default; }
+        .amc-day.amc-far { color:#C1C7D0; cursor:default; background:#f9fafb; }
         .amc-day.amc-empty { cursor:default; }
-        .amc-day.amc-holiday { background:#FFF1F2; color:#f43f5e; cursor:not-allowed; font-weight:600; }
+        .amc-day.amc-holiday { background:#FFF1F2; color:#f43f5e; cursor:default; font-weight:600; }
         .amc-holiday-lbl { position:absolute; left:2px; right:2px; top:calc(50% + 8px); font-size:.7rem; line-height:1.15; text-align:center; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; font-weight:600; padding:0 1px; }
-        .amc-day.amc-blocked { background:#FEE2E2; color:#B91C1C; cursor:not-allowed; font-weight:700; text-decoration:line-through; text-decoration-color:rgba(185,28,28,0.5); }
+        .amc-day.amc-blocked { background:#FEE2E2; color:#B91C1C; cursor:default; font-weight:700; text-decoration:line-through; text-decoration-color:rgba(185,28,28,0.5); }
         /* Same responsive shrink as the booking wizard's calendar (pages.js)
            — without this, a holiday name (e.g. "Ninoy Aquino Day") wraps
            past 2 lines and spills out of the cell on narrow/phone widths,
@@ -3789,6 +3963,7 @@ function requestReschedule(id) {
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFF1F2;border:1px solid #fda4af;display:inline-block"></span>PH Holiday</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFEDD5;border:1px solid #FDBA74;display:inline-block"></span>Clinic Closed</span>
         </div>
+        <p class="cal-tap-hint">${icon('info', 'icon-xs')}Tap a day that can't be picked to see why.</p>
       </div>
       <div class="form-group" id="rs-time-group" style="display:none">
         <label class="form-label">${editPending ? 'New Time' : 'Preferred Time'} <span style="color:#DC2626">*</span></label>
@@ -4156,17 +4331,19 @@ function viewAppt(id) {
   // instead of "Completed" (it previously fell back to "Under Review").
   const steps = ['Submitted','Under Review','Approved', a.status === 'no-show' ? 'No-show' : 'Completed']
   const stepIdx = { pending:1, approved:2, completed:3, cancelled:1, disapproved:1, 'no-show':3 }[a.status] ?? 1
-  const stepColor = i => i <= stepIdx ? '#E8760A' : '#E5E7EB'
-  const textColor = i => i <= stepIdx ? '#E8760A' : '#9CA3AF'
+  // Passed steps get a check; a completed visit checks its last step too.
+  const stepDone = i => i < stepIdx || (i === stepIdx && a.status === 'completed')
+  const stepCheck = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
 
+  // Equal-width columns; each step's connector runs from the previous
+  // circle's centre to its own, behind both circles (.appt-steps in
+  // global.css), so it meets every circle exactly at any modal width.
   const timelineHtml = steps.map((s,i) => `
-    <div style="display:flex;flex-direction:column;align-items:center;flex:1;position:relative">
-      <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-                  font-size:.7rem;font-weight:700;background:${stepColor(i)};color:${i<=stepIdx?'#fff':'#9CA3AF'};
-                  border:2px solid ${stepColor(i)};z-index:1">${i+1}</div>
-      <div style="font-size:.7rem;margin-top:5px;color:${textColor(i)};font-weight:${i===stepIdx?'700':'400'};text-align:center">${s}</div>
-    </div>
-    ${i < steps.length-1 ? `<div style="flex:1;height:2px;margin-top:14px;background:${i < stepIdx ? '#E8760A' : '#E5E7EB'};min-width:16px"></div>` : ''}`
+    <div class="appt-step${stepDone(i) ? ' is-done' : i === stepIdx ? ' is-current' : ''}">
+      ${i > 0 ? `<span class="appt-step-line${i <= stepIdx ? ' is-on' : ''}"></span>` : ''}
+      <span class="appt-step-dot">${stepDone(i) ? stepCheck : i+1}</span>
+      <span class="appt-step-label">${s}</span>
+    </div>`
   ).join('')
 
   const isAdmin   = state.role === 'admin' || state.role === 'staff'
@@ -4339,7 +4516,7 @@ function viewAppt(id) {
       </div>` })() : ''}
       <div>
         <div style="font-size:.68rem;color:#9CA3AF;margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Progress</div>
-        <div style="display:flex;align-items:flex-start">${timelineHtml}</div>
+        <div class="appt-steps">${timelineHtml}</div>
       </div>
     </div>
     <div class="modal-footer">
@@ -6314,20 +6491,34 @@ function amcGoMonth(dir) {
   if (m < 0) { m = 11; y-- }
   if (m > 11) { m = 0; y++ }
   if (y < now.getFullYear() || (y === now.getFullYear() && m < now.getMonth())) return
-  // Same discretion staff/admin already get elsewhere (amcRender()'s own
-  // isFar check) — the Maximum Advance Booking window is a patient
-  // self-service policy only, never enforced server-side for any role.
-  // Without this, a patient could keep clicking Next straight past the
-  // bookable window into a month where literally every date is disabled —
-  // a dead end with nothing to click, not just a longer scroll.
-  if (_wiz.mode !== 'staff') {
-    const maxDate = maxAdvanceDate(now)
-    if (y > maxDate.getFullYear() || (y === maxDate.getFullYear() && m > maxDate.getMonth())) return
-  }
+  // Forward is never blocked: patients browse past the Maximum Advance
+  // Booking window to plan around clinic closures and holidays. Those later
+  // dates show (closures with their reasons) but can't be picked yet — a tap
+  // says when booking opens (amcRender(): isFar, showBookingOpensOn()).
   _wiz.calYear = y; _wiz.calMonth = m
   amcRender()
 }
 window.amcGoMonth = amcGoMonth
+
+// The first day a patient can book `date` — the Maximum Advance Booking
+// window counts from the day they book. Steps back a week at a time until
+// the window no longer reaches the date, then forward a day at a time.
+function bookingOpensOn(date) {
+  const target = new Date(date)
+  target.setHours(0, 0, 0, 0)
+  const d = new Date(target)
+  do d.setDate(d.getDate() - 7); while (maxAdvanceDate(d) >= target)
+  while (maxAdvanceDate(d) < target) d.setDate(d.getDate() + 1)
+  return d
+}
+window.bookingOpensOn = bookingOpensOn
+// Tapping a date beyond the booking window (wizard + Doctor Availability).
+function showBookingOpensOn(dateStr) {
+  const fmt = dt => dt.toLocaleDateString('en-PH', { month: 'long', day: 'numeric' })
+  const target = new Date(dateStr + 'T00:00:00')
+  toast(`Booking for ${fmt(target)} opens on ${fmt(bookingOpensOn(target))}. Check back then to book it.`, 'info', 4000)
+}
+window.showBookingOpensOn = showBookingOpensOn
 
 // Shared doctor-scoped calendar cell builder for the two reschedule flows
 // (staff's rescheduleAppt() and patient's requestReschedule()) — mirrors
@@ -6388,10 +6579,21 @@ function _buildRescheduleCalCells(doctor, year, month, selectedDate, onSelectFn,
     if (isDisabled) cls += ' amc-past'
     if (isFar)      cls += ' amc-far'
 
-    const onclick = !isDisabled ? `onclick="${onSelectFn}('${dateStr}')"` : ''
+    // Every upcoming day that can't be picked explains itself when tapped
+    // (calPeek()), in the same order as the labels below.
+    const dayFull = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dow]
+    const offWhy  = isSun ? "The clinic doesn't open on Sundays."
+                  : !docAvail ? `${doctor?.name || 'This doctor'} doesn't work on ${dayFull}s.` : ''
+    const onclick = !isDisabled ? `onclick="${onSelectFn}('${dateStr}')"`
+                  : isPast ? ''
+                  : isBlocked ? calPeekAttrs('blocked', dateStr, blockedReason)
+                  : isHoliday ? calPeekAttrs(closedReason ? 'closed' : 'holiday', dateStr, holidayName)
+                  : tooSoon ? calPeekAttrs('soon', dateStr, ...calSoonText())
+                  : isFar ? calPeekAttrs('far', dateStr, ...calFarText(dateStr, !offWhy, offWhy.replace("doesn't", 'also doesn\'t')))
+                  : offWhy ? calPeekAttrs('off', dateStr, offWhy, 'Please pick another date.') : ''
     const tooltip = (tooSoon && !isPast) ? `title="${minAdvanceTooltip()}"` :
                     isBlocked ? `title="Doctor unavailable: ${String(blockedReason).replace(/"/g,'&quot;')}"` :
-                    isHoliday ? `title="Clinic closed: ${holidayName}"` :
+                    isHoliday ? `title="Clinic closed: ${esc(holidayName)}"` :
                     (isFar && !isPast) ? `title="Beyond the maximum booking window."` :
                     (!docAvail && !isPast && !isSun) ? `title="This doctor does not work on this day."` : ''
     // Same inline-label convention as the booking wizard's own calendar
@@ -6408,7 +6610,7 @@ function _buildRescheduleCalCells(doctor, year, month, selectedDate, onSelectFn,
     // Unavailable" unlabeled for the analogous reason (see amcRender()'s
     // own comment on that).
     const inner = isHoliday && !isPast
-      ? `${d}<span class="amc-holiday-lbl">${holidayName}</span>`
+      ? `${d}<span class="amc-holiday-lbl">${esc(holidayName)}</span>`
       : (tooSoon && !isPast)
         ? `${d}<span class="amc-holiday-lbl">Too Soon</span>`
         : (isFar && !isPast)
@@ -6438,16 +6640,17 @@ function amcRender() {
     // as the calendar day cells (amc-unavailable, global.css).
     prev.style.cursor = atStart ? 'not-allowed' : 'pointer'
   }
-  // Same dimming treatment as Prev above, mirrored for the other end of
-  // the range — dims once the view is already on the last month that
-  // contains any bookable date, so there's a visible cue before a patient
-  // clicks Next into an entirely dead month (amcGoMonth() also blocks the
-  // click itself; this is just the "why isn't this doing anything" tell).
-  const next = document.getElementById('amc-next')
-  if (next) {
-    const atEnd = _wiz.mode !== 'staff' && year === maxDate.getFullYear() && month === maxDate.getMonth()
-    next.style.opacity = atEnd ? '0.3' : '1'
-    next.style.cursor  = atEnd ? 'not-allowed' : 'pointer'
+  // Next always works (amcGoMonth()). In a month past the booking window a
+  // note says why its later dates can't be picked yet.
+  const farNote = document.getElementById('amc-far-note')
+  if (farNote) {
+    const monthHasFar = _wiz.mode !== 'staff' && new Date(year, month + 1, 0) > maxDate
+    farNote.hidden = !monthHasFar
+    if (monthHasFar) {
+      const lastDay = maxDate.toLocaleDateString('en-PH', { month: 'long', day: 'numeric' })
+      farNote.querySelector('span').textContent =
+        `You can book up to ${lastDay}. Later dates open day by day; closures and holidays are shown so you can plan ahead.`
+    }
   }
 
   const phHolidays = getPHHolidays(year)
@@ -6528,18 +6731,35 @@ function amcRender() {
     if (isFar)                                            cls += ' amc-far'
     if (noDoctorThisDay && !isPast && !isHoliday)         cls += ' amc-past'
     const clickable = !isDisabled && !isFar && docAvail && !isSun
-    const onclick   = clickable ? `onclick="window.amcSelectDate('${dateStr}','${dayNames[dow]}')"` : ''
+    // Every upcoming day that can't be picked explains itself when tapped
+    // (calPeek()): the label under the number is short and a hover title
+    // never reaches a phone. Same order as the labels below. A later date
+    // past the booking window that's otherwise open says when it opens, so
+    // patients can plan ahead.
+    const farOpenDay = isFar && !isPast && !isHoliday && !isBlocked && !isSun && docAvail
+    const dayFull    = dayNamesFull[dow]
+    const offWhy     = !isClinicDay ? `The clinic doesn't open on ${dayFull}s.`
+                     : (hasPrefill && !docAvail) ? `${doctors.find(x => x.id === _wiz.doctorId)?.name || 'This doctor'} doesn't work on ${dayFull}s.` : ''
+    const onclick   = clickable ? `onclick="window.amcSelectDate('${dateStr}','${dayNames[dow]}')"`
+                    : isPast ? ''
+                    : isHoliday ? calPeekAttrs(closedReason ? 'closed' : 'holiday', dateStr, holidayName)
+                    : isBlocked ? calPeekAttrs('blocked', dateStr, blockedReason)
+                    : noDoctorThisDay ? calPeekAttrs('nodoc', dateStr, `No doctor is scheduled this ${dayFull}: each one is either off that day or on leave.`, "That's why it's marked No Doctor. Please pick another date.")
+                    : tooSoon ? calPeekAttrs('soon', dateStr, ...calSoonText())
+                    : isFar ? calPeekAttrs('far', dateStr, ...calFarText(dateStr, farOpenDay, offWhy.replace("doesn't", 'also doesn\'t')))
+                    : offWhy ? calPeekAttrs('off', dateStr, offWhy, 'Please pick another date.') : ''
     const tooltip   = (tooSoon && !isPast) ? `title="${minAdvanceTooltip()}"` :
                       isBlocked ? `title="Doctor unavailable: ${String(blockedReason).replace(/"/g,'&quot;')}"` :
-                      isHoliday ? `title="Clinic closed: ${holidayName}"` :
+                      isHoliday ? `title="Clinic closed: ${esc(holidayName)}"` :
                       (noDoctorThisDay && !isPast) ? `title="No doctors are available on this day."` :
+                      farOpenDay ? `title="Booking opens on ${bookingOpensOn(new Date(year, month, d)).toLocaleDateString('en-PH', { month: 'long', day: 'numeric' })}"` :
                       (isFar && !isPast) ? `title="Beyond the maximum booking window."` : ''
     // Every other reason a date is blocked already gets its own small label
     // under the day number (holiday name, No Doctor, Booked below) — these
     // two were the only ones still relying on a hover-only title="", which
     // never reaches a touch-screen patient at all.
     const inner     = isHoliday && !isPast
-      ? `${d}<span class="amc-holiday-lbl">${holidayName}</span>`
+      ? `${d}<span class="amc-holiday-lbl">${esc(holidayName)}</span>`
       : (noDoctorThisDay && !isPast)
         ? `${d}<span class="amc-nodoc-lbl">No Doctor</span>`
         : (tooSoon && !isPast)
@@ -6563,6 +6783,7 @@ function amcRender() {
 function amcSwapSelected(gridId, dateStr) {
   const grid = document.getElementById(gridId)
   if (!grid) return false
+  calPeekClose(grid)   // picking a real date closes any open reason card
   const prev = grid.querySelector('.amc-day.amc-selected')
   if (prev) prev.classList.remove('amc-selected')
   const next = grid.querySelector(`.amc-day[data-date="${dateStr}"]`)
@@ -6634,9 +6855,7 @@ async function wizBuildDoctorCards() {
   if (!container) return
 
   if (!availDocs.length) {
-    container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;padding:40px 24px;text-align:center">
-      <div style="font-size:.82rem;color:#9CA3AF">No doctors are available on this day. Please go back and select a different date.</div>
-    </div>`
+    container.innerHTML = emptyState('user-x', 'No doctors available this day', 'Go back and pick a different date.')
     return
   }
 
@@ -6922,7 +7141,7 @@ async function wizBuildTimeSlotsAnyDoctor() {
   })
 
   if (!eligibleDocs.length) {
-    if (el) el.innerHTML = `<div style="padding:24px;text-align:center;font-size:.82rem;color:#9CA3AF">No doctors are available on this day. Please go back and select a different date.</div>`
+    if (el) el.innerHTML = emptyState('user-x', 'No doctors available this day', 'Go back and pick a different date.', { size: 'sm' })
     return
   }
 
@@ -7423,7 +7642,7 @@ function _filterCapPatientList(query) {
   )
   container.innerHTML = matches.length
     ? matches.map(p => _renderPatientResult(p, _capPatientOnclick(p))).join('')
-    : `<div style="padding:24px;text-align:center;font-size:.85rem;color:#9CA3AF">No matching patients found.</div>`
+    : emptyState('search', 'No matching patients', 'Check the spelling, or search by patient ID.', { size: 'sm', neutral: true })
 }
 window._filterCapPatientList = _filterCapPatientList
 
@@ -7468,7 +7687,7 @@ async function openAssignDoctorModal(apptId) {
 
   const list = document.getElementById('assign-doc-list')
   if (!eligibleDocs.length) {
-    if (list) list.innerHTML = `<div style="font-size:.82rem;color:#9CA3AF;text-align:center;padding:12px 0">No optometrists are scheduled to work on this date.</div>`
+    if (list) list.innerHTML = emptyState('user-x', 'No optometrists that day', 'No one is scheduled to work on this date.', { size: 'sm' })
     return
   }
 
@@ -7497,7 +7716,7 @@ async function openAssignDoctorModal(apptId) {
 
   if (!list) return
   if (!freeDocs.length) {
-    list.innerHTML = `<div style="font-size:.82rem;color:#9CA3AF;text-align:center;padding:12px 0">No optometrist is free at this exact time. Consider rescheduling this appointment instead.</div>`
+    list.innerHTML = emptyState('user-x', 'No one is free at this time', 'Consider rescheduling this appointment instead.', { size: 'sm' })
     return
   }
   const getInitials = name => (name || '').replace('Dr. ','').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()
@@ -8208,17 +8427,25 @@ function openAddPatientModal() {
 // Registration Type picker (how the patient came to the clinic) + its note (previous clinic / who referred them),
 // shared by Add Patient and Edit Patient. The note only shows for
 // Transferred and Referral.
+// The previous clinic is required for a Transfer (it's what staff need to
+// request old records, and it pre-fills Previous Clinic Records); "Unknown"
+// is accepted when the patient doesn't remember. "Referred by" stays optional.
+function _patientSourceNoteLabel(v) {
+  return v === 'referral'
+    ? 'Referred by <span style="font-weight:400;color:#9CA3AF">(optional)</span>'
+    : 'Previous optical clinic <span class="req">*</span>'
+}
 function patientSourceFieldsHtml(prefix, value, note) {
   const v = PATIENT_SOURCE_META[value] ? value : 'walk-in'
-  const noteLabel = v === 'referral' ? 'Referred by' : 'Previous optical clinic'
   return `
       <div class="form-row-2">
         <div class="form-group"><label class="form-label">Registration Type</label>
           ${window.selectFieldHtml(prefix + '-source', { value: v, onchange: `window._patientSourceToggle('${prefix}')`,
             options: Object.entries(PATIENT_SOURCE_META).map(([k, m]) => ({ value: k, label: `${m.label} · ${m.tip}` })) })}</div>
         <div class="form-group" id="${prefix}-source-note-wrap" style="${['transferred', 'referral'].includes(v) ? '' : 'display:none'}">
-          <label class="form-label" id="${prefix}-source-note-label">${noteLabel} <span style="font-weight:400;color:#9CA3AF">(optional)</span></label>
-          <input id="${prefix}-source-note" class="form-input" maxlength="150" value="${esc(note || '')}" placeholder="${v === 'referral' ? 'e.g. Dr. Santos, a family member' : 'e.g. Sunrise Optical, Imus'}"></div>
+          <label class="form-label" id="${prefix}-source-note-label">${_patientSourceNoteLabel(v)}</label>
+          <input id="${prefix}-source-note" class="form-input" maxlength="150" value="${esc(note || '')}" placeholder="${v === 'referral' ? 'e.g. Dr. Santos, a family member' : 'e.g. Sunrise Optical, Imus'}">
+          <p id="${prefix}-source-note-hint" style="margin:5px 0 0;font-size:.72rem;color:#9CA3AF;${v === 'transferred' ? '' : 'display:none'}">Type “Unknown” if the patient doesn't remember.</p></div>
       </div>`
 }
 window.patientSourceFieldsHtml = patientSourceFieldsHtml
@@ -8227,9 +8454,18 @@ window._patientSourceToggle = prefix => {
   const wrap = document.getElementById(prefix + '-source-note-wrap')
   if (wrap) wrap.style.display = ['transferred', 'referral'].includes(v) ? '' : 'none'
   const lbl = document.getElementById(prefix + '-source-note-label')
-  if (lbl) lbl.innerHTML = (v === 'referral' ? 'Referred by' : 'Previous optical clinic') + ' <span style="font-weight:400;color:#9CA3AF">(optional)</span>'
+  if (lbl) lbl.innerHTML = _patientSourceNoteLabel(v)
+  const hint = document.getElementById(prefix + '-source-note-hint')
+  if (hint) hint.style.display = v === 'transferred' ? '' : 'none'
   const inp = document.getElementById(prefix + '-source-note')
   if (inp) inp.placeholder = v === 'referral' ? 'e.g. Dr. Santos, a family member' : 'e.g. Sunrise Optical, Imus'
+}
+// '' when fine, or the message to show (and the field gets marked).
+function _patientSourceProblem(prefix) {
+  const v = document.getElementById(prefix + '-source')?.value
+  const note = (document.getElementById(prefix + '-source-note')?.value || '').trim()
+  if (v === 'transferred' && !note) { markFieldError(prefix + '-source-note'); return 'Enter the previous optical clinic, or “Unknown” if the patient doesn\'t remember.' }
+  return ''
 }
 
 async function doAddPatient(btn) {
@@ -8253,6 +8489,8 @@ async function doAddPatient(btn) {
   if (apContact && !window.isValidContact(apContact)) { markFieldError('ap-contact'); toast('Please enter a valid 11-digit contact number.', 'error'); return }
   const apAddress = gv('ap-address')
   if (apAddress && !window.looksLikeAddress(apAddress)) { markFieldError('ap-address'); toast('Please enter a complete address.', 'error'); return }
+  const apSrcProblem = _patientSourceProblem('ap')
+  if (apSrcProblem) { toast(apSrcProblem, 'error'); return }
 
   if (_btnBusy(btn, 'primary', 'Registering…')) return
 
@@ -8295,6 +8533,815 @@ async function doAddPatient(btn) {
     _btnIdle(btn)
   }
 }
+
+// ════════════════════════════════════════════════════════════════
+//  PREVIOUS CLINIC RECORDS — exam results / prescriptions a patient
+//  brings from another optical clinic, kept as an uploaded PDF or
+//  scanned images (JPG / PNG) plus optional typed-in values (refraction,
+//  VA, PD, diagnosis) the doctor can compare at the next exam.
+//  api/previous_records/{upload,save,delete,file}.php; rendering helpers
+//  (cards, tables, exam-wizard boxes) are in pages.js. Any of the files
+//  opens in the in-app preview (openFilePreview, below).
+// ════════════════════════════════════════════════════════════════
+// Pages from another clinic: a PDF up to 20 MB (a 10-page colour scan at
+// 300 dpi fits), photos up to 10 MB after the browser shrinks them, up to
+// 10 files and 60 MB per record. Files travel to
+// api/previous_records/upload.php in 2 MB pieces, retried on a bad
+// connection, so the server's PHP upload limit doesn't matter. Same numbers
+// as PREV_RECORD_* in api/helpers.php.
+const PREV_REC_MAX_BYTES     = 20 * 1024 * 1024   // per PDF
+const PREV_REC_MAX_IMAGE     = 10 * 1024 * 1024   // per photo, after shrinking
+const PREV_REC_MAX_RAW_IMAGE = 40 * 1024 * 1024   // a photo bigger than this isn't even opened to shrink
+const PREV_REC_MAX_TOTAL     = 60 * 1024 * 1024   // all files of one record
+const PREV_REC_CHUNK         = 2 * 1024 * 1024
+const PREV_REC_MAX_FILES     = 10
+const PREV_REC_MIME = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' }
+// Photos over 1.5 MB are shrunk in the browser before uploading: long side
+// 2400 px is about 200 dpi for a full page, still easy to read.
+const PREV_REC_SHRINK_OVER = 1.5 * 1024 * 1024
+const PREV_REC_MAX_SIDE    = 2400
+// The open Add/Edit form: which patient/record, existing files marked for
+// removal, and the new files picked. A new file entry:
+// { key, file, name, size, origName, origSize, mime, url (local preview),
+//   status: preparing | ready | uploading | uploaded | error, progress,
+//   uploadId, next }
+let _prc = null
+let _prcKey = 0
+
+function _prcFind(patientId, recordId) {
+  const p = patients.find(x => x.id === patientId)
+  const r = p && recordId ? (p.previousRecords || []).find(x => x.id === recordId) : null
+  return { p, r }
+}
+// Frees the local previews (object URLs) of a form's new files.
+function _prcReleaseUrls(ctx = _prc) {
+  (ctx?.files || []).forEach(e => { if (e.url) URL.revokeObjectURL(e.url) })
+}
+
+// "Other (please specify)" opens a required text box under the type, like
+// the reason pickers; picking a standard type folds it away again.
+window._prcTypeToggle = () => {
+  const box = document.getElementById('prc-type-other')
+  if (!box) return
+  const other = document.getElementById('prc-type')?.value === 'other'
+  const wasHidden = box.style.display === 'none'
+  box.style.display = other ? '' : 'none'
+  if (other && wasHidden) setTimeout(() => box.focus(), 30)
+  if (!other) box.classList.remove('error')
+}
+
+function openPrevRecordModal(patientId, recordId = null) {
+  const { p, r } = _prcFind(patientId, recordId)
+  if (!p) return
+  if (recordId && !r) { toast('That record was not found. Refresh the page and try again.', 'error'); return }
+  _prcReleaseUrls()
+  _prc = { patientId, recordId: r ? r.id : null, files: [], removeIds: new Set(), existing: r ? [...r.files] : [], busy: false }
+  const val = (o, k) => esc(o?.[k] ?? '')
+  const opt = '<span class="prc-opt">(optional)</span>'
+  // One OD / OS grid laid out like a printed prescription (eyes as rows,
+  // SPH CYL AXIS ADD VA as columns) so values are typed straight across
+  // from the paper. Lengths fit real values: "-10.25", "Plano", axis 0-180.
+  const RX_COLS = [['sph', 'SPH', 'Sphere', '±0.00', 6], ['cyl', 'CYL', 'Cylinder', '±0.00', 6],
+                   ['axis', 'AXIS', 'Axis', '0-180', 3], ['add', 'ADD', 'Add', '+0.00', 6], ['va', 'VA', 'Visual acuity', '20/20', 8]]
+  const rxGrid = () => `
+    <div class="prc-rxgrid" role="group" aria-label="Prescription values">
+      <span></span>${RX_COLS.map(([, short, full]) => `<span class="prc-rxh" title="${full}">${short}</span>`).join('')}
+      ${[['od', 'OD', 'Right'], ['os', 'OS', 'Left']].map(([side, abbr, word]) => `
+      <span class="prc-rxeye">${abbr}<small>${word}</small></span>
+      ${RX_COLS.map(([k, , full, ph, max]) => `
+      <input id="prc-${side}-${k}" class="form-input" maxlength="${max}" value="${val(r?.[side], k)}" placeholder="${ph}"
+             aria-label="${word} eye ${full.toLowerCase()}"${k === 'axis' ? ` inputmode="numeric" oninput="this.value=this.value.replace(/\\D/g,'')"` : ''}>`).join('')}`).join('')}
+    </div>`
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title" style="display:flex;align-items:center;gap:8px">
+        <span style="color:#E8760A;display:flex">${icon('folder', 'icon-sm')}</span>
+        ${r ? 'Edit' : 'Add'} Previous Clinic Record — ${esc(p.name)}
+      </div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row-2">
+        <div class="form-group"><label class="form-label" for="prc-clinic">Previous Clinic <span class="req">*</span></label>
+          <input id="prc-clinic" class="form-input" maxlength="150" value="${esc(r ? r.clinicName : (p.source === 'transferred' ? p.sourceNote || '' : ''))}" placeholder="e.g. Sunrise Optical, Imus"></div>
+        <div class="form-group"><label class="form-label" for="prc-optom">Optometrist ${opt}</label>
+          <input id="prc-optom" class="form-input" maxlength="150" value="${val(r, 'optometrist')}" placeholder="e.g. Dr. Ana Reyes, OD"></div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group"><label class="form-label">Exam or Issue Date ${opt}</label>
+          ${dateFieldHtml('prc-date', { value: r?.date || '' })}</div>
+        <div class="form-group"><label class="form-label">Document Type</label>
+          ${window.selectFieldHtml('prc-type', { value: r?.type || 'exam', onchange: 'window._prcTypeToggle()',
+            options: [['exam', window.PREV_REC_TYPE_LABEL.exam], ['prescription', window.PREV_REC_TYPE_LABEL.prescription], ['other', 'Other (please specify)']]
+              .map(([value, label]) => ({ value, label })) })}
+          <input id="prc-type-other" class="form-input prc-type-other" maxlength="60" value="${val(r, 'typeOther')}"
+                 placeholder="Please specify, e.g. Referral letter" aria-label="Specify the document type"${r?.type === 'other' ? '' : ' style="display:none"'}></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Documents <span class="prc-opt">PDF, JPG or PNG · PDFs up to ${_uploadSize(PREV_REC_MAX_BYTES)} · up to ${PREV_REC_MAX_FILES} files</span></label>
+        <div id="prc-drop" class="prc-drop" tabindex="0" role="button" aria-describedby="prc-drop-sub"
+             onclick="document.getElementById('prc-input').click()"
+             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('prc-input').click()}">
+          <span class="prc-drop-ic">${icon('upload', 'icon')}</span>
+          <span class="prc-drop-main">Drop the PDF or scanned pages here, or <u>browse files</u></span>
+          <span class="prc-drop-sub" id="prc-drop-sub">A clear phone photo of each page works too. Big photos are made smaller automatically.</span>
+        </div>
+        <input id="prc-input" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" multiple hidden onchange="window._prcPicked(this)">
+        <div id="prc-file-err" class="prc-inline-err" role="alert" hidden></div>
+        <div id="prc-file-list" class="prc-file-list"></div>
+      </div>
+
+      <div class="prc-section">
+        <div class="prc-section-title">Prescription Values ${opt}</div>
+        <div class="prc-section-sub">Type in what the document says so the doctor can compare it with the next exam here.</div>
+        ${rxGrid()}
+        <div class="form-row-2" style="margin-top:14px">
+          <div class="form-group" style="margin-bottom:0"><label class="form-label" for="prc-pd">PD ${opt}</label>
+            <input id="prc-pd" class="form-input" maxlength="20" value="${val(r, 'pd')}" placeholder="e.g. 62 or 31/31"></div>
+          <div class="form-group" style="margin-bottom:0"><label class="form-label" for="prc-dx">Diagnosis ${opt}</label>
+            <input id="prc-dx" class="form-input" maxlength="255" value="${val(r, 'diagnosis')}" placeholder="e.g. Myopia with astigmatism"></div>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin:14px 0 0"><label class="form-label" for="prc-notes">Notes ${opt}</label>
+        <textarea id="prc-notes" class="form-textarea" rows="2" maxlength="2000" placeholder="e.g. Original copy returned to the patient">${esc(r?.notes || '')}</textarea></div>
+      <div id="prc-error" class="prc-inline-err prc-form-err" role="alert" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="window.savePrevRecord(this)">${icon('check', 'icon-sm')} ${r ? 'Save Changes' : 'Save Record'}</button>
+    </div>`, 'modal-lg')
+  _prcRenderFiles()
+}
+window.openPrevRecordModal = openPrevRecordModal
+
+function _prcFileCount() {
+  return _prc ? _prc.existing.filter(f => !_prc.removeIds.has(f.id)).length + _prc.files.length : 0
+}
+function _prcMsg(id, msg) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.textContent = msg || ''
+  el.hidden = !msg
+}
+function _prcTooBigPdf(name, size) {
+  return `"${name}" is ${window.prevRecFileSize(size)}, over the ${_uploadSize(PREV_REC_MAX_BYTES)} limit. Save it again from the scanner or scanner app with a smaller file size or lower quality (150 to 200 dpi is still easy to read), or split it into parts and attach each part here.`
+}
+
+// A photo over PREV_REC_SHRINK_OVER comes back as a smaller JPG (long side
+// PREV_REC_MAX_SIDE px); anything else, or a shrink that doesn't help or
+// fails, comes back unchanged.
+async function _prcShrinkImage(file) {
+  if (!/^image\/(jpeg|png)$/.test(file.type) || file.size <= PREV_REC_SHRINK_OVER) return file
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image()
+      i.onload = () => resolve(i)
+      i.onerror = reject
+      i.src = url
+    })
+    const scale = Math.min(1, PREV_REC_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight))
+    const w = Math.max(1, Math.round(img.naturalWidth * scale))
+    const h = Math.max(1, Math.round(img.naturalHeight * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const g = canvas.getContext('2d')
+    g.fillStyle = '#fff'   // a transparent PNG becomes a white page, not black
+    g.fillRect(0, 0, w, h)
+    g.drawImage(img, 0, 0, w, h)
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85))
+    if (!blob || blob.size >= file.size) return file
+    return new File([blob], file.name.replace(/\.(png|jpe?g)$/i, '') + '.jpg', { type: 'image/jpeg', lastModified: file.lastModified })
+  } catch (_) {
+    return file
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+// Bytes the record would hold: kept saved files plus new ones already
+// prepared (photos count at their shrunk size; ones still being shrunk
+// don't count yet), plus `extra` for the file being checked.
+function _prcTotalBytes(ctx = _prc, extra = 0) {
+  const kept = (ctx.existing || []).filter(f => !ctx.removeIds.has(f.id)).reduce((s, f) => s + (+f.size || 0), 0)
+  return kept + extra + ctx.files.filter(e => ['ready', 'uploading', 'uploaded'].includes(e.status)).reduce((s, e) => s + (+e.size || 0), 0)
+}
+
+async function _prcAddFiles(list) {
+  if (!_prc || _prc.busy) return
+  const ctx = _prc
+  const errs = []
+  const added = []
+  for (const f of Array.from(list || [])) {
+    const ext = (f.name.split('.').pop() || '').toLowerCase()
+    if (/^hei[cf]$/.test(ext) || /hei[cf]/i.test(f.type)) {
+      errs.push(`"${f.name}" is an iPhone HEIC photo. Share it as a JPG (or set Camera > Formats > Most Compatible) and attach it again.`)
+      continue
+    }
+    const mime = PREV_REC_MIME[f.type] ? f.type : ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' })[ext]
+    if (!mime) { errs.push(`"${f.name}" isn't a PDF, JPG or PNG file.`); continue }
+    if (mime === 'application/pdf' && f.size > PREV_REC_MAX_BYTES) { errs.push(_prcTooBigPdf(f.name, f.size)); continue }
+    if (mime !== 'application/pdf' && f.size > PREV_REC_MAX_RAW_IMAGE) {
+      errs.push(`"${f.name}" is ${window.prevRecFileSize(f.size)}, too big to use. Take the photo again at a normal size, or scan the page as a PDF.`)
+      continue
+    }
+    if (ctx.files.some(x => x.origName === f.name && x.origSize === f.size)) continue   // picked twice
+    if (_prcFileCount() >= PREV_REC_MAX_FILES) { errs.push(`A record can have up to ${PREV_REC_MAX_FILES} files. Add the rest as a second record.`); break }
+    const entry = { key: 'n' + (++_prcKey), file: f, name: f.name, size: f.size, origName: f.name, origSize: f.size, mime, url: '', status: 'preparing', progress: 0 }
+    ctx.files.push(entry)
+    added.push(entry)
+  }
+  _prcMsg('prc-file-err', errs.join(' '))
+  if (ctx.files.length) document.getElementById('prc-drop')?.classList.remove('is-error')
+  _prcRenderFiles()
+  for (const entry of added) {
+    if (entry.mime !== 'application/pdf') {
+      const smaller = await _prcShrinkImage(entry.file)
+      if (smaller !== entry.file) Object.assign(entry, { file: smaller, name: smaller.name, size: smaller.size, mime: 'image/jpeg' })
+    }
+    if (_prc !== ctx || !ctx.files.includes(entry)) continue   // form closed or file removed meanwhile
+    if (entry.mime !== 'application/pdf' && entry.size > PREV_REC_MAX_IMAGE) {
+      ctx.files.splice(ctx.files.indexOf(entry), 1)
+      _prcMsg('prc-file-err', `"${entry.origName}" is still over ${_uploadSize(PREV_REC_MAX_IMAGE)} after making it smaller. Take the photo a little farther away, or scan the page as a PDF.`)
+    } else if (_prcTotalBytes(ctx, entry.size) > PREV_REC_MAX_TOTAL) {
+      ctx.files.splice(ctx.files.indexOf(entry), 1)
+      _prcMsg('prc-file-err', `"${entry.origName}" would take this record over ${window.prevRecFileSize(PREV_REC_MAX_TOTAL)} in all. Add it as a second record instead.`)
+    } else {
+      entry.url = URL.createObjectURL(entry.file)
+      entry.status = 'ready'
+    }
+    _prcRenderFiles()
+  }
+}
+
+function _prcStatusText(e) {
+  const size = window.prevRecFileSize(e.size)
+  if (e.status === 'preparing') return 'Preparing…'
+  if (e.status === 'uploading') return `Uploading ${Math.round(e.progress * 100)}%`
+  if (e.status === 'uploaded')  return `${size} · uploaded`
+  if (e.status === 'error')     return 'Not uploaded'
+  return e.size < e.origSize ? `${size} · made smaller from ${window.prevRecFileSize(e.origSize)}` : `${size} · new`
+}
+// Thumbnail tile: the image itself, or a PDF badge. Clicking previews it.
+function _prcThumb(mime, url, onclick) {
+  const isImg = String(mime || '').startsWith('image/')
+  const inner = isImg && url ? `<img src="${url}" alt="" loading="lazy">` : isImg ? icon('image', 'icon-sm') : 'PDF'
+  return `<button type="button" class="prc-frow-ic${isImg ? '' : ' prc-frow-pdf'}${isImg && url ? ' has-img' : ''}" tabindex="-1"${onclick ? ` onclick="${onclick}" title="Preview"` : ' disabled'}>${inner}</button>`
+}
+function _prcRenderFiles() {
+  const el = document.getElementById('prc-file-list')
+  if (!el || !_prc) return
+  const lock = _prc.busy ? ' disabled' : ''
+  const rows = _prc.existing.map(f => {
+    const removed = _prc.removeIds.has(f.id)
+    const open = `window._prcPreviewForm('e${f.id}')`
+    return `<div class="prc-frow${removed ? ' is-removed' : ''}">
+      ${_prcThumb(f.mime, window.prevRecFileUrl(f), open)}
+      <button type="button" class="prc-frow-name" title="Preview" onclick="${open}">${esc(f.name)}</button>
+      <span class="prc-frow-size">${removed ? 'Will be removed' : window.prevRecFileSize(f.size)}</span>
+      <button type="button" class="btn-icon"${lock} title="${removed ? 'Keep this file' : 'Remove this file'}" onclick="window._prcToggleExisting(${f.id})">${icon(removed ? 'rotate-ccw' : 'x', 'icon-sm')}</button>
+    </div>`
+  }).concat(_prc.files.map(e => {
+    const open = e.url ? `window._prcPreviewForm('${e.key}')` : ''
+    const bar  = e.status === 'uploading' || e.status === 'uploaded'
+    return `<div class="prc-frow is-new${e.status === 'error' ? ' is-error' : ''}" data-key="${e.key}">
+      ${_prcThumb(e.mime, e.url, open)}
+      <button type="button" class="prc-frow-name"${open ? ` title="Preview" onclick="${open}"` : ' disabled'}>${esc(e.name)}</button>
+      <span class="prc-frow-size" data-role="status">${_prcStatusText(e)}</span>
+      <button type="button" class="btn-icon"${lock} title="Remove this file" onclick="window._prcRemoveNew('${e.key}')">${icon('x', 'icon-sm')}</button>
+      ${bar ? `<span class="prc-frow-bar"><i style="transform:scaleX(${e.status === 'uploaded' ? 1 : e.progress})"></i></span>` : ''}
+    </div>`
+  }))
+  el.innerHTML = rows.join('')
+}
+// Upload progress without redrawing the whole list on every tick.
+function _prcUpdateRow(e) {
+  const row = document.querySelector(`.prc-frow[data-key="${e.key}"]`)
+  if (!row) return
+  const st = row.querySelector('[data-role="status"]')
+  if (st) st.textContent = _prcStatusText(e)
+  const bar = row.querySelector('.prc-frow-bar i')
+  if (bar) bar.style.transform = `scaleX(${e.progress})`
+}
+window._prcPicked = input => { _prcAddFiles(input.files); input.value = '' }
+window._prcRemoveNew = key => {
+  if (!_prc || _prc.busy) return
+  const i = _prc.files.findIndex(e => e.key === key)
+  if (i < 0) return
+  const [e] = _prc.files.splice(i, 1)
+  if (e.url) URL.revokeObjectURL(e.url)
+  _prcMsg('prc-file-err', '')
+  _prcRenderFiles()
+}
+window._prcToggleExisting = id => {
+  if (!_prc || _prc.busy) return
+  if (_prc.removeIds.has(id)) {
+    // Limits only bite when new files are added (as on the server), so a
+    // record saved under an older, higher limit can keep all its files.
+    if (_prc.files.length) {
+      if (_prcFileCount() >= PREV_REC_MAX_FILES) { _prcMsg('prc-file-err', `A record can have up to ${PREV_REC_MAX_FILES} files.`); return }
+      const f = _prc.existing.find(x => x.id === id)
+      if (_prcTotalBytes(_prc, +f?.size || 0) > PREV_REC_MAX_TOTAL) { _prcMsg('prc-file-err', `The files of one record can add up to ${window.prevRecFileSize(PREV_REC_MAX_TOTAL)}.`); return }
+    }
+    _prc.removeIds.delete(id)
+  } else _prc.removeIds.add(id)
+  _prcRenderFiles()
+}
+// Preview from the form: saved files and files just picked (shown from the
+// computer itself, before anything is uploaded), stepping through them all.
+window._prcPreviewForm = key => {
+  if (!_prc) return
+  const items = _prc.existing.map(f => ({
+    key: 'e' + f.id, name: f.name, size: f.size, mime: f.mime,
+    url: window.prevRecFileUrl(f), download: window.prevRecFileUrl(f, true),
+    note: _prc.removeIds.has(f.id) ? 'Will be removed' : '',
+  })).concat(_prc.files.filter(e => e.url).map(e => ({
+    key: e.key, name: e.name, size: e.size, mime: e.mime, url: e.url, download: e.url, note: 'Not saved yet',
+  })))
+  const i = items.findIndex(x => x.key === key)
+  if (i >= 0) openFilePreview(items, i)
+}
+// Files dropped anywhere while the form is open are added (and the browser
+// never navigates away to open the dropped PDF instead).
+document.addEventListener('dragover', e => {
+  const zone = document.getElementById('prc-drop')
+  if (!zone || !Array.from(e.dataTransfer?.types || []).includes('Files')) return
+  e.preventDefault()
+  zone.classList.add('is-over')
+})
+document.addEventListener('dragleave', e => {
+  if (!e.relatedTarget) document.getElementById('prc-drop')?.classList.remove('is-over')
+})
+document.addEventListener('drop', e => {
+  const zone = document.getElementById('prc-drop')
+  if (!zone || !e.dataTransfer?.files?.length) return
+  e.preventDefault()
+  zone.classList.remove('is-over')
+  _prcAddFiles(e.dataTransfer.files)
+})
+
+function _prcRandomId() {
+  const b = new Uint8Array(16)
+  crypto.getRandomValues(b)
+  return Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
+}
+// One piece to upload.php. Rejects (= try again) on a network error, a
+// timeout or a 5xx; otherwise resolves with the server's answer.
+function _prcSendPiece(fields, piece, onLoaded) {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData()
+    Object.entries(fields).forEach(([k, v]) => fd.append(k, v))
+    fd.append('chunk', piece, 'piece')
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', 'api/previous_records/upload.php')
+    xhr.timeout = 120000
+    xhr.upload.onprogress = ev => { if (ev.lengthComputable) onLoaded(piece.size * ev.loaded / ev.total) }
+    xhr.onload = () => {
+      let d = null
+      try { d = JSON.parse(xhr.responseText) } catch (_) {}
+      if (!d || xhr.status >= 500) reject(new Error('retry'))
+      else resolve(d)
+    }
+    xhr.onerror = xhr.ontimeout = () => reject(new Error('retry'))
+    xhr.send(fd)
+  })
+}
+// Sends one file in PREV_REC_CHUNK pieces. A failed piece is tried 3 times;
+// "expected piece N" from the server (a re-sent piece that had in fact
+// arrived) carries on from N, and pressing Save again after a failure
+// resumes where it stopped instead of starting over.
+async function _prcUploadFile(entry, onProgress, stillOpen) {
+  const file  = entry.file
+  const total = Math.max(1, Math.ceil(file.size / PREV_REC_CHUNK))
+  if (!entry.uploadId) { entry.uploadId = _prcRandomId(); entry.next = 0 }
+  let index = entry.next || 0
+  while (index < total) {
+    if (!stillOpen()) throw new Error('closed')
+    const start = index * PREV_REC_CHUNK
+    const piece = file.slice(start, Math.min(start + PREV_REC_CHUNK, file.size))
+    let d = null
+    for (let attempt = 1; ; attempt++) {
+      try {
+        d = await _prcSendPiece({ uploadId: entry.uploadId, index, total, size: file.size, name: entry.name }, piece,
+          loaded => onProgress(Math.min(1, (start + loaded) / file.size)))
+        break
+      } catch (_) {
+        if (!stillOpen()) throw new Error('closed')
+        if (attempt >= 3) throw new Error('network')
+        await new Promise(r => setTimeout(r, attempt * 1500))
+      }
+    }
+    if (!d.success) {
+      if (d.code === 'order' && Number.isInteger(d.next)) { index = entry.next = d.next; continue }
+      entry.uploadId = null   // refused (wrong type, expired…): start fresh next time
+      entry.next = 0
+      throw Object.assign(new Error('refused'), { userMessage: d.message })
+    }
+    index = entry.next = d.next
+    onProgress(Math.min(1, (start + piece.size) / file.size))
+    if (d.done) return
+  }
+}
+
+async function savePrevRecord(btn) {
+  if (!_prc || _prc.busy) return
+  const ctx = _prc
+  const gv  = id => (document.getElementById(id)?.value || '').trim()
+  const fail = (msg, fieldId) => { if (fieldId) markFieldError(fieldId); _prcMsg('prc-error', msg) }
+  clearFormErrors('modal-root')
+  _prcMsg('prc-error', '')
+  window.dateFieldSync?.('prc-date')
+
+  const clinic = gv('prc-clinic')
+  if (!clinic) return fail('Please enter the name of the previous clinic.', 'prc-clinic')
+  const type = gv('prc-type') || 'exam'
+  const typeOther = type === 'other' ? gv('prc-type-other') : ''
+  if (type === 'other' && !typeOther) {
+    document.getElementById('prc-type-other')?.focus()
+    return fail('Please specify the document type.', 'prc-type-other')
+  }
+  const dateProblem = window.dateFieldProblem?.('prc-date')
+  if (dateProblem) return fail('Please fix the exam date. See the note under the field.')
+  // Same checks as the server (api/previous_records/save.php).
+  const eye = side => Object.fromEntries(['sph', 'cyl', 'axis', 'add', 'va'].map(k => [k, gv(`prc-${side}-${k}`)]))
+  const od = eye('od'), os = eye('os')
+  const powerOk = v => !v || /^(?:[+-]?\d{1,2}(?:\.\d{1,2})?|pl(?:ano)?|ds)$/i.test(v)
+  const axisOk  = v => !v || (/^\d{1,3}$/.test(v) && +v <= 180)
+  for (const [side, e, label] of [['od', od, 'Right eye (OD)'], ['os', os, 'Left eye (OS)']]) {
+    for (const [k, name] of [['sph', 'sphere'], ['cyl', 'cylinder'], ['add', 'ADD']]) {
+      if (!powerOk(e[k])) return fail(`${label} ${name} should look like -1.25, +0.50 or Plano.`, `prc-${side}-${k}`)
+    }
+    if (!axisOk(e.axis)) return fail(`${label} axis should be a whole number from 0 to 180.`, `prc-${side}-axis`)
+  }
+  const pd = gv('prc-pd'), dx = gv('prc-dx')
+  const hasValues = !!(pd || dx || [...Object.values(od), ...Object.values(os)].some(Boolean))
+  if (!_prcFileCount() && !hasValues) {
+    document.getElementById('prc-drop')?.classList.add('is-error')
+    return fail('Attach the PDF or scanned document, or type in the prescription values.')
+  }
+  if (ctx.files.some(e => e.status === 'preparing')) return fail('A photo is still being prepared. Try again in a moment.')
+  if (ctx.files.length && _prcTotalBytes(ctx) > PREV_REC_MAX_TOTAL) {
+    return fail(`The files of one record can add up to ${window.prevRecFileSize(PREV_REC_MAX_TOTAL)}. Remove some, or add the rest as a second record.`)
+  }
+
+  const payload = {
+    id: ctx.recordId || 0, patientId: ctx.patientId, clinicName: clinic, optometrist: gv('prc-optom'),
+    recordDate: gv('prc-date'), recordType: type, recordTypeOther: typeOther, od, os, pd, diagnosis: dx,
+    notes: gv('prc-notes'), removeFileIds: [...ctx.removeIds],
+  }
+  if (_btnBusy(btn, 'primary', 'Saving…')) return
+  ctx.busy = true
+  _prcRenderFiles()
+  // Progress on the button: "Uploading 2 of 3 · 40%", then "Saving…".
+  const setLabel = text => {
+    const spin = btn.querySelector('span')
+    btn.textContent = ''
+    if (spin) btn.append(spin, ' ')
+    btn.append(text)
+  }
+  // Closing the form mid-upload stops it; unsaved pieces are cleared
+  // from the server after a day.
+  const stillOpen = () => _prc === ctx && !!document.getElementById('prc-drop')
+  try {
+    const pending = ctx.files.filter(e => e.status !== 'uploaded')
+    for (let i = 0; i < pending.length; i++) {
+      const e = pending[i]
+      e.status = 'uploading'
+      e.progress = 0
+      _prcRenderFiles()
+      setLabel(pending.length > 1 ? `Uploading ${i + 1} of ${pending.length}…` : 'Uploading…')
+      try {
+        await _prcUploadFile(e, frac => {
+          e.progress = frac
+          _prcUpdateRow(e)
+          setLabel(pending.length > 1 ? `Uploading ${i + 1} of ${pending.length} · ${Math.round(frac * 100)}%` : `Uploading ${Math.round(frac * 100)}%`)
+        }, stillOpen)
+      } catch (err) {
+        if (err.message === 'closed') return
+        e.status = 'error'
+        _prcMsg('prc-error', err.userMessage
+          || `"${e.name}" couldn't be uploaded. Check the connection and press Save again. Files already uploaded won't be sent twice.`)
+        return
+      }
+      e.status = 'uploaded'
+      e.progress = 1
+      _prcRenderFiles()
+    }
+    if (!stillOpen()) return
+    setLabel('Saving…')
+    const res = await fetch('api/previous_records/save.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, uploads: ctx.files.map(e => e.uploadId).filter(Boolean) }),
+    })
+    let d = null
+    try { d = await res.json() } catch (_) {}
+    if (!d || !d.success) { _prcMsg('prc-error', d?.message || 'Could not save the record. Please try again.'); return }
+    _prcStore(ctx.patientId, d.record)
+    _prcReleaseUrls(ctx)
+    // Only close the form if it's still the one on screen.
+    if (_prc === ctx) {
+      _prc = null
+      if (document.getElementById('prc-drop')) closeModal()
+    }
+    toast(ctx.recordId ? 'Record updated.' : 'Previous clinic record saved.')
+    refreshPrevRecordViews(ctx.patientId)
+  } catch (_) {
+    _prcMsg('prc-error', 'Network error. Check the connection and try again.')
+  } finally {
+    ctx.busy = false
+    _btnIdle(btn)
+    if (_prc === ctx) _prcRenderFiles()
+  }
+}
+window.savePrevRecord = savePrevRecord
+
+// Puts a saved record into the local patient (newest exam date first,
+// undated last) so every view updates without reloading all patients.
+function _prcStore(patientId, rec) {
+  const p = patients.find(x => x.id === patientId)
+  if (!p || !rec) return
+  const list = (p.previousRecords || []).filter(x => x.id !== rec.id)
+  list.push(rec)
+  list.sort((a, b) => (!a.date) - (!b.date) || (b.date || '').localeCompare(a.date || '') || b.id - a.id)
+  p.previousRecords = list
+}
+
+// After a record is saved or deleted. On the exam page only the record
+// boxes (and the stage tag) are redrawn: re-rendering the whole wizard
+// would wipe what the doctor has typed. Elsewhere the page re-renders,
+// staying on the Previous Clinic Records tab of Patient Profile.
+function refreshPrevRecordViews(patientId) {
+  const p = patients.find(x => x.id === patientId)
+  if (!p) return
+  const side = document.getElementById('prc-side-slot')
+  const ref  = document.getElementById('prc-ref-slot')
+  if (side || ref) {
+    if (side) side.innerHTML = window.prevRecordsSideHtml(p)
+    if (ref)  ref.innerHTML  = window.prevRecordRefHtml(p)
+    const tags = document.getElementById('exam-np-tags')
+    if (tags) tags.innerHTML = window.patientSourceBadge(p) + window.newPatientTag(p, 'md')
+    return
+  }
+  if (state.page === 'patient-view' && state.params?.patientId === patientId) state.params.tab = 'previous'
+  renderPage()
+}
+window.refreshPrevRecordViews = refreshPrevRecordViews
+
+function viewPrevRecord(patientId, recordId) {
+  const { p, r } = _prcFind(patientId, recordId)
+  if (!p || !r) return
+  const canManage = ['admin', 'staff', 'doctor'].includes(state.role)
+  const imgs = r.files.filter(window.prevRecIsImage)
+  const docs = r.files.filter(f => !window.prevRecIsImage(f))
+  // The type is the badge beside the clinic name, so it isn't repeated here.
+  const meta = [
+    ['Exam or Issue Date', r.date ? fmtDate(r.date) : emptyVal('Not given')],
+    ['Optometrist', r.optometrist ? esc(r.optometrist) : emptyVal('Not given')],
+    ['Added By', r.createdAt ? `${esc(r.createdBy || 'Staff')}, ${fmtDate(r.createdAt.slice(0, 10))}` : emptyVal('Not recorded')],
+  ]
+  if (r.updatedAt) meta.push(['Last Edited', `${esc(r.updatedBy || 'Staff')}, ${fmtDate(r.updatedAt.slice(0, 10))}`])
+  const rx = window.prevRecRxTable(r)
+  const field = (label, text) => `<div><div class="prc-view-label">${label}</div><div class="prc-view-text">${esc(text)}</div></div>`
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title prc-vtitle">
+        <span class="prc-vtitle-ic">${icon('folder', 'icon-sm')}</span>
+        <span class="prc-vtitle-name">${esc(r.clinicName)}</span>
+        <span class="prc-type prc-type--${esc(r.type)}">${esc(window.prevRecTypeLabel(r))}</span>
+      </div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="prc-view-sub">Previous clinic record of ${esc(p.name)} · ${p.id}</div>
+      <div class="prc-view-meta">${meta.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>
+      ${rx ? `<section class="prc-vsec"><div class="prc-view-label">Prescription</div>${rx}</section>` : ''}
+      ${r.diagnosis || r.notes ? `<section class="prc-vsec prc-view-cols">${r.diagnosis ? field('Diagnosis', r.diagnosis) : ''}${r.notes ? field('Notes', r.notes) : ''}</section>` : ''}
+      <section class="prc-vsec">
+      <div class="prc-view-label">Documents${r.files.length ? ` <span class="prc-count">${r.files.length}</span>` : ''}</div>
+      ${r.files.length ? `
+        ${docs.map(f => `
+        <div class="prc-view-doc">
+          <span class="prc-file-pdf">PDF</span>
+          <div class="prc-view-doc-name"><b>${esc(f.name)}</b><span>PDF · ${window.prevRecFileSize(f.size)}</span></div>
+          <div class="prc-view-doc-btns">
+            <a class="btn-secondary prc-view-btn" href="${window.prevRecFileUrl(f)}" target="_blank" rel="noopener" onclick="return window.previewRecordFile(event,'${p.id}',${r.id},${f.id})">${icon('eye', 'icon-sm')} Preview</a>
+            <a class="btn-ghost prc-view-btn" href="${window.prevRecFileUrl(f, true)}">${icon('download', 'icon-sm')} Download</a>
+          </div>
+        </div>`).join('')}
+        ${imgs.length ? `<div class="prc-view-imgs">${imgs.map(f => `
+          <figure class="prc-view-img">
+            <a href="${window.prevRecFileUrl(f)}" target="_blank" rel="noopener" title="Preview" onclick="return window.previewRecordFile(event,'${p.id}',${r.id},${f.id})"><img src="${window.prevRecFileUrl(f)}" alt="${esc(f.name)}" loading="lazy"></a>
+            <figcaption><span>${esc(f.name)}</span><a href="${window.prevRecFileUrl(f, true)}" title="Download">${icon('download', 'icon-sm')}</a></figcaption>
+          </figure>`).join('')}</div>` : ''}`
+        : '<div class="prc-nofiles">No document attached, only the typed-in values.</div>'}
+      </section>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Close</button>
+      ${canManage ? `<button class="btn-primary" onclick="window.openPrevRecordModal('${p.id}',${r.id})">${icon('edit', 'icon-sm')} Edit</button>` : ''}
+    </div>`, 'modal-lg')
+}
+window.viewPrevRecord = viewPrevRecord
+
+// ── File preview ─────────────────────────────────────────────────
+// Full-screen preview on top of everything (the form or dialog under it
+// stays as it was): images fit the screen and zoom on click, PDFs open in
+// the browser's own PDF viewer (pages, zoom, search). Phones without a
+// built-in PDF viewer get an "Open PDF" button instead. ← / → or the
+// arrows step through the other files; Esc or × closes.
+// items: [{ name, size, mime, url, download, note? }]
+let _pv = null
+function openFilePreview(items, index = 0) {
+  if (!items?.length) return
+  const returnFocus = _pv ? _pv.returnFocus : document.activeElement
+  closeFilePreview(false)
+  _pv = { items, index: Math.max(0, Math.min(index, items.length - 1)), returnFocus }
+  const root = document.createElement('div')
+  root.id = 'prc-preview'
+  root.className = 'prc-pv'
+  root.setAttribute('role', 'dialog')
+  root.setAttribute('aria-modal', 'true')
+  root.setAttribute('aria-label', 'File preview')
+  // A click on the dark area around the file closes it.
+  root.addEventListener('click', e => { if (e.target === root || e.target.classList.contains('prc-pv-stage')) closeFilePreview() })
+  document.body.appendChild(root)
+  document.addEventListener('keydown', _pvKeys, true)
+  _pvRender()
+}
+window.openFilePreview = openFilePreview
+
+function _pvRender() {
+  const root = document.getElementById('prc-preview')
+  if (!root || !_pv) return
+  const f = _pv.items[_pv.index]
+  const n = _pv.items.length
+  const isImg = String(f.mime || '').startsWith('image/')
+  // Android's Chrome has no in-page PDF viewer; navigator.pdfViewerEnabled
+  // says so where supported, the user agent where it isn't.
+  const inlinePdf = navigator.pdfViewerEnabled ?? !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  const info = [f.size ? window.prevRecFileSize(f.size) : '', f.note || '', n > 1 ? `${_pv.index + 1} of ${n}` : ''].filter(Boolean).join(' · ')
+  root.innerHTML = `
+    <div class="prc-pv-bar">
+      <span class="prc-pv-type${isImg ? '' : ' is-pdf'}">${isImg ? icon('image', 'icon-sm') : 'PDF'}</span>
+      <div class="prc-pv-title"><b>${esc(f.name)}</b>${info ? `<span>${esc(info)}</span>` : ''}</div>
+      <div class="prc-pv-actions">
+        <a class="prc-pv-btn" href="${f.url}" target="_blank" rel="noopener" title="Open in a new tab">${icon('external-link', 'icon-sm')}<span>New tab</span></a>
+        <a class="prc-pv-btn" href="${f.download || f.url}" download="${esc(f.name)}" title="Download">${icon('download', 'icon-sm')}<span>Download</span></a>
+        <button type="button" class="prc-pv-btn prc-pv-close" onclick="window.closeFilePreview()" title="Close (Esc)" aria-label="Close preview">${icon('x', 'icon-sm')}</button>
+      </div>
+    </div>
+    <div class="prc-pv-stage">
+      ${isImg
+        ? `<img class="prc-pv-img" src="${f.url}" alt="${esc(f.name)}" title="Click to zoom" onclick="this.parentElement.classList.toggle('is-zoomed')">`
+        : inlinePdf
+          ? `<iframe class="prc-pv-pdf" src="${f.url}#view=FitH" title="${esc(f.name)}"></iframe>`
+          : `<div class="prc-pv-nopdf">
+              <span class="prc-file-pdf">PDF</span>
+              <b>${esc(f.name)}</b>
+              <span>This device can't show PDFs inside the app. Open it in the phone's PDF viewer instead.</span>
+              <a class="btn-primary" href="${f.url}" target="_blank" rel="noopener">${icon('external-link', 'icon-sm')} Open PDF</a>
+            </div>`}
+      ${n > 1 ? `
+      <button type="button" class="prc-pv-nav prc-pv-prev" onclick="window._pvStep(-1)" aria-label="Previous file">${icon('chevron-left', 'icon')}</button>
+      <button type="button" class="prc-pv-nav prc-pv-next" onclick="window._pvStep(1)" aria-label="Next file">${icon('chevron-right', 'icon')}</button>` : ''}
+    </div>`
+  root.querySelector('.prc-pv-close')?.focus()
+}
+function _pvStep(d) {
+  if (!_pv || _pv.items.length < 2) return
+  _pv.index = (_pv.index + d + _pv.items.length) % _pv.items.length
+  _pvRender()
+}
+window._pvStep = _pvStep
+// Capture phase + stopImmediatePropagation: Esc closes only the preview,
+// not the form underneath (the app's global Esc closes dialogs).
+function _pvKeys(e) {
+  if (!_pv) return
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closeFilePreview() }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); _pvStep(1) }
+  else if (e.key === 'ArrowLeft')  { e.preventDefault(); _pvStep(-1) }
+}
+function closeFilePreview(restoreFocus = true) {
+  document.getElementById('prc-preview')?.remove()
+  document.removeEventListener('keydown', _pvKeys, true)
+  const back = _pv?.returnFocus
+  _pv = null
+  if (restoreFocus && back && document.contains(back)) back.focus?.()
+}
+window.closeFilePreview = closeFilePreview
+
+// A saved record's files in the preview, starting at fileId. Ctrl / ⌘ /
+// Shift-click keep the link's normal "open in a new tab".
+function previewRecordFile(e, patientId, recordId, fileId) {
+  if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.button > 0)) return true
+  e?.preventDefault()
+  const { r } = _prcFind(patientId, recordId)
+  if (!r) return false
+  const items = r.files.map(f => ({
+    id: f.id, name: f.name, size: f.size, mime: f.mime,
+    url: window.prevRecFileUrl(f), download: window.prevRecFileUrl(f, true),
+  }))
+  openFilePreview(items, Math.max(0, items.findIndex(x => x.id === fileId)))
+  return false
+}
+window.previewRecordFile = previewRecordFile
+// Same, for an archived record (Settings > Archives): its files come from
+// the archive's copy, since the record is no longer on the patient.
+function previewArchivedRecordFile(e, archiveId, fileId) {
+  if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.button > 0)) return true
+  e?.preventDefault()
+  const files = archivedRecords.find(x => x.id === archiveId)?.data?.files || []
+  if (!files.length) return false
+  const items = files.map(f => ({
+    id: f.id, name: f.name, size: f.size, mime: f.mime,
+    url: window.prevRecFileUrl(f), download: window.prevRecFileUrl(f, true),
+  }))
+  openFilePreview(items, Math.max(0, items.findIndex(x => x.id === fileId)))
+  return false
+}
+window.previewArchivedRecordFile = previewArchivedRecordFile
+
+// Exam wizard's "View all" — every record, each opening its own view.
+function openPrevRecordsListModal(patientId) {
+  const p = patients.find(x => x.id === patientId)
+  if (!p) return
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title" style="display:flex;align-items:center;gap:8px">
+        <span style="color:#E8760A;display:flex">${icon('folder', 'icon-sm')}</span>
+        Previous Clinic Records — ${esc(p.name)}
+      </div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body"><div class="prc-list">${(p.previousRecords || []).map(r => window.prevRecordCardHtml(p, r, false)).join('')}</div></div>
+    <div class="modal-footer"><button class="btn-secondary" onclick="window.closeModal()">Close</button></div>`, 'modal-lg')
+  window.prcWatchClamps()
+}
+window.openPrevRecordsListModal = openPrevRecordsListModal
+
+// Archive first, like patients and accounts: the record leaves the profile,
+// the exam screen and the medical record, but an admin can restore it, or
+// delete it for good, from Settings > Archives (api/previous_records/archive.php).
+function confirmArchivePrevRecord(patientId, recordId) {
+  const { p, r } = _prcFind(patientId, recordId)
+  if (!p || !r) return
+  const n = r.files.length
+  const facts = [window.prevRecTypeLabel(r), r.date ? fmtDate(r.date) : 'No date',
+                 n ? `${n} file${n === 1 ? '' : 's'}` : 'No files'].join(' · ')
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title" style="display:flex;align-items:center;gap:10px">
+        <span class="prc-arc-ic">${icon('archive', 'icon-sm')}</span>
+        Archive this record?
+      </div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="prc-arc-rec">
+        <span class="prc-arc-rec-ic">${icon('folder', 'icon-sm')}</span>
+        <div><b>${esc(r.clinicName)}</b><span>${esc(facts)}</span></div>
+      </div>
+      <p class="prc-arc-note">It will be removed from ${esc(p.name)}'s profile, the exam screen and the medical record. Nothing is deleted:
+        ${state.role === 'admin' ? 'you can restore it' : 'an admin can restore it'} from Settings &gt; Archives.</p>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Reason for Archiving <span class="req">*</span></label>
+        ${reasonFieldHtml('archive-reason-prc', 'archivePrevRecord', { oninput: "document.getElementById('do-archive-prc-btn').disabled=!this.value.trim()" })}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
+      <button id="do-archive-prc-btn" class="btn-primary" disabled onclick="window.doArchivePrevRecord('${patientId}',${recordId})">
+        ${icon('archive', 'icon-sm')}<span>Archive Record</span>
+      </button>
+    </div>`)
+}
+async function doArchivePrevRecord(patientId, recordId) {
+  const { p } = _prcFind(patientId, recordId)
+  if (!p) return
+  const reason = (document.getElementById('archive-reason-prc')?.value || '').trim()
+  if (!reason) return
+  const btn = document.getElementById('do-archive-prc-btn')
+  if (_btnBusy(btn, 'primary', 'Archiving…')) return
+  try {
+    const d = await (await fetch('api/previous_records/archive.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: recordId, reason }),
+    })).json()
+    if (!d.success) { toast(d.message || 'Could not archive the record.', 'error'); _btnIdle(btn); return }
+    p.previousRecords = (p.previousRecords || []).filter(x => x.id !== recordId)
+    // Admins see it in Archives straight away, without a reload.
+    if (state.role === 'admin' && d.record) archivedRecords.push(d.record)
+  } catch (_) {
+    toast('Network error. The record wasn\'t archived.', 'error'); _btnIdle(btn); return
+  }
+  closeModal()
+  toast(`Record moved to Archives. ${state.role === 'admin' ? 'You' : 'An admin'} can restore it from Settings > Archives.`, 'success')
+  refreshPrevRecordViews(patientId)
+}
+window.confirmArchivePrevRecord = confirmArchivePrevRecord
+window.doArchivePrevRecord      = doArchivePrevRecord
 
 // Opens from the red "Medical History" pill next to the patient's name on
 // Patient Profile (pagePatientView(), pages.js) — a big, hard-to-miss
@@ -8586,6 +9633,8 @@ async function doEditPatient(patientId, btn) {
   if (epContact && !window.isValidContact(epContact)) { markFieldError('ep-contact'); toast('Please enter a valid 11-digit contact number.', 'error'); return }
   const epAddress = gv('ep-address')
   if (epAddress && !window.looksLikeAddress(epAddress)) { markFieldError('ep-address'); toast('Please enter a complete address.', 'error'); return }
+  const epSrcProblem = _patientSourceProblem('ep')
+  if (epSrcProblem) { toast(epSrcProblem, 'error'); return }
 
   // Optional password change
   const np  = (document.getElementById('ep-newpass')  || {}).value || ''
@@ -9412,7 +10461,8 @@ window.doDeleteContactMessage = doDeleteContactMessage
 // ════════════════════════════════════════════════════════════════
 function confirmRestore(id, name) {
   const safeId   = String(id)
-  const safeName = name.replace(/\\/g,'\\\\').replace(/'/g,"\\'")
+  // A '…' JS string inside a "…" attribute (names can hold quotes).
+  const safeName = esc(name.replace(/\\/g,'\\\\').replace(/'/g,"\\'"))
   showModal(`
     <div class="modal-header">
       <div class="modal-title" style="display:flex;align-items:center;gap:10px">
@@ -9424,7 +10474,7 @@ function confirmRestore(id, name) {
       <button class="modal-close" onclick="window.closeModal()">&times;</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:.88rem;color:#374151">Are you sure you want to restore <strong>${name}</strong> back to the active list?</p>
+      <p style="font-size:.88rem;color:#374151">Are you sure you want to restore <strong>${esc(name)}</strong> back to the active list?</p>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
@@ -9442,7 +10492,7 @@ async function doRestore(id, name) {
   const btn = document.getElementById('restore-confirm-btn')
   if (_btnBusy(btn, 'danger', 'Restoring…')) return
 
-  if (rec.type === 'Account' || rec.type === 'Patient' || rec.type === 'Service' || rec.type === 'Examination') {
+  if (['Account', 'Patient', 'Service', 'Examination', 'Previous Record'].includes(rec.type)) {
     try {
       const r = await fetch('api/archive/restore.php', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -9483,7 +10533,7 @@ function confirmPermDelete(id, name) {
     </div>
     <div class="modal-body">
       <div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:12px;font-size:.85rem;margin-bottom:16px">
-        This action cannot be undone. The record <strong>${name}</strong> will be permanently removed from the system.
+        This action cannot be undone. The record <strong>${esc(name)}</strong> will be permanently removed from the system.
       </div>
       <div class="form-group" style="margin:0">
         <label class="form-label">Type <strong>DELETE</strong> to confirm</label>
@@ -9496,7 +10546,7 @@ function confirmPermDelete(id, name) {
       <button id="perm-delete-btn"
               style="background:#DC2626;color:white;border:none;border-radius:8px;padding:9px 20px;font-family:'Poppins',sans-serif;font-size:.85rem;font-weight:600;cursor:pointer;opacity:.45;pointer-events:none;display:inline-flex;align-items:center;gap:6px"
               disabled
-              onclick="window.doPermDelete('${id}','${name.replace(/'/g,"\\'")}')" >
+              onclick="window.doPermDelete('${id}','${esc(name.replace(/\\/g,'\\\\').replace(/'/g,"\\'"))}')" >
         ${icon('trash','icon-sm')} Delete Forever
       </button>
     </div>`)
@@ -9531,58 +10581,149 @@ window.doPermDelete      = doPermDelete
 
 // ════════════════════════════════════════════════════════════════
 //  SYSTEM BACKUP & RESTORE (Settings > Backup & Restore, admin only)
-//  Backend does all the real work (api/backup/*.php) — this is just the
-//  download trigger, the upload+review+confirm flow, and the final
-//  forced-logout handoff once a restore actually completes.
+//  Backend does all the real work (api/backup/*.php) — this is the
+//  download (with progress), the restore flow (upload in pieces with
+//  progress → check → confirm), and the final forced-logout handoff
+//  once a restore actually completes.
 // ════════════════════════════════════════════════════════════════
 function _bkFormatSize(bytes) {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+}
+function _bkWhen(d) {
+  return d.toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+}
+// "today", "yesterday", "12 days ago"
+function _bkAgo(d) {
+  const days = Math.round((new Date(localDateStr()) - new Date(localDateStr(d))) / 86400000)
+  return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
 }
 
-// Swaps the restore dropzone from its idle state to "file chosen" and
-// enables the review button — shared by both the click-to-browse input
-// and drag & drop, so either path leaves the UI in the same state.
-function _bkShowChosenFile(file) {
-  const idle   = document.getElementById('bk-restore-idle')
-  const chosen = document.getElementById('bk-restore-chosen')
-  if (idle)   idle.style.display   = 'none'
-  if (chosen) chosen.style.display = 'flex'
-  const nameEl = document.getElementById('bk-restore-filename')
-  const sizeEl = document.getElementById('bk-restore-filesize')
-  if (nameEl) nameEl.textContent = file.name
-  if (sizeEl) sizeEl.textContent = _bkFormatSize(file.size)
+// "Last backup" / "Last restored" lines and the video's size, from
+// api/backup/status.php (the Activity Log entries export/import write).
+async function loadBackupStatus() {
+  let d = null
+  try { d = await (await fetch('api/backup/status.php')).json() } catch (_) {}
+  if (!d?.success) return
+  const lb = document.getElementById('bk-last-backup')
+  if (lb) {
+    const b = d.lastBackup
+    const at = b ? new Date(b.at.replace(' ', 'T')) : null
+    const days = at ? Math.round((new Date(localDateStr()) - new Date(localDateStr(at))) / 86400000) : 0
+    // A month without one is worth a nudge, not an alarm.
+    lb.className = 'bk-last ' + (!b || days >= 30 ? 'is-stale' : 'is-good')
+    lb.innerHTML = !b
+      ? `${icon('clock', 'icon-sm')}<span>No backup has been downloaded yet. Keep a recent copy somewhere safe, away from this computer.</span>`
+      : `${icon(days >= 30 ? 'clock' : 'check-circle', 'icon-sm')}<span>Last backup <b>${_bkWhen(at)}</b> (${_bkAgo(at)})${b.by ? ` by ${esc(b.by)}` : ''}</span>`
+  }
+  const lr = document.getElementById('bk-last-restore')
+  if (lr) {
+    const r = d.lastRestore
+    lr.innerHTML = r ? `${icon('rotate-ccw', 'icon-sm')}<span>Last restored <b>${_bkWhen(new Date(r.at.replace(' ', 'T')))}</b>${r.by ? ` by ${esc(r.by)}` : ''}</span>` : ''
+  }
+  const vs = document.getElementById('bk-video-size')
+  if (vs && d.videoBytes) vs.textContent = `Adds about ${_bkFormatSize(d.videoBytes)}, so leave it off unless you need it. It can always be re-uploaded from Clinic Information.`
+}
+window.loadBackupStatus = loadBackupStatus
+
+// ── Restore: state of the file being restored ─────────────────────
+// file: the chosen File; uploadId: its finished upload on the server
+// (api/backup/upload.php), reused by the check and the restore so it's
+// only sent once; manifest/warnings: what the check found.
+let _bk = { file: null, uploadId: null, manifest: null, warnings: [], busy: false, cancelled: false }
+
+function _bkSetStep(n) {
+  document.querySelectorAll('#bk-steps li').forEach((li, i) => {
+    li.classList.toggle('is-done', i + 1 < n)
+    li.classList.toggle('is-active', i + 1 === n)
+  })
+}
+// The chosen-file card: meta text (tone '', 'ok' or 'err') and, while
+// uploading/checking, a progress bar (frac null = working, no %).
+function _bkFileState(meta, tone = '', frac) {
+  const m = document.getElementById('bk-restore-filesize')
+  if (m) { m.textContent = meta; m.className = 'bk-file-meta' + (tone ? ' is-' + tone : '') }
+  document.getElementById('bk-restore-chosen')?.classList.toggle('is-ready', tone === 'ok')
+  const bar = document.getElementById('bk-restore-bar')
+  if (bar) {
+    bar.hidden = frac === undefined
+    bar.classList.toggle('is-indeterminate', frac === null)
+    bar.firstElementChild.style.transform = frac ? `scaleX(${frac})` : ''
+  }
+}
+function _bkReviewBtn(label, disabled) {
   const btn = document.getElementById('bk-restore-review-btn')
-  if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = '' }
+  if (!btn) return
+  btn.disabled = disabled
+  btn.innerHTML = `${icon(label === 'Review Again' ? 'rotate-ccw' : 'upload', 'icon-sm')} ${label}`
 }
 
+// Drops the upload on the server (another file chosen, removed, expired).
+function _bkDiscardUpload() {
+  if (_bk.uploadId) {
+    const fd = new FormData()
+    fd.append('action', 'discard')
+    fd.append('uploadId', _bk.uploadId)
+    fetch('api/backup/upload.php', { method: 'POST', body: fd }).catch(() => {})
+  }
+  _bk.uploadId = null
+  _bk.manifest = null
+}
+
+// Click-to-browse and drag & drop both end here.
+function _bkPickFile(file) {
+  if (!file || _bk.busy) return
+  if (!/\.zip$/i.test(file.name)) { toast('Please choose a .zip backup file.', 'error'); return }
+  if (uploadTooBig(file, UPLOAD_LIMITS.backup, 'That backup file')) return
+  _bkDiscardUpload()
+  _bk.file = file
+  document.getElementById('bk-restore-dropzone').hidden = true
+  document.getElementById('bk-restore-chosen').hidden = false
+  document.getElementById('bk-restore-filename').textContent = file.name
+  _bkFileState(`${_bkFormatSize(file.size)} · Ready to upload and check`)
+  _bkReviewBtn('Upload & Review', false)
+  _bkSetStep(2)
+}
 function _bkFileChosen(input) {
   const file = input.files?.[0]
-  if (file) _bkShowChosenFile(file)
+  input.value = ''   // choosing the same file again still fires change
+  _bkPickFile(file)
 }
 window._bkFileChosen = _bkFileChosen
-
-// Drag & drop onto the zone — the real <input> has no files of its own
-// yet, so it's synced via DataTransfer first (keeps inspectBackupFile()'s
-// existing document.getElementById('bk-restore-file').files[0] read
-// working unchanged regardless of which path the file came in through).
-function _bkFileDropped(file) {
-  if (!file) return
-  if (!/\.zip$/i.test(file.name)) { toast('Please choose a .zip backup file.', 'error'); return }
-  const input = document.getElementById('bk-restore-file')
-  if (input && typeof DataTransfer !== 'undefined') {
-    const dt = new DataTransfer()
-    dt.items.add(file)
-    input.files = dt.files
-  }
-  _bkShowChosenFile(file)
-}
+function _bkFileDropped(file) { _bkPickFile(file) }
 window._bkFileDropped = _bkFileDropped
+
+// The card's ×: cancels an upload in progress, else clears the file.
+function _bkClearFile() {
+  if (_bk.busy) { _bk.cancelled = true; return }
+  _bkDiscardUpload()
+  _bk.file = null
+  document.getElementById('bk-restore-chosen').hidden = true
+  document.getElementById('bk-restore-dropzone').hidden = false
+  _bkReviewBtn('Upload & Review', true)
+  _bkSetStep(1)
+}
+window._bkClearFile = _bkClearFile
 
 async function downloadSystemBackup(btn) {
   const includeVideo = document.getElementById('bk-include-video')?.checked
-  if (_btnBusy(btn, 'primary', 'Building backup…')) return
+  if (_btnBusy(btn, 'primary', 'Preparing backup…')) return
+  const prog  = document.getElementById('bk-download-prog')
+  const bar   = document.getElementById('bk-download-bar')
+  const label = document.getElementById('bk-download-label')
+  const pct   = document.getElementById('bk-download-pct')
+  // frac null = the server is still building the zip (no % yet).
+  const show = (text, frac) => {
+    if (!prog) return
+    prog.hidden = false
+    label.textContent = text
+    pct.textContent = frac == null ? '' : Math.round(frac * 100) + '%'
+    bar.parentElement.classList.toggle('is-indeterminate', frac == null)
+    bar.style.transform = frac == null ? '' : `scaleX(${frac})`
+  }
+  show('Gathering records and files on the server…', null)
   try {
     const r = await fetch('api/backup/export.php' + (includeVideo ? '?video=1' : ''))
     const ct = r.headers.get('content-type') || ''
@@ -9591,111 +10732,210 @@ async function downloadSystemBackup(btn) {
     // including a rate-limit or auth failure, comes back as the normal
     // { success:false, message } JSON body every other endpoint uses.
     // Content-Type is how the two are told apart here.
-    if (ct.includes('zip')) {
-      const blob = await r.blob()
-      const cd = r.headers.get('content-disposition') || ''
-      const m = /filename="([^"]+)"/.exec(cd)
-      const filename = m ? m[1] : `CanaOpticalClinic-Backup-${localDateStr()}.zip`
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      toast('Backup downloaded.', 'success')
-    } else {
-      const d = await r.json()
-      toast(d.message || 'Could not build the backup.', 'error')
+    if (!ct.includes('zip')) {
+      const d = await r.json().catch(() => ({}))
+      toast(r.status === 429 ? 'Only 5 backups can be downloaded per hour. Please try again later.' : (d.message || 'Could not build the backup.'), 'error')
+      return
     }
+    // Read it piece by piece for a real progress bar.
+    const total = +(r.headers.get('content-length') || 0)
+    let blob
+    if (r.body?.getReader) {
+      const reader = r.body.getReader()
+      const parts = []
+      let got = 0, shown = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        parts.push(value)
+        got += value.length
+        if (Date.now() - shown > 120) {
+          shown = Date.now()
+          show(total ? `Downloading ${_bkFormatSize(got)} of ${_bkFormatSize(total)}` : `Downloading ${_bkFormatSize(got)}`, total ? got / total : null)
+        }
+      }
+      blob = new Blob(parts, { type: 'application/zip' })
+    } else {
+      blob = await r.blob()
+    }
+    const m = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '')
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = m ? m[1] : `CanaOpticalClinic-Backup-${localDateStr()}.zip`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    const recs = +(r.headers.get('x-backup-records') || 0), files = +(r.headers.get('x-backup-files') || 0)
+    toast(`Backup downloaded${recs ? `: ${recs.toLocaleString()} records and ${files.toLocaleString()} file${files === 1 ? '' : 's'}` : ''}. Keep it somewhere safe.`, 'success', 4500)
+    loadBackupStatus()
   } catch (_) {
     toast('Network error. Could not download the backup.', 'error')
   } finally {
     _btnIdle(btn)
+    if (prog) prog.hidden = true
   }
 }
 window.downloadSystemBackup = downloadSystemBackup
 
-// Step 1 of Restore — read-only. Uploads the chosen file to inspect.php,
-// which validates it's actually a backup of this app (manifest present,
-// checksums intact) and returns a summary, WITHOUT touching the
-// database. Nothing is changed by this step alone.
-async function inspectBackupFile(btn) {
-  const fileInput = document.getElementById('bk-restore-file')
-  const file = fileInput?.files?.[0]
-  if (!file) { toast('Choose a backup .zip file first.', 'error'); return }
-  if (_btnBusy(btn, 'danger', 'Checking…')) return
-  try {
+// One request to upload.php. Rejects (= try again) on a network error, a
+// timeout or a 5xx; otherwise resolves with the server's answer.
+function _bkPost(fields, piece, onLoaded) {
+  return new Promise((resolve, reject) => {
     const fd = new FormData()
-    fd.append('backup', file)
-    const r = await fetch('api/backup/inspect.php', { method: 'POST', body: fd })
-    const d = await r.json()
-    if (!d.success) { toast(d.message || 'Could not read that backup file.', 'error'); return }
-    _openRestoreConfirmModal(file, d.manifest, d.warnings || [])
-  } catch (_) {
-    toast('Network error. Could not check the backup file.', 'error')
-  } finally {
+    Object.entries(fields).forEach(([k, v]) => fd.append(k, v))
+    if (piece) fd.append('chunk', piece, 'piece')
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', 'api/backup/upload.php')
+    xhr.timeout = 180000
+    if (piece && onLoaded) xhr.upload.onprogress = ev => { if (ev.lengthComputable) onLoaded(piece.size * ev.loaded / ev.total) }
+    xhr.onload = () => {
+      let d = null
+      try { d = JSON.parse(xhr.responseText) } catch (_) {}
+      if (!d || xhr.status >= 500) reject(Object.assign(new Error('retry'), { userMessage: d?.message }))
+      else resolve(d)
+    }
+    xhr.onerror = xhr.ontimeout = () => reject(new Error('retry'))
+    xhr.send(fd)
+  })
+}
+// Sends the file in the pieces the server asks for. A failed piece is
+// tried 3 times; "expected piece N" (a re-sent piece that had in fact
+// arrived) carries on from N.
+async function _bkUpload(file, onProgress) {
+  const start = await _bkPost({ action: 'start', name: file.name, size: file.size })
+  if (!start.success) throw Object.assign(new Error('refused'), { userMessage: start.message })
+  _bk.uploadId = start.uploadId
+  let index = 0
+  while (index < start.total) {
+    if (_bk.cancelled) throw new Error('cancelled')
+    const from  = index * start.chunkSize
+    const piece = file.slice(from, Math.min(from + start.chunkSize, file.size))
+    let d = null
+    for (let attempt = 1; ; attempt++) {
+      try {
+        d = await _bkPost({ uploadId: _bk.uploadId, index }, piece, loaded => onProgress((from + loaded) / file.size))
+        break
+      } catch (e) {
+        if (_bk.cancelled) throw new Error('cancelled')
+        if (attempt >= 3) throw Object.assign(new Error('network'), { userMessage: e.userMessage })
+        await new Promise(res => setTimeout(res, attempt * 1500))
+      }
+    }
+    if (!d.success) {
+      if (d.code === 'order' && Number.isInteger(d.next)) { index = d.next; continue }
+      throw Object.assign(new Error('refused'), { userMessage: d.message })
+    }
+    index = d.next
+    onProgress(Math.min(1, (from + piece.size) / file.size))
+    if (d.done) return
+  }
+}
+
+// Step 2 of Restore — read-only. Uploads the chosen file (once, in
+// pieces) and has inspect.php check it's actually a backup of this app
+// (manifest present, checksums intact), WITHOUT touching the database.
+// Nothing is changed by this step alone.
+async function inspectBackupFile(btn) {
+  if (!_bk.file) { toast('Choose a backup .zip file first.', 'error'); return }
+  if (_bk.busy) return
+  // Already uploaded and checked (the confirm was closed): just reopen it.
+  if (_bk.uploadId && _bk.manifest) { _openRestoreConfirmModal(); return }
+  const file = _bk.file
+  if (_btnBusy(btn, 'dangerOutline', 'Uploading…')) return
+  _bk.busy = true
+  _bk.cancelled = false
+  const clearBtn = document.getElementById('bk-restore-clear')
+  const clearLabel = text => { if (clearBtn) { clearBtn.title = text; clearBtn.setAttribute('aria-label', text) } }
+  clearLabel('Cancel the upload')
+  _bkFileState(`Uploading… 0% of ${_bkFormatSize(file.size)}`, '', 0)
+  try {
+    await _bkUpload(file, frac => _bkFileState(`Uploading… ${Math.round(frac * 100)}% · ${_bkFormatSize(file.size * frac)} of ${_bkFormatSize(file.size)}`, '', frac))
+    btn.innerHTML = btn.innerHTML.replace('Uploading…', 'Checking…')
+    _bkFileState('Checking the backup…', '', null)
+    const fd = new FormData()
+    fd.append('uploadId', _bk.uploadId)
+    const d = await (await fetch('api/backup/inspect.php', { method: 'POST', body: fd })).json()
+    if (!d.success) throw Object.assign(new Error('refused'), { userMessage: d.message || 'Could not read that backup file.' })
+    _bk.manifest = d.manifest
+    _bk.warnings = d.warnings || []
+    const made = d.manifest.createdAt ? new Date(d.manifest.createdAt) : null
+    _bkFileState(`Checked · Backup from ${made ? _bkWhen(made) : 'an unknown date'} · ${(d.manifest.totalRecords || 0).toLocaleString()} records`, 'ok')
+    _bkSetStep(3)
     _btnIdle(btn)
+    _bkReviewBtn('Review Again', false)
+    _openRestoreConfirmModal()
+  } catch (e) {
+    _btnIdle(btn)
+    _bkDiscardUpload()
+    if (e.message === 'cancelled') {
+      _bkFileState(`${_bkFormatSize(file.size)} · Upload cancelled`)
+    } else {
+      const msg = e.userMessage || 'Network error. Could not upload the backup file.'
+      _bkFileState(msg, 'err')
+      toast(msg, 'error')
+    }
+    _bkReviewBtn('Upload & Review', false)
+  } finally {
+    _bk.busy = false
+    clearLabel('Choose a different file')
   }
 }
 window.inspectBackupFile = inspectBackupFile
 
-// Step 2 — shows what's actually in the file (date, who made it, record/
+// Step 3 — shows what's actually in the file (date, who made it, record/
 // file counts) and requires BOTH typing "RESTORE" and re-entering the
 // admin's own password before the final button even enables — this is
 // the single most destructive action in the app (it replaces the whole
 // database), so it gets more friction than anything else here on
-// purpose. Holds the already-selected File object on window so the
-// final confirm step can resubmit the same file without asking the
-// admin to pick it again.
-function _openRestoreConfirmModal(file, manifest, warnings) {
-  window._pendingRestoreFile = file
-  const dateStr = manifest.createdAt
-    ? new Date(manifest.createdAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
-    : 'Unknown date'
-  const tableCount = Object.keys(manifest.tables || {}).length
+// purpose. The file is already on the server (_bk.uploadId), so the
+// restore itself doesn't send it again.
+function _openRestoreConfirmModal() {
+  const m = _bk.manifest
+  if (!m) return
+  const made = m.createdAt ? new Date(m.createdAt) : null
+  const tableCount = Object.keys(m.tables || {}).length
+  const row = (k, v, sub) => `<dt>${k}</dt><dd>${v}${sub ? `<small>${sub}</small>` : ''}</dd>`
 
   showModal(`
     <div class="modal-header">
-      <div class="modal-title" style="color:#DC2626">Restore System Backup</div>
+      <div class="modal-title bk-mtitle"><span class="bk-ic bk-ic-danger bk-ic-sm">${icon('rotate-ccw', 'icon-sm')}</span>Restore this backup?</div>
       <button class="modal-close" onclick="window.closeModal()">&times;</button>
     </div>
-    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
-      <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:14px 16px;font-size:.85rem;color:#991B1B;line-height:1.65">
-        <strong>This replaces all current data.</strong> Every patient, appointment, account, and
-        setting currently in the system will be overwritten with the contents of this backup, and
-        everyone (including you) will be signed out. A safety copy of the current data is kept on
-        the server for this one operation, but it isn't a substitute for your own backups.
+    <div class="modal-body bk-mbody">
+      <div class="bk-warn">
+        ${icon('alert-triangle', 'icon-sm')}
+        <span><b>Everything in the system now will be replaced</b> by this backup: every patient, appointment, account and setting. Everyone, including you, will be signed out. A safety copy of the current data is saved on the server first, but it isn't a substitute for your own backups.</span>
       </div>
-      <div>
-        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:#9CA3AF;margin-bottom:6px">Backup Details</div>
-        <div style="font-size:.85rem;color:#374151;line-height:1.9">
-          <div>Created: <strong>${esc(dateStr)}</strong></div>
-          <div>By: <strong>${esc(manifest.createdBy?.name || 'Unknown')}</strong> (${esc(manifest.createdBy?.role || '—')})</div>
-          <div>Records: <strong>${manifest.totalRecords ?? '—'}</strong> across ${tableCount} table${tableCount === 1 ? '' : 's'}</div>
-          <div>Files: <strong>${manifest.fileCount ?? 0}</strong></div>
-        </div>
-      </div>
-      ${warnings.length ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:12px 14px;font-size:.8rem;color:#92400E;display:flex;flex-direction:column;gap:4px">
-        ${warnings.map(w => `<div>${icon('alert-triangle', 'icon-sm')} ${esc(w)}</div>`).join('')}
-      </div>` : ''}
+      <dl class="bk-details">
+        ${row('Backup from', made ? esc(_bkWhen(made)) : 'Unknown date', made ? _bkAgo(made) : '')}
+        ${row('Made by', esc(m.createdBy?.name || 'Unknown'))}
+        ${row('Records', (m.totalRecords ?? 0).toLocaleString(), `in ${tableCount} table${tableCount === 1 ? '' : 's'}`)}
+        ${row('Files', (m.fileCount ?? 0).toLocaleString(), m.videosIncluded ? 'incl. the homepage video' : 'photos &amp; documents')}
+        ${row('File', esc(_bk.file?.name || ''), _bk.file ? _bkFormatSize(_bk.file.size) : '')}
+      </dl>
+      ${_bk.warnings.length ? `<div class="bk-cwarn">${_bk.warnings.map(w => `<div>${icon('alert-triangle', 'icon-sm')}<span>${esc(w)}</span></div>`).join('')}</div>` : ''}
       <div class="form-group" style="margin:0">
-        <label class="form-label">Type <strong>RESTORE</strong> to confirm</label>
-        <input class="form-input" id="bk-confirm-phrase" placeholder="RESTORE" autocomplete="off" oninput="window._updateRestoreGate()">
+        <label class="form-label" for="bk-confirm-phrase">Type <strong>RESTORE</strong> to confirm</label>
+        <input class="form-input bk-phrase" id="bk-confirm-phrase" placeholder="RESTORE" autocomplete="off" autocapitalize="characters" spellcheck="false" oninput="window._updateRestoreGate()">
       </div>
       <form onsubmit="return false" autocomplete="off"><input type="text" name="username" autocomplete="username" value="${(window.state?.user?.email || '').replace(/"/g, '&quot;')}" tabindex="-1" aria-hidden="true" style="display:none">
       <div class="form-group" style="margin:0">
-        <label class="form-label">Your Password</label>
-        <input type="password" class="form-input" id="bk-confirm-password" placeholder="Enter your current password" autocomplete="current-password" oninput="window._updateRestoreGate()">
+        <label class="form-label" for="bk-confirm-password">Your Password</label>
+        <input type="password" class="form-input" id="bk-confirm-password" placeholder="Enter your current password" autocomplete="current-password"
+               oninput="window._updateRestoreGate();document.getElementById('bk-pw-err').hidden=true" onkeydown="if(event.key==='Enter'){const b=document.getElementById('bk-restore-confirm-btn');if(b&&!b.disabled)b.click()}">
+        <div class="prc-inline-err" id="bk-pw-err" role="alert" hidden></div>
       </div>
       </form>
     </div>
     <div class="modal-footer">
-      <button class="btn-secondary" onclick="window._pendingRestoreFile=null;window.closeModal()">Cancel</button>
-      <button class="btn-danger" id="bk-restore-confirm-btn" disabled style="opacity:.5;cursor:not-allowed" onclick="window.executeRestore(this)">
-        ${icon('alert-triangle', 'icon-sm')} Restore Now
+      <button class="btn-secondary" id="bk-restore-cancel-btn" onclick="window.closeModal()">Cancel</button>
+      <button class="btn-danger bk-mbtn" id="bk-restore-confirm-btn" disabled onclick="window.executeRestore(this)">
+        ${icon('rotate-ccw', 'icon-sm')} Restore Now
       </button>
     </div>`, 'modal-lg')
+  setTimeout(() => document.getElementById('bk-confirm-phrase')?.focus(), 50)
 }
 
 function _updateRestoreGate() {
@@ -9703,45 +10943,68 @@ function _updateRestoreGate() {
   if (!btn) return
   const phrase = (document.getElementById('bk-confirm-phrase') || {}).value || ''
   const pass   = (document.getElementById('bk-confirm-password') || {}).value || ''
-  const ok = phrase === 'RESTORE' && pass.length > 0
-  btn.disabled     = !ok
-  btn.style.opacity = ok ? '' : '.5'
-  btn.style.cursor  = ok ? '' : 'not-allowed'
+  btn.disabled = !(phrase.trim() === 'RESTORE' && pass.length > 0)
 }
 window._updateRestoreGate = _updateRestoreGate
 
-// Step 3 — the actual restore. On success, every session (including this
-// one) has already been revoked server-side, so this hands off straight
-// to the normal logout flow (logout(), auth.js) rather than trying to
-// keep the current in-memory app state around — none of it can be
-// trusted against data that was just wholesale replaced underneath it.
+// The last step — the actual restore. On success, every session (including
+// this one) has already been revoked server-side, so this hands off
+// straight to the normal logout flow (logout(), auth.js) rather than
+// trying to keep the current in-memory app state around — none of it can
+// be trusted against data that was just wholesale replaced underneath it.
 async function executeRestore(btn) {
-  const file = window._pendingRestoreFile
-  if (!file) { toast('Please choose the backup file again.', 'error'); return }
-  const phrase = (document.getElementById('bk-confirm-phrase') || {}).value || ''
-  const pass   = (document.getElementById('bk-confirm-password') || {}).value || ''
+  if (!_bk.uploadId) { toast('Please choose the backup file again.', 'error'); return }
+  const phrase = ((document.getElementById('bk-confirm-phrase') || {}).value || '').trim()
+  const passEl = document.getElementById('bk-confirm-password')
+  const pass   = passEl?.value || ''
 
   if (_btnBusy(btn, 'danger', 'Restoring…')) return
+  // A restore can't be stopped halfway: keep the dialog open until it ends.
+  const lock = on => document.querySelectorAll('#bk-restore-cancel-btn, .modal-close, #bk-confirm-phrase, #bk-confirm-password').forEach(el => { el.disabled = on })
+  lock(true)
   try {
     const fd = new FormData()
-    fd.append('backup', file)
+    fd.append('uploadId', _bk.uploadId)
     fd.append('confirmPhrase', phrase)
     fd.append('password', pass)
     const r = await fetch('api/backup/import.php', { method: 'POST', body: fd })
     const d = await r.json()
-    if (!d.success) { toast(d.message || 'Restore failed.', 'error'); _btnIdle(btn); return }
+    if (!d.success) {
+      lock(false)
+      _btnIdle(btn)
+      if (d.code === 'expired') {
+        _bk.uploadId = null
+        _bk.manifest = null
+        closeModal()
+        _bkFileState('The upload expired. Upload it again to restore it.', 'err')
+        _bkReviewBtn('Upload & Review', false)
+        _bkSetStep(2)
+      } else if (/password/i.test(d.message || '') && passEl) {
+        passEl.value = ''
+        markFieldError('bk-confirm-password')
+        const err = document.getElementById('bk-pw-err')
+        if (err) { err.textContent = 'That password is incorrect. Please try again.'; err.hidden = false }
+        passEl.focus()
+        _updateRestoreGate()
+      }
+      toast(r.status === 429 ? 'Too many restore attempts in the last hour. Please try again later.' : (d.message || 'Restore failed.'), 'error')
+      return
+    }
 
-    window._pendingRestoreFile = null
+    _bk = { file: null, uploadId: null, manifest: null, warnings: [], busy: false, cancelled: false }
     closeModal()
-    const dateStr = d.summary?.backupDate
-      ? new Date(d.summary.backupDate).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
-      : 'the selected backup'
+    const s = d.summary || {}
+    const when = s.backupDate ? _bkWhen(new Date(s.backupDate)) : ''
+    const msg = `System restored${when ? ` from the backup of ${when}` : ''}: ${(s.records || 0).toLocaleString()} records and ${(s.filesRestored || 0).toLocaleString()} files`
+      + (s.filesFailed ? ` (${s.filesFailed} file${s.filesFailed === 1 ? '' : 's'} couldn't be written)` : '')
+      + '. Everyone was signed out, so please sign in again.'
     if (window.logout) {
-      await window.logout(`System restored from ${dateStr}. Please sign in again.`)
+      await window.logout(msg, { tone: 'success' })
     } else {
       window.location.reload()
     }
   } catch (_) {
+    lock(false)
     toast('Network error during restore. It may have partially completed, so log in again and check Sessions & Sign-in before retrying.', 'error')
     _btnIdle(btn)
   }
@@ -9759,20 +11022,23 @@ function viewArchivedRecord(id) {
     Patient:     { bg: '#DBEAFE', color: '#1D4ED8' },
     Account:     { bg: '#EDE9FE', color: '#5B21B6' },
     Examination: { bg: '#D1FAE5', color: '#065F46' },
-    Service:     { bg: '#FCE7F3', color: '#9D174D' }
+    Service:     { bg: '#FCE7F3', color: '#9D174D' },
+    'Previous Record': { bg: '#FFEDD5', color: '#9A3412' },
   }
   const tc = typeColors[r.type] || { bg: '#F3F4F6', color: '#374151' }
-  const badge = `<span style="background:${tc.bg};color:${tc.color};font-size:.72rem;font-weight:700;padding:3px 12px;border-radius:20px">${window.archiveTypeLabel(r)}</span>`
+  const badge = `<span style="background:${tc.bg};color:${tc.color};font-size:.72rem;font-weight:700;padding:3px 12px;border-radius:20px">${r.type === 'Previous Record' ? 'Previous Clinic Record' : window.archiveTypeLabel(r)}</span>`
 
+  // Values are plain text (names, addresses, notes) — escaped here.
   function row(label, value) {
     if (!value) return ''
     return `<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #F3F4F6">
       <div style="font-size:.78rem;color:#9CA3AF;width:110px;flex-shrink:0">${label}</div>
-      <div style="font-size:.82rem;color:#1F2937;font-weight:500;flex:1">${value}</div>
+      <div style="font-size:.82rem;color:#1F2937;font-weight:500;flex:1;white-space:pre-wrap;overflow-wrap:anywhere">${esc(value)}</div>
     </div>`
   }
 
   let extraRows = ''
+  let extraBlocks = ''
   if (r.data) {
     const d = r.data
     if (r.type === 'Patient') {
@@ -9796,6 +11062,26 @@ function viewArchivedRecord(id) {
       extraRows += row('Date', d.date)
       extraRows += row('Diagnosis', d.diagnosis)
       extraRows += row('Status', d.status)
+    } else if (r.type === 'Previous Record') {
+      extraRows += row('Patient', [d.patientName, d.patientId].filter(Boolean).join(' · '))
+      extraRows += row('Clinic', d.clinicName)
+      extraRows += row('Document Type', window.prevRecTypeLabel(d))
+      extraRows += row('Exam or Issue Date', d.date ? fmtDate(d.date) : '')
+      extraRows += row('Optometrist', d.optometrist)
+      extraRows += row('Diagnosis', d.diagnosis)
+      extraRows += row('Notes', d.notes)
+      extraRows += row('Added By', d.createdBy ? `${d.createdBy}${d.createdAt ? ', ' + fmtDate(d.createdAt.slice(0, 10)) : ''}` : '')
+      const rx = window.prevRecRxTable(d)
+      if (rx) extraBlocks += `<div class="arc-prc-sec"><div class="prc-view-label">Prescription</div>${rx}</div>`
+      if (d.files?.length) extraBlocks += `<div class="arc-prc-sec"><div class="prc-view-label">Documents <span class="prc-count">${d.files.length}</span></div>
+        <div class="prc-files">${d.files.map(f => {
+          const img = window.prevRecIsImage(f)
+          return `<a class="prc-file" href="${window.prevRecFileUrl(f)}" target="_blank" rel="noopener" title="Preview ${esc(f.name)}"
+              onclick="return window.previewArchivedRecordFile(event,'${r.id}',${+f.id})">
+            ${img ? `<img class="prc-file-thumb" src="${window.prevRecFileUrl(f)}" alt="" loading="lazy">` : '<span class="prc-file-pdf">PDF</span>'}
+            <span class="prc-file-info"><span class="prc-file-name">${esc(f.name)}</span><span class="prc-file-size">${img ? 'Image' : 'PDF'} · ${window.prevRecFileSize(f.size)}</span></span>
+            <span class="prc-file-go" aria-hidden="true">${icon('eye', 'icon-sm')}</span>
+          </a>`}).join('')}</div></div>`
     }
   }
 
@@ -9817,15 +11103,15 @@ function viewArchivedRecord(id) {
           const col = isPerson ? '#fff' : tc.color
           return `<div style="width:44px;height:44px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;color:${col};font-weight:700;font-size:.9rem">
             ${r.data?.photoUrl
-              ? `<img src="${r.data.photoUrl}" alt="${r.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="${window.avatarFallbackAttr(r.name)}">`
-              : isPerson ? initials(r.name) : icon('archive','icon-sm')}
+              ? `<img src="${r.data.photoUrl}" alt="${esc(r.name)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="${window.avatarFallbackAttr(r.name)}">`
+              : isPerson ? initials(r.name) : icon(r.type === 'Previous Record' ? 'folder' : 'archive', 'icon-sm')}
           </div>`
         })()}
-        <div>
-          <div style="font-size:.95rem;font-weight:700;color:#1C1C1C">${r.name}</div>
+        <div style="min-width:0">
+          <div style="font-size:.95rem;font-weight:700;color:#1C1C1C;overflow-wrap:anywhere">${esc(r.name)}</div>
           <div style="margin-top:4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             ${badge}
-            <span style="font-size:.75rem;color:#9CA3AF">${r.refId}</span>
+            <span style="font-size:.75rem;color:#9CA3AF">${esc(r.type === 'Previous Record' ? (r.data?.patientId || '') : r.refId)}</span>
           </div>
         </div>
       </div>
@@ -9833,11 +11119,12 @@ function viewArchivedRecord(id) {
       ${row('Date Archived', r.date)}
       ${row('Reason', r.reason)}
       ${extraRows}
+      ${extraBlocks}
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="window.closeModal()">Close</button>
       <button style="background:#10B981;color:white;border:none;border-radius:8px;padding:9px 20px;font-family:'Poppins',sans-serif;font-size:.85rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'"
-              onclick="window.confirmRestore('${r.id}','${r.name.replace(/'/g, "\\'")}')">
+              onclick="window.confirmRestore('${r.id}','${esc(r.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'"))}')">
         ${icon('rotate-ccw','icon-sm')} Restore
       </button>
     </div>`)
@@ -10148,7 +11435,7 @@ async function loadActiveSessionsPage() {
     const d = await r.json()
     if (!d.success) { wrap.innerHTML = `<div class="card" style="padding:40px 24px;text-align:center;color:#9CA3AF;font-size:.85rem">Could not load your devices.</div>`; return }
     const sessions = d.sessions || []
-    if (!sessions.length) { wrap.innerHTML = `<div class="card" style="padding:40px 24px;text-align:center;color:#9CA3AF;font-size:.85rem">No devices found.</div>`; return }
+    if (!sessions.length) { wrap.innerHTML = `<div class="card">${emptyState('monitor', 'No signed-in devices', 'Browsers and phones signed in to your account will be listed here.')}</div>`; return }
 
     // Group by OS + device type together, preserving first-seen order —
     // sessions already arrive newest-first from listSessions()
@@ -10626,12 +11913,24 @@ window.showPatientQRModal = showPatientQRModal
 //  PATIENT VIEW TAB SWITCHING
 // ════════════════════════════════════════════════════════════════
 function switchPatientTab(tab) {
+  // Remembered so a re-render (e.g. after saving a previous clinic record)
+  // comes back to the same tab instead of Personal Info.
+  if (state.page === 'patient-view' && state.params) state.params.tab = tab
   document.querySelectorAll('.ptab-panel').forEach(p => p.style.display = 'none')
   document.querySelectorAll('.ptab-btn').forEach(b => b.classList.remove('active'))
   const panel = document.getElementById('ptab-' + tab)
   const btn   = document.querySelector(`.ptab-btn[data-tab="${tab}"]`)
   if (panel) panel.style.display = ''
-  if (btn)   btn.classList.add('active')
+  if (btn) {
+    btn.classList.add('active')
+    // On a phone the tab bar scrolls sideways; bring the active tab into
+    // view (horizontally only, so the page itself doesn't jump).
+    const bar = btn.parentElement
+    if (bar && bar.scrollWidth > bar.clientWidth) {
+      const left = btn.getBoundingClientRect().left - bar.getBoundingClientRect().left + bar.scrollLeft
+      bar.scrollLeft = left - (bar.clientWidth - btn.offsetWidth) / 2
+    }
+  }
 }
 window.switchPatientTab = switchPatientTab
 
@@ -11288,6 +12587,13 @@ function examWizRender(next, dir) {
     // Connector line color
     var line = document.getElementById('wiz-line-' + i)
     if (line) line.style.background = i < next ? '#E8760A' : '#e5e7eb'
+  }
+  // When the stepper is scrolling (phone width), centre the current step
+  // so it and its neighbours stay in view instead of drifting off-edge.
+  var stepper = document.getElementById('wiz-stepper')
+  var curWrap = document.getElementById('wiz-pill-' + next)?.parentElement
+  if (stepper && curWrap && stepper.scrollWidth > stepper.clientWidth) {
+    stepper.scrollTo({ left: curWrap.offsetLeft + curWrap.offsetWidth / 2 - stepper.clientWidth / 2, behavior: dir === null ? 'auto' : 'smooth' })
   }
 
   // Update step label
@@ -13192,6 +14498,279 @@ function downloadRxRecordPDF(patientId, rxId, btnEl) {
 window.downloadRxRecordPDF = downloadRxRecordPDF
 
 // ════════════════════════════════════════════════════════════════
+//  MEDICAL RECORD — the patient's whole record as one A4 document:
+//  patient details, medical history, a clinical summary, refraction
+//  history, every visit's consultation + examination + prescription, and
+//  records from previous clinics. Same letterhead and print/PDF pipeline
+//  as the exam and prescription documents above; built from the same
+//  helpers as the Medical Record tab (pages.js medicalRecord*).
+// ════════════════════════════════════════════════════════════════
+function _buildMedicalRecordHtml(p) {
+  const longDate = d => d ? new Date(String(d).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }) : ''
+  const shortDate = d => d ? new Date(String(d).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : ''
+  const x = v => (v == null || v === '' ? '' : esc(String(v)))
+  const dash = '<span class="muted">—</span>'
+  const rxLine = e => window.prevRecRxLine({ ...(e || {}), add: '' })
+  const visits = window.medicalRecordVisits(p)
+  const examVisits = visits.filter(v => v.exam)
+  const rows = window.medicalRecordRefraction(p, visits)
+  const trend = window.medicalRecordTrend(rows)
+  const { appt, fu } = window.medicalRecordNext(p)
+  const prev = p.previousRecords || []
+  const rx = visits.find(v => v.rx)?.rx || null
+  const latestExam = examVisits[0]?.exam || null
+  const src = (window.PATIENT_SOURCE_META || {})[p.source]
+  const generated = new Date().toLocaleString('en-PH', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const logoAbsUrl = new URL(window._clinicLogoUrl || 'assets/images/logo/clinic-logo.png', document.baseURI).href
+  const clinicName = window._clinicName || clinicInfo.name || 'Cana Optical Clinic'
+  const clinicLine = [window._clinicAddress || clinicInfo.address, clinicInfo.phone, clinicInfo.email].filter(Boolean).map(x).join(' · ')
+  const preparedByLabel = { admin: 'Administrator', staff: 'Staff', doctor: 'Doctor' }[state.role] || state.role || ''
+  const kv = (label, value) => value ? `<tr><td class="k">${label}</td><td>${value}</td></tr>` : ''
+  const eyeRow = (label, od, os) => (od || os) ? `<tr><td class="k">${label}</td><td class="od">${od ? x(od) : dash}</td><td class="os">${os ? x(os) : dash}</td></tr>` : ''
+  const eyeTable = body => body.trim() ? `<table class="eye"><thead><tr><th></th><th class="od">OD (Right)</th><th class="os">OS (Left)</th></tr></thead><tbody>${body}</tbody></table>` : ''
+  const validity = r => `${window.rxIsValid(r) ? 'Valid until' : 'Expired'} ${longDate(window.rxExpiryDay(r))}`
+
+  // Pages fill like any document: a visit flows onto the next page instead
+  // of jumping there whole (which left half-empty pages). Only small parts
+  // are kept whole (.keep): the visit's header together with its first
+  // section, then each section on its own. `lead` (the "Visit History"
+  // heading, first visit only) rides with the first part, so a heading is
+  // never left alone at the bottom of a page.
+  const visitBlock = (v, i, lead = '') => {
+    const e = v.exam, c = v.con, r = v.rx
+    const { plain: tests, ishihara } = _splitIshihara(e?.testResults)
+    const ids = [c && `Consultation ${c.id}`, e && `Exam ${e.id}`, r && `Prescription ${r.id}`].filter(Boolean).map(x).join(' · ')
+    const parts = []
+    if (c && [c.chiefComplaint, c.historyPresentIllness, c.assessment, c.recommendation, c.followUpDate].some(Boolean)) parts.push(`
+      <div class="v-sub">Consultation</div>
+      <table class="kv">
+        ${kv('Chief complaint', x(c.chiefComplaint))}
+        ${kv('History', x(c.historyPresentIllness))}
+        ${kv("Doctor's assessment", x(c.assessment))}
+        ${kv('Plan', x(c.recommendation))}
+        ${kv('Follow-up', c.followUpDate ? longDate(c.followUpDate) + (c.followUpTime ? ', ' + x(c.followUpTime) : '') : '')}
+      </table>`)
+    if (e) parts.push(`
+      <div class="v-sub">Examination</div>
+      ${eyeTable(eyeRow('Visual acuity, unaided', e.od?.vaUncorrected, e.os?.vaUncorrected) + eyeRow('Visual acuity, corrected', e.od?.va, e.os?.va) + eyeRow('Refraction', rxLine(e.od), rxLine(e.os)) + eyeRow('ADD', e.od?.add, e.os?.add) + eyeRow('IOP (mmHg)', e.iop?.od, e.iop?.os))}
+      <table class="kv">
+        ${kv('Diagnosis', e.diagnosis ? `<b>${x(e.diagnosis)}</b>` : '')}
+        ${kv('PD', e.pd ? x(e.pd) + ' mm' : '')}
+        ${kv('Findings', x(e.externalFindings))}
+        ${kv('Color vision', ishihara ? 'Ishihara: ' + x(ishihara) : '')}
+        ${kv('Test results', x(tests))}
+        ${kv('Remarks', x(e.remarks))}
+      </table>
+      ${r ? '' : '<div class="note">No prescription was issued at this visit.</div>'}`)
+    if (r) parts.push(`
+      <div class="v-sub">Prescription</div>
+      ${eyeTable(eyeRow('Rx', rxLine(r.od), rxLine(r.os)) + eyeRow('ADD', r.od?.add, r.os?.add))}
+      <table class="kv">
+        ${kv('Lens', x([r.lensType, r.lensMaterial].filter(Boolean).join(', ')))}
+        ${kv('Coating', x((r.lensCoating || []).join(', ')))}
+        ${kv('Frame', x(r.frameSelection))}
+        ${kv('Validity', validity(r))}
+        ${kv('Dispensed', r.dispensedDate ? longDate(r.dispensedDate) + (r.receivedBy ? ' to ' + x(r.receivedBy) : '') : '')}
+      </table>`)
+    const head = `
+      <div class="v-head">${longDate(v.date)} · ${x(v.type)}</div>
+      <div class="v-meta">${[x(v.doctor), ids].filter(Boolean).join(' · ')}</div>`
+    return `
+    <div class="visit${i === 0 ? ' is-first' : ''}">
+      ${(parts.length ? parts : ['']).map((part, j) => `<div class="keep">${j === 0 ? lead + head : ''}${part}</div>`).join('')}
+    </div>`
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Medical Record: ${x(p.name)}</title>
+  <style>
+    @page { size: A4; margin: 16mm 20mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 12px; line-height: 1.5; background: #fff; }
+    table { width: 100%; border-collapse: collapse; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    .hdr { display: flex; align-items: center; gap: 14px; border-bottom: 3px solid #E8760A; padding-bottom: 12px; margin-bottom: 14px; }
+    .logo { height: 58px; flex-shrink: 0; }
+    .c-name { font-size: 22px; font-weight: 900; color: #E8760A; letter-spacing: -.02em; line-height: 1.15; }
+    .c-doc { font-size: 15px; font-weight: 700; color: #1C1C1C; }
+    .c-line { font-size: 9.5px; color: #777; margin-top: 2px; }
+    .printed { margin-left: auto; text-align: right; font-size: 9.5px; color: #999; line-height: 1.5; flex-shrink: 0; }
+    /* Kept whole on one page: a section heading with its content, a visit's
+       header with its first section, each visit section. Everything else
+       flows, so pages fill instead of leaving big gaps. */
+    .keep { break-inside: avoid; page-break-inside: avoid; }
+    h2 { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: #C4620A; margin: 16px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #F0E3D6; break-after: avoid; page-break-after: avoid; }
+    .pt td { padding: 5px 8px; font-size: 11.5px; vertical-align: top; border-bottom: 1px solid #f2f2f2; }
+    .pt td.k, .sum td.k { width: 17%; font-size: 9.5px; color: #888; text-transform: uppercase; letter-spacing: .04em; }
+    .hx { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 6px; padding: 9px 12px; white-space: pre-wrap; font-size: 11.5px; color: #3F2D00; }
+    .muted { color: #aaa; font-style: italic; }
+    .sum td { padding: 6px 8px; font-size: 11.5px; vertical-align: top; border-bottom: 1px solid #f2f2f2; }
+    .ok { color: #047857; font-weight: 700; } .off { color: #B91C1C; font-weight: 700; }
+    .grid th { background: #F7F4F0; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: #666; padding: 6px 7px; text-align: left; border-bottom: 1px solid #E8E1D8; }
+    .grid td { padding: 5px 7px; font-size: 10.5px; border-bottom: 1px solid #F0ECE6; vertical-align: top; }
+    .od { color: #047857; } .os { color: #B45309; }
+    th.od, th.os { color: inherit; }
+    .grid th.od { color: #047857; } .grid th.os { color: #B45309; }
+    .trend { font-size: 10.5px; color: #555; margin-bottom: 6px; }
+    /* No box around a visit (a box split by a page break looks broken):
+       each visit opens with a tinted header strip instead. */
+    .visit { margin-top: 14px; }
+    .visit.is-first { margin-top: 0; }
+    .v-head { padding: 5px 9px; background: #FAF6F1; border-left: 3px solid #E8760A; font-size: 12.5px; font-weight: 800; color: #111; }
+    .v-meta { margin: 3px 0 0 12px; font-size: 10px; color: #888; }
+    .v-sub { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: #C4620A; margin: 8px 0 3px; }
+    .kv td { padding: 2px 0; font-size: 11px; vertical-align: top; }
+    .kv td.k { width: 24%; color: #888; padding-right: 8px; }
+    .eye { margin-bottom: 3px; }
+    .eye th { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; padding: 3px 6px; text-align: left; border-bottom: 1px solid #eee; }
+    .eye th.od { color: #047857; } .eye th.os { color: #B45309; }
+    .eye td { padding: 3px 6px; font-size: 11px; border-bottom: 1px solid #f5f5f5; }
+    .eye td.k { width: 34%; color: #888; padding-left: 0; }
+    .note { font-size: 10.5px; color: #999; font-style: italic; margin-top: 4px; }
+    .foot { margin-top: 16px; padding-top: 8px; border-top: 1px dashed #ccc; font-size: 9px; color: #999; display: flex; justify-content: space-between; gap: 12px; }
+  </style>
+</head>
+<body>
+  <div class="hdr">
+    <img src="${logoAbsUrl}" alt="" class="logo" onerror="this.style.display='none'">
+    <div>
+      <div class="c-name">${x(clinicName)}</div>
+      <div class="c-doc">Patient Medical Record</div>
+      ${clinicLine ? `<div class="c-line">${clinicLine}</div>` : ''}
+    </div>
+    <div class="printed">Printed<br>${x(generated)}</div>
+  </div>
+
+  <div class="keep">
+  <h2>Patient Information</h2>
+  <table class="pt">
+    <tr><td class="k">Name</td><td><b>${x(p.name)}</b></td><td class="k">Patient ID</td><td>${x(p.id)}</td></tr>
+    <tr><td class="k">Date of birth</td><td>${p.dob ? longDate(p.dob) + (p.age || p.age === 0 ? ` (${x(p.age)} yrs)` : '') : dash}</td><td class="k">Gender</td><td>${x(p.gender) || dash}</td></tr>
+    <tr><td class="k">Contact</td><td>${x(p.contact) || dash}</td><td class="k">Email</td><td>${x(p.email) || dash}</td></tr>
+    <tr><td class="k">Address</td><td colspan="3">${x(p.address) || dash}</td></tr>
+    <tr><td class="k">Occupation</td><td>${x(p.occupation) || dash}</td><td class="k">Registration</td><td>${src ? x(src.label) + (p.sourceNote ? ` (${p.source === 'referral' ? 'referred by ' : 'from '}${x(p.sourceNote)})` : '') : dash}</td></tr>
+    <tr><td class="k">Patient since</td><td>${examVisits.length ? longDate(examVisits[examVisits.length - 1].date) : dash}</td><td class="k">Visits</td><td>${examVisits.length} examination${examVisits.length === 1 ? '' : 's'}${prev.length ? ` · ${prev.length} record${prev.length === 1 ? '' : 's'} from other clinics` : ''}</td></tr>
+  </table>
+  </div>
+
+  <div class="keep">
+  <h2>Medical History</h2>
+  ${p.medicalHistory ? `<div class="hx">${x(p.medicalHistory)}</div>` : '<div class="muted">No medical history on file.</div>'}
+  </div>
+
+  <div class="keep">
+  <h2>Clinical Summary</h2>
+  <table class="sum">
+    <tr><td class="k">Current Rx</td><td>${rx
+      ? `<span class="od">OD ${x(rxLine(rx.od) || '—')}${rx.od?.add ? ', ADD ' + x(rx.od.add) : ''}</span> &nbsp; <span class="os">OS ${x(rxLine(rx.os) || '—')}${rx.os?.add ? ', ADD ' + x(rx.os.add) : ''}</span><br><span class="${window.rxIsValid(rx) ? 'ok' : 'off'}">${validity(rx)}</span> · ${x(rx.id)}`
+      : '<span class="muted">No prescription issued yet</span>'}</td></tr>
+    <tr><td class="k">Latest diagnosis</td><td>${latestExam ? `${latestExam.diagnosis ? `<b>${x(latestExam.diagnosis)}</b>` : '<span class="muted">No diagnosis recorded</span>'} · ${shortDate(latestExam.date)}, ${x(latestExam.doctor)}` : '<span class="muted">No examination yet</span>'}</td></tr>
+    <tr><td class="k">Next step</td><td>${appt ? `Appointment ${longDate(appt.date)}, ${x(appt.time)} · ${x(appt.type || '')} (${appt.status === 'approved' ? 'approved' : 'pending'})`
+      : fu ? `Follow-up advised for ${longDate(fu.followUpDate)}${fu.followUpTime ? ', ' + x(fu.followUpTime) : ''} (not booked yet)` : '<span class="muted">Nothing scheduled</span>'}</td></tr>
+  </table>
+  </div>
+
+  ${rows.length ? `
+  <div class="keep">
+  <h2>Refraction History</h2>
+  ${trend.length ? `<div class="trend">${window.medicalRecordTrendText(trend, longDate)}</div>` : ''}
+  <table class="grid">
+    <thead><tr><th>Date</th><th>From</th><th class="od">OD (Right)</th><th class="os">OS (Left)</th><th>VA OD / OS</th><th>IOP OD / OS</th></tr></thead>
+    <tbody>${rows.map(r => `
+      <tr>
+        <td>${r.date ? shortDate(r.date) : '<span class="muted">No date</span>'}</td>
+        <td>${x(r.who)}${r.previous ? '<br><span class="muted">previous clinic</span>' : ''}</td>
+        <td class="od">${x(rxLine(r.od)) || dash}${r.od.add ? '<br>ADD ' + x(r.od.add) : ''}</td>
+        <td class="os">${x(rxLine(r.os)) || dash}${r.os.add ? '<br>ADD ' + x(r.os.add) : ''}</td>
+        <td>${r.od.va || r.os.va ? `${x(r.od.va || '—')} / ${x(r.os.va || '—')}` : dash}</td>
+        <td>${r.iop.od || r.iop.os ? `${x(r.iop.od || '—')} / ${x(r.iop.os || '—')}` : dash}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+  </div>` : ''}
+
+  ${visits.length
+    ? visits.map((v, i) => visitBlock(v, i, i === 0 ? `<h2>Visit History (${visits.length})</h2>` : '')).join('')
+    : '<div class="keep"><h2>Visit History</h2><div class="muted">No visits recorded at the clinic yet.</div></div>'}
+
+  ${prev.length ? `
+  <div class="keep">
+  <h2>Records from Other Clinics</h2>
+  <table class="grid">
+    <thead><tr><th>Date</th><th>Clinic</th><th>Type</th><th class="od">OD</th><th class="os">OS</th><th>Files</th></tr></thead>
+    <tbody>${prev.map(r => `
+      <tr>
+        <td>${r.date ? shortDate(r.date) : '<span class="muted">No date</span>'}</td>
+        <td>${x(r.clinicName)}${r.optometrist ? '<br><span class="muted">' + x(r.optometrist) + '</span>' : ''}</td>
+        <td>${x(window.prevRecTypeLabel ? window.prevRecTypeLabel(r) : 'Document')}</td>
+        <td class="od">${x(rxLine(r.od)) || dash}</td>
+        <td class="os">${x(rxLine(r.os)) || dash}</td>
+        <td>${r.files.length || dash}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+  </div>` : ''}
+
+  <div class="foot">
+    <span>Prepared by ${x(state.user?.name || '—')}${preparedByLabel ? ' (' + x(preparedByLabel) + ')' : ''}</span>
+    <span>${x(p.name)} · ${x(p.id)}</span>
+  </div>
+</body></html>`
+
+  return { html, filename: _pdfFilename('Medical-Record', p.name, p.id) }
+}
+
+// Opening a whole medical record is logged (who printed/downloaded whose).
+function _logMedicalRecordAccess(p, verb) {
+  // Random suffix: two entries in the same millisecond must not share an id.
+  addActivityLog({ id: 'L' + Date.now() + String(Math.floor(Math.random() * 1000)).padStart(3, '0'), user: state.user?.name || '', role: state.role,
+    action: `${verb} the medical record of ${p.name} (${p.id})`, timestamp: nowTimestamp(), type: 'patient' })
+}
+
+// The Medical Record tab's content in a dialog — opened from the exam
+// wizard so the doctor can look back at past visits mid-exam without
+// leaving the form.
+function openMedicalRecordModal(patientId) {
+  const p = patients.find(x => x.id === patientId)
+  if (!p) { toast('Patient not found.', 'error'); return }
+  showModal(`
+    <div class="modal-header">
+      <div class="modal-title" style="display:flex;align-items:center;gap:8px">
+        <span style="color:#E8760A;display:flex">${icon('clipboard', 'icon-sm')}</span>
+        Medical Record — ${esc(p.name)}
+      </div>
+      <button class="modal-close" onclick="window.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body mr-in-modal">${window.medicalRecordPanelHtml(p, state.role, { uid: 'mrm' })}</div>
+    <div class="modal-footer"><button class="btn-secondary" onclick="window.closeModal()">Close</button></div>`, 'modal-xl mr-modal')
+  window.mrInitPaging('mrm')
+}
+window.openMedicalRecordModal = openMedicalRecordModal
+
+function printMedicalRecord(patientId) {
+  const p = patients.find(x => x.id === patientId)
+  if (!p) { toast('Patient not found.', 'error'); return }
+  _printHtmlDocument(_buildMedicalRecordHtml(p).html)
+  _logMedicalRecordAccess(p, 'Printed')
+}
+window.printMedicalRecord = printMedicalRecord
+
+function downloadMedicalRecordPDF(patientId, btnEl) {
+  const p = patients.find(x => x.id === patientId)
+  if (!p) { toast('Patient not found.', 'error'); return }
+  const built = _buildMedicalRecordHtml(p)
+  const body = built.html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
+  if (!body) { toast('Could not generate the PDF.', 'error'); return }
+  const busy = !!window._pdfBusy   // another PDF still generating: this one is refused, so not logged
+  _downloadLiveContentAsPdf(body[1], 'pdf-medrec-doc', built.filename, btnEl, undefined, built.html)
+  if (!busy) _logMedicalRecordAccess(p, 'Downloaded')
+}
+window.downloadMedicalRecordPDF = downloadMedicalRecordPDF
+
+// ════════════════════════════════════════════════════════════════
 //  PATIENT — VIEW PRESCRIPTION DETAIL (canonical prescription view)
 // ════════════════════════════════════════════════════════════════
 // The single canonical rendering of a prescription — the issued
@@ -13576,9 +15155,11 @@ function buildCalCells(year, month, docDays, docId) {
     })
 
   const blockedByDate = {}
+  let docName = 'This doctor'
   if (docId) {
     const doc = doctors.find(d => d.id === docId)
     ;(doc?.blockedDates || []).forEach(b => { blockedByDate[b.date] = b.reason || 'Blocked' })
+    if (doc?.name) docName = doc.name
   }
   const phHolidays = typeof getPHHolidays === 'function' ? getPHHolidays(year) : {}
   const selectedDate = docId ? (window._schedCalState?.[docId]?.selectedDate || '') : ''
@@ -13619,18 +15200,37 @@ function buildCalCells(year, month, docDays, docId) {
                     : docId && !avail ? `Not a working day for this doctor (no ${dayFullName}).`
                     : docId           ? 'Click to block this date.' : ''
     const titleAttr = titleText ? `title="${titleText.replace(/"/g,'&quot;')}"` : ''
-    const inner = isHoliday ? `${d}<span class="cal-holiday-lbl">${holidayName}</span>` : String(d)
-    // Click-to-select is scoped to the admin/staff Doctor Schedule page
-    // (docId present) — a day the doctor is normally available on (so
-    // blocking it means something) or a day already explicitly blocked
-    // (so it can be unblocked). Days the doctor never works, holidays, and
-    // past days aren't interactive here — nothing meaningful to toggle.
-    const clickable = !!docId && !isPast && ((avail && !blockedReason && !isHoliday) || !!blockedReason)
-    const clickEvt  = clickable ? `onclick="window.schedCalSelectDate('${docId}','${dateStr}')"` : ''
-    const cursorStyle = clickable ? ' style="cursor:pointer"' : ''
-    cells += `<div class="cal-day ${cls}${!isHoliday&&dayAppts.length?' has-appts':''}"${cursorStyle} ${tip} ${clickEvt} ${titleAttr}>${inner}</div>`
+    const inner = isHoliday ? `${d}<span class="cal-holiday-lbl">${esc(holidayName)}</span>` : String(d)
+    // Admin/staff Doctor Schedule (docId present): every day can be tapped.
+    // A working day opens the Selected Date banner to block it, a day the
+    // doctor has blocked opens it to unblock; the rest (clinic closures,
+    // holidays, days off, past days) open the same full-detail card as the
+    // patient calendar (calPeek()).
+    let clickEvt = ''
+    if (docId) {
+      if (!isPast && ((avail && !blockedReason && !isHoliday) || !!blockedReason)) {
+        clickEvt = `role="button" tabindex="0" style="cursor:pointer" onclick="window.schedCalSelectDate('${docId}','${dateStr}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"`
+      } else {
+        const passed = 'This date has passed.'
+        clickEvt = closedReason   ? calPeekAttrs('closed', dateStr, closedReason, isPast ? passed : 'The clinic is closed for every doctor. Reopen it from Clinic Closures.')
+                 : isHoliday      ? calPeekAttrs('holiday', dateStr, holidayName, "The clinic doesn't take bookings on public holidays.")
+                 : blockedReason  ? calPeekAttrs('blocked', dateStr, blockedReason, passed)
+                 : !avail         ? calPeekAttrs('off', dateStr, `${docName} doesn't work on ${dayFullName}.`, isPast ? passed : 'Working days can be changed with Edit Schedule.')
+                 :                  calPeekAttrs('past', dateStr, _schedPastSummary(docId, dateStr), "It can't be blocked anymore.")
+      }
+    }
+    cells += `<div class="cal-day ${cls}${!isHoliday&&dayAppts.length?' has-appts':''}" ${tip} ${clickEvt} ${titleAttr}>${inner}</div>`
   }
   return cells
+}
+
+// "3 appointments: 2 completed, 1 cancelled", for a past day's card.
+function _schedPastSummary(docId, dateStr) {
+  const list = appointments.filter(a => a.doctorId === docId && a.date === dateStr)
+  if (!list.length) return 'No appointments that day.'
+  const by = {}
+  list.forEach(a => { const s = String(a.status || 'other').replace(/[-_]/g, ' '); by[s] = (by[s] || 0) + 1 })
+  return `${list.length} appointment${list.length === 1 ? '' : 's'}: ` + Object.entries(by).map(([s, n]) => `${n} ${s}`).join(', ') + '.'
 }
 
 // Real schedule appointments — looked up from the shared appointments array
@@ -13689,8 +15289,11 @@ function buildDocCalCells(year, month, docDays) {
       ? `onmouseenter="window.showCalTip(this,'${JSON.stringify(dayAppts).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}')" onmouseleave="window.hideCalTip()"`
       : ''
 
-    cells += `<div class="cal-day ${cls}" style="${fadeStyle}" ${titleAttr} ${hoverEvt}
-      onclick="window.docSchedClickDay('${dateStr}','${avail}','${dayAbb}',this)">${inner}</div>`
+    // Every day opens its details in the side panel (docSchedClickDay()),
+    // blocked / closed / holiday / day-off ones included.
+    cells += `<div class="cal-day ${cls}" style="${fadeStyle}" ${titleAttr} ${hoverEvt} role="button" tabindex="0"
+      onclick="window.docSchedClickDay('${dateStr}','${avail}','${dayAbb}',this)"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}">${inner}</div>`
   }
   return cells
 }
@@ -13742,7 +15345,6 @@ function docSchedClickDay(dateStr, availStr, dayAbb, cellEl) {
   const doc   = doctors.find(d => d.id === state.user?.id)
   const appts = _getSchedAppts(dateStr, doc?.id)
   const dt       = new Date(dateStr + 'T00:00:00')
-  const isWeekend = dt.getDay() === 0 || dt.getDay() === 6
   const dayNames  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
   const dateLabel = dt.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 
@@ -13751,28 +15353,27 @@ function docSchedClickDay(dateStr, availStr, dayAbb, cellEl) {
   if (!listEl) return
   if (titleEl) titleEl.textContent = dateLabel
 
-  const blocked = (doc?.blockedDates || []).find(b => b.date === dateStr)
+  // A day that isn't a normal working day says why, in the same card as the
+  // patient calendars' (calNoteHtml()): a clinic closure, a date blocked
+  // for this doctor, a public holiday, or a day they don't work.
+  const passed  = dateStr < localDateStr() ? 'This date has passed.' : ''
+  const closure = clinicClosedReason(dateStr)
+  const blocked = (doc?.blockedDates || []).find(b => b.date === dateStr && !b.clinicClosure)
+  const holiday = getPHHolidays(dt.getFullYear())[dateStr]
+  if (closure) {
+    listEl.innerHTML = calNoteHtml('closed', closure, passed || 'The clinic is closed for every doctor this day, so no one can book it.')
+    return
+  }
   if (blocked) {
-    listEl.innerHTML = `<div style="padding:28px 20px;text-align:center;color:#9CA3AF;font-size:.85rem">
-      ${icon('x-circle','icon-lg')}<br><br>
-      <strong style="color:#B91C1C;font-size:.9rem">Blocked</strong><br>
-      <span style="font-size:.82rem">${blocked.reason ? esc(blocked.reason) : 'You are marked unavailable on this date.'}</span></div>`
+    listEl.innerHTML = calNoteHtml('blocked', blocked.reason || 'You are marked unavailable on this date.', passed || "Patients can't book you this day.", "You're unavailable")
     return
   }
-
-  if (!avail && isWeekend) {
-    listEl.innerHTML = `<div style="padding:28px 20px;text-align:center;color:#9CA3AF;font-size:.85rem">
-      ${icon('calendar','icon-lg')}<br><br>
-      <strong style="color:#374151;font-size:.9rem">Weekend</strong><br>
-      <span style="font-size:.82rem">No consultations scheduled.</span></div>`
+  if (holiday) {
+    listEl.innerHTML = calNoteHtml('holiday', holiday, passed || "The clinic doesn't take bookings on public holidays.")
     return
   }
-
   if (!avail) {
-    listEl.innerHTML = `<div style="padding:28px 20px;text-align:center;color:#9CA3AF;font-size:.85rem">
-      ${icon('x-circle','icon-lg')}<br><br>
-      <strong style="color:#374151;font-size:.9rem">Not Scheduled</strong><br>
-      <span style="font-size:.82rem">You are not available for consultations on ${dayNames[dt.getDay()]}s.</span></div>`
+    listEl.innerHTML = calNoteHtml('off', `You don't see patients on ${dayNames[dt.getDay()]}s.`, passed || 'Your working days are set by the clinic.')
     return
   }
 
@@ -13791,7 +15392,7 @@ function docSchedClickDay(dateStr, availStr, dayAbb, cellEl) {
     </div>`
 
   if (!appts.length) {
-    listEl.innerHTML = hoursBlock + `<div class="table-empty">No appointments scheduled for this day.</div>`
+    listEl.innerHTML = hoursBlock + emptyState('calendar', 'No appointments this day', 'Approved bookings for this date will show up here.', { size: 'sm' })
     return
   }
 
@@ -14059,80 +15660,276 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]))
 }
 
-function _blockedListHtml(doctorId) {
-  const doc = doctors.find(d => d.id === doctorId)
-  const list = (doc?.blockedDates || []).slice().sort((a, b) => a.date.localeCompare(b.date))
-  if (!list.length) {
-    return `<div style="font-size:.8rem;color:#9CA3AF;text-align:center;padding:12px 0">No dates blocked yet.</div>`
+// ════════════════════════════════════════════════════════════════
+//  PLANNING CALENDAR — Clinic Closures and Block Date
+//  Instead of a bare date field (pick a date, then find out it has
+//  appointments), both open on a month calendar where every day already
+//  shows what's on it: appointments still to happen, clinic closures,
+//  public holidays, the doctor's blocked days and the days the clinic or
+//  doctor doesn't work. Choosing a day shows its details beside the
+//  calendar (below it on a phone): the appointments to move first, the
+//  form to close / block it, or the button to reopen / unblock it.
+//  Several dates can be handled one after another without closing it.
+// ════════════════════════════════════════════════════════════════
+// { mode: 'clinic' | 'doctor', doctorId, year, month, sel, conflicts }
+let _pc = null
+const _PC_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+function _pcDoc() {
+  return _pc?.mode === 'doctor' ? doctors.find(d => d.id === _pc.doctorId) : null
+}
+function _pcMinutes(t) {
+  const m = /(\d+):(\d+)\s*(AM|PM)?/i.exec(t || '')
+  if (!m) return 0
+  let h = +m[1] % 12
+  if ((m[3] || '').toUpperCase() === 'PM') h += 12
+  return h * 60 + +m[2]
+}
+// Pending / approved appointments by date: the ones that keep a date from
+// being closed or blocked (the server's rule). Every doctor's for a
+// clinic closure; just this doctor's for a blocked date.
+function _pcApptsByDate() {
+  const map = {}
+  for (const a of appointments) {
+    if (a.status !== 'pending' && a.status !== 'approved') continue
+    if (_pc.mode === 'doctor' && a.doctorId !== _pc.doctorId) continue
+    ;(map[a.date] ||= []).push(a)
   }
-  return list.map(b => {
-    const dt = new Date(b.date + 'T00:00:00')
-    const label = dt.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-    return `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid #FEE2E2;background:#FFF5F5;border-radius:8px;margin-bottom:6px">
-      <div style="min-width:0">
-        <div style="font-size:.8rem;font-weight:600;color:#1C1C1C">${label}</div>
-        ${b.reason ? `<div style="font-size:.74rem;color:#9CA3AF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.reason)}</div>` : ''}
-      </div>
-      ${b.clinicClosure
-        ? `<span title="The whole clinic is closed this day. Reopen it from Clinic Closures." style="flex-shrink:0;font-size:.66rem;font-weight:700;color:#9A3412;background:#FFEDD5;border-radius:999px;padding:2px 8px;white-space:nowrap">Clinic closed</span>`
-        : `<button class="btn-icon" title="Unblock this date" style="color:#DC2626;flex-shrink:0"
-              onclick="window.doUnblockDate('${doctorId}','${b.date}')">
-        ${ic('x', 'icon-sm')}
-      </button>`}
-    </div>`
-  }).join('')
+  return map
+}
+// Everything that's on one day.
+function _pcDay(dateStr, apptMap, holidays) {
+  const doc     = _pcDoc()
+  const dayFull = _PC_DAYS[new Date(dateStr + 'T00:00:00').getDay()]
+  const closure = (window._clinicClosures || []).find(c => c.date === dateStr)
+  const blocked = doc ? (doc.blockedDates || []).find(b => b.date === dateStr && !b.clinicClosure) : null
+  return {
+    date: dateStr, dayFull,
+    past:  dateStr < localDateStr(),
+    today: dateStr === localDateStr(),
+    appts: (apptMap[dateStr] || []).slice().sort((a, b) => _pcMinutes(a.time) - _pcMinutes(b.time)),
+    closure:   closure ? (closure.reason || 'Clinic closed') : clinicClosedReason(dateStr),
+    closureId: closure?.id || null,
+    closureBy: closure?.createdBy || '',
+    blocked:   blocked ? (blocked.reason || 'Blocked') : '',
+    holiday:   holidays[dateStr] || '',
+    off: doc ? !(doc.days || []).includes(dayFull.slice(0, 3)) : !(consultationSettings.clinicDays || []).includes(dayFull),
+  }
+}
+function _pcShort(dateStr) {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
 }
 
-function openBlockDateModal(doctorId, doctorName) {
+function _pcCell(info) {
+  const d = +info.date.slice(8)
+  const n = info.appts.length
+  const kind = info.closure ? 'closed' : info.blocked ? 'blocked' : info.holiday ? 'holiday' : info.off ? 'off' : ''
+  const tag  = info.closure || info.blocked || info.holiday || ''
+  const cls  = ['pc-day', kind && 'is-' + kind, info.past && 'is-past', info.today && 'is-today', info.date === _pc.sel && 'is-sel'].filter(Boolean).join(' ')
+  const what = [info.closure && `Clinic closed: ${info.closure}`, info.blocked && `Blocked: ${info.blocked}`, info.holiday && `Holiday: ${info.holiday}`,
+    !kind && info.off && (_pc.mode === 'doctor' ? 'Day off' : 'Not a clinic day'), n && `${n} appointment${n === 1 ? '' : 's'}`].filter(Boolean).join('. ')
+  const inner = `<span class="pc-num">${d}</span>${tag ? `<span class="pc-tag">${esc(tag)}</span>` : ''}`
+    + (n && !info.past ? `<span class="pc-count">${n}<span class="pc-count-word"> appt${n === 1 ? '' : 's'}</span></span>` : '')
+  if (info.past) return `<span class="${cls}" aria-hidden="true">${inner}</span>`
+  const label = new Date(info.date + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric' }) + (what ? `. ${what}` : '. Free')
+  return `<button type="button" class="${cls}" title="${esc(what || 'Free')}" aria-label="${esc(label)}" aria-pressed="${info.date === _pc.sel}" onclick="window._pcPick('${info.date}')">${inner}</button>`
+}
+
+function _pcRenderGrid() {
+  const grid = document.getElementById('pc-grid')
+  if (!_pc || !grid) return
+  const { year, month } = _pc
+  const apptMap  = _pcApptsByDate()
+  const holidays = getPHHolidays(year)
+  let cells = ''
+  for (let i = new Date(year, month, 1).getDay(); i > 0; i--) cells += '<span class="pc-day is-blank" aria-hidden="true"></span>'
+  for (let d = 1, n = new Date(year, month + 1, 0).getDate(); d <= n; d++) {
+    cells += _pcCell(_pcDay(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`, apptMap, holidays))
+  }
+  grid.innerHTML = cells
+  document.getElementById('pc-month').textContent = new Date(year, month, 1).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
+  // From this month to a year ahead (as far as closures / blocks go).
+  const now = new Date(), at = year * 12 + month, first = now.getFullYear() * 12 + now.getMonth()
+  document.getElementById('pc-prev').disabled = at <= first
+  document.getElementById('pc-next').disabled = at >= first + 12
+  document.getElementById('pc-today').disabled = at === first
+}
+
+function _pcPanelHtml() {
+  if (!_pc.sel) {
+    return `<div class="pc-pick">
+      <span class="pc-pick-ic">${icon('calendar', 'icon')}</span>
+      <b>Pick a day on the calendar</b>
+      <span>Each day shows what's already on it, and days with appointments show how many. ${_pc.mode === 'clinic' ? 'Close' : 'Block'} a free day right here.</span>
+    </div>`
+  }
+  const isClinic = _pc.mode === 'clinic'
+  const doc   = _pcDoc()
+  const who   = esc(doc?.name || 'This doctor')
+  const info  = _pcDay(_pc.sel, _pcApptsByDate(), getPHHolidays(+_pc.sel.slice(0, 4)))
+  const n     = info.appts.length
+  const short = _pcShort(info.date)
+  const note  = (tone, ic, html) => `<div class="pc-note is-${tone}">${icon(ic, 'icon-sm')}<div>${html}</div></div>`
+  const head  = `<div class="pc-p-head">
+      <div class="pc-p-date">${new Date(info.date + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div>
+      ${info.today ? '<span class="pc-p-today">Today</span>' : ''}
+    </div>`
+  let body
+  if (info.closure) {
+    body = note('closed', 'lock', `<b>The clinic is closed this day.</b> ${esc(info.closure)}${info.closureBy ? `<small>Closed by ${esc(info.closureBy)}</small>` : ''}`)
+      + (isClinic
+        ? (info.closureId ? `<button class="btn-secondary pc-act" id="pc-reopen-btn" onclick="window.doReopenClinic(${info.closureId},'${info.date}')">${icon('rotate-ccw', 'icon-sm')} Reopen the clinic on ${short}</button>` : '')
+        : '<p class="pc-hint">It applies to every doctor. To open it again, use Clinic Closures.</p>')
+  } else if (!isClinic && info.blocked) {
+    body = note('blocked', 'x-circle', `<b>Blocked for ${who}.</b> ${esc(info.blocked)}`)
+      + `<button class="btn-secondary pc-act" id="pc-unblock-btn" onclick="window.doUnblockDate('${_pc.doctorId}','${info.date}')">${icon('rotate-ccw', 'icon-sm')} Unblock ${short}</button>`
+  } else if (info.holiday) {
+    body = note('holiday', 'calendar', `<b>Public holiday: ${esc(info.holiday)}.</b> The clinic doesn't take bookings on public holidays, so there's nothing to ${isClinic ? 'close' : 'block'}.`)
+  } else if (info.off) {
+    body = isClinic
+      ? note('off', 'info', `<b>The clinic doesn't open on ${info.dayFull}s.</b> Clinic days are set in Consultation Settings.`)
+      : note('off', 'info', `<b>${who} doesn't work on ${info.dayFull}s,</b> so there's nothing to block.`)
+  } else if (n || _pc.conflicts) {
+    // The server's list wins: it can know of a booking made moments ago.
+    const list = _pc.conflicts || info.appts.map(a => ({ id: a.id, patientName: a.patientName, time: a.time, status: a.status, doctorName: a.doctorName }))
+    const k = list.length
+    body = note('appts', 'alert-triangle', `<b>${k} appointment${k === 1 ? '' : 's'} to move first.</b> Reschedule or cancel ${k === 1 ? 'it' : 'them'}, then ${isClinic ? 'close the clinic' : 'block this date'}.`)
+      + `<ul class="pc-appts">${list.map(a => `
+          <li>
+            <span class="pc-a-time">${esc(a.time || '')}</span>
+            <span class="pc-a-main"><b>${esc(a.patientName || 'Patient')}</b>${isClinic && a.doctorName ? `<small>${esc(a.doctorName)}</small>` : ''}</span>
+            <span class="badge badge-${esc(a.status)}">${esc((a.status || '').charAt(0).toUpperCase() + (a.status || '').slice(1))}</span>
+          </li>`).join('')}</ul>`
+  } else {
+    const rid = isClinic ? 'cl-reason' : 'block-date-reason'
+    body = note('free', 'check-circle', `<b>No appointments this day.</b> ${isClinic ? 'Closing it stops every doctor from being booked.' : `Blocking it stops ${who} from being booked.`}`)
+      + `<div class="form-group pc-form"><label class="form-label">Reason <span class="req">*</span></label>${reasonFieldHtml(rid, isClinic ? 'clinicClosure' : 'blockDate')}</div>`
+      + `<button class="btn-primary pc-act" id="${isClinic ? 'cl-save-btn' : 'block-date-confirm-btn'}" onclick="window.${isClinic ? 'doCloseClinic' : 'doBlockDate'}()">
+          ${icon('lock', 'icon-sm')} ${isClinic ? `Close the clinic on ${short}` : `Block ${short}`}
+        </button>`
+  }
+  return head + body
+}
+function _pcRenderPanel() {
+  const el = document.getElementById('pc-panel')
+  if (_pc && el) el.innerHTML = _pcPanelHtml()
+}
+
+// What's coming up, across months: closures (and, for a doctor, their
+// blocked days). A row jumps the calendar to that day.
+function _pcRenderList() {
+  const el = document.getElementById('pc-list')
+  if (!_pc || !el) return
+  const today = localDateStr()
+  const doc = _pcDoc()
+  const items = (window._clinicClosuresLoaded
+    ? (window._clinicClosures || []).map(c => ({ date: c.date, text: c.reason || 'Clinic closed', kind: 'closed' }))
+    : [...new Map(doctors.flatMap(x => x.blockedDates || []).filter(b => b.clinicClosure).map(b => [b.date, { date: b.date, text: b.closureReason || 'Clinic closed', kind: 'closed' }])).values()])
+    .concat(doc ? (doc.blockedDates || []).filter(b => !b.clinicClosure).map(b => ({ date: b.date, text: b.reason || 'Blocked', kind: 'blocked' })) : [])
+    .filter(x => x.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date))
+  el.innerHTML = items.length
+    ? items.map(x => `
+      <button type="button" class="pc-li" onclick="window._pcJump('${x.date}')">
+        <span class="pc-li-dot is-${x.kind}"></span>
+        <span class="pc-li-main"><b>${new Date(x.date + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</b><small>${x.kind === 'blocked' ? 'Blocked · ' : 'Clinic closed · '}${esc(x.text)}</small></span>
+        ${icon('chevron-right', 'icon-sm')}
+      </button>`).join('')
+    : `<div class="pc-li-empty">${_pc.mode === 'clinic' ? 'No closures coming up. The clinic is open on its regular days.' : 'Nothing blocked or closed coming up.'}</div>`
+}
+
+function _pcRefresh() {
+  _pcRenderGrid()
+  _pcRenderPanel()
+  _pcRenderList()
+}
+function _pcPick(dateStr) {
+  if (!_pc) return
+  _pc.sel = _pc.sel === dateStr ? null : dateStr
+  _pc.conflicts = null
+  _pcRenderGrid()
+  _pcRenderPanel()
+  // On a phone the details sit below the calendar: bring them into view.
+  if (_pc.sel && window.innerWidth < 860) document.getElementById('pc-panel')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+function _pcMove(delta) {
+  if (!_pc) return
+  const now = new Date()
+  const at = delta === 0 ? now.getFullYear() * 12 + now.getMonth() : _pc.year * 12 + _pc.month + delta
+  _pc.year = Math.floor(at / 12)
+  _pc.month = at % 12
+  _pcRenderGrid()
+}
+function _pcJump(dateStr) {
+  if (!_pc) return
+  _pc.year = +dateStr.slice(0, 4)
+  _pc.month = +dateStr.slice(5, 7) - 1
+  _pc.sel = null
+  _pcPick(dateStr)
+}
+window._pcPick = _pcPick
+window._pcMove = _pcMove
+window._pcJump = _pcJump
+
+function _openPlanner(mode, { doctorId = null, title, intro, listTitle }) {
+  const now = new Date()
+  _pc = { mode, doctorId, year: now.getFullYear(), month: now.getMonth(), sel: null, conflicts: null }
+  const legend = [['appts', 'Appointments'], ['closed', 'Clinic closed'], ...(mode === 'doctor' ? [['blocked', 'Blocked']] : []),
+    ['holiday', 'Public holiday'], ['off', mode === 'doctor' ? 'Day off' : 'Not a clinic day']]
   showModal(`
     <div class="modal-header">
-      <div class="modal-title">Block Date — ${esc(doctorName)}</div>
+      <div class="modal-title">${title}</div>
       <button class="modal-close" onclick="window.closeModal()">&times;</button>
     </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label class="form-label">Date to Block <span class="req">*</span></label>
-        ${window.dateFieldHtml('block-date-input', { min: localDateStr(), max: localDateStr(new Date(new Date().setFullYear(new Date().getFullYear() + 1))) })}
-      </div>
-      <div class="form-group">
-        <label class="form-label">Reason <span class="req">*</span></label>
-        ${reasonFieldHtml('block-date-reason', 'blockDate')}
-      </div>
-      <div class="form-group" style="margin-bottom:0">
-        <label class="form-label">Currently Blocked Dates</label>
-        <div id="block-date-list" style="margin-top:6px;max-height:220px;overflow-y:auto">
-          ${_blockedListHtml(doctorId)}
+    <div class="modal-body pc-body">
+      <p class="pc-intro">${intro}</p>
+      <div class="pc-wrap">
+        <div class="pc-cal">
+          <div class="pc-nav">
+            <div class="pc-month" id="pc-month" aria-live="polite"></div>
+            <button type="button" class="pc-today-btn" id="pc-today" onclick="window._pcMove(0)">Today</button>
+            <button type="button" class="pc-nav-btn" id="pc-prev" aria-label="Previous month" onclick="window._pcMove(-1)">${icon('chevron-left', 'icon-sm')}</button>
+            <button type="button" class="pc-nav-btn" id="pc-next" aria-label="Next month" onclick="window._pcMove(1)">${icon('chevron-right', 'icon-sm')}</button>
+          </div>
+          <div class="pc-week" aria-hidden="true">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => `<span>${d}</span>`).join('')}</div>
+          <div class="pc-grid" id="pc-grid"></div>
+          <div class="pc-legend">${legend.map(([k, t]) => `<span><i class="pc-lg is-${k}"></i>${t}</span>`).join('')}</div>
         </div>
+        <aside class="pc-side">
+          <div class="pc-panel" id="pc-panel" aria-live="polite"></div>
+          <div>
+            <div class="pc-list-title">${listTitle}</div>
+            <div class="pc-list" id="pc-list"></div>
+          </div>
+        </aside>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-secondary" onclick="window.closeModal()">Cancel</button>
-      <button class="btn-primary" id="block-date-confirm-btn" onclick="window.doBlockDate('${doctorId}','${doctorName.replace(/'/g,"\\'")}')">Block Date</button>
-    </div>`)
+      <button class="btn-secondary" onclick="window.closeModal()">Done</button>
+    </div>`, 'modal-plan')
+  _pcRefresh()
+}
+
+function openBlockDateModal(doctorId, doctorName) {
+  _openPlanner('doctor', {
+    doctorId,
+    title: `Block Dates <span class="pc-title-sub">${esc(doctorName)}</span>`,
+    intro: `Block a day ${esc(doctorName)} can't see patients, such as leave or a seminar. Days with pending or approved appointments have to be cleared first.`,
+    listTitle: 'Coming up',
+  })
 }
 window.openBlockDateModal = openBlockDateModal
 
-async function doBlockDate(doctorId, doctorName) {
-  const dateEl   = document.getElementById('block-date-input')
-  const reasonEl = document.getElementById('block-date-reason')
-  const date     = dateEl?.value
-  const reason   = reasonEl?.value?.trim() || ''
-  if (!date)   { toast('Please select a date.', 'error'); return }
-  if (!reason) { toast('Please provide a reason for blocking this date.', 'error'); return }
-
-  // Client-side pre-check purely for snappy UI (no round trip needed for
-  // the common case) — the real, unbypassable enforcement happens server-
-  // side in block-date.php against the database.
-  const conflicting = appointments.filter(a => a.doctorId === doctorId && a.date === date && (a.status === 'approved' || a.status === 'pending'))
-  if (conflicting.length) {
-    _showBlockDateConflicts(conflicting.map(a => ({ id: a.id, patientName: a.patientName, date: a.date, time: a.time, status: a.status, why: 'Booked on this date' })), 'block-date-list')
-    return
-  }
+async function doBlockDate() {
+  const doctorId = _pc?.doctorId
+  const date     = _pc?.sel
+  const reason   = (document.getElementById('block-date-reason')?.value || '').trim()
+  const doctorName = _pcDoc()?.name || 'the doctor'
+  if (!doctorId || !date) { toast('Please pick a day on the calendar.', 'error'); return }
+  if (!reason) { markFieldError('block-date-reason-preset'); toast('Please choose a reason for blocking this date.', 'error'); return }
 
   const btn = document.getElementById('block-date-confirm-btn')
   if (_btnBusy(btn, 'primary', 'Blocking…')) return
-
   try {
     const r = await fetch('api/doctors/block-date.php', {
       method:  'POST',
@@ -14141,8 +15938,11 @@ async function doBlockDate(doctorId, doctorName) {
     })
     const d = await r.json()
     if (!d.success) {
-      if (d.conflicts) _showBlockDateConflicts(d.conflicts, 'block-date-list')
-      else toast(d.message || 'Could not block date.', 'error')
+      if (d.conflicts) {
+        toast(`This date has ${d.conflicts.length} appointment${d.conflicts.length === 1 ? '' : 's'} to move first.`, 'error')
+        _pc.conflicts = d.conflicts
+        _pcRenderPanel()
+      } else toast(d.message || 'Could not block date.', 'error')
       return
     }
 
@@ -14151,14 +15951,10 @@ async function doBlockDate(doctorId, doctorName) {
       timestamp: nowTimestamp(), type: 'settings' })
 
     if (window._syncDoctors) await window._syncDoctors()
-    toast(`Date blocked for ${doctorName}.`)
-
-    // Refresh the modal in place instead of closing, so staff can block
-    // several dates in one go and see the running list update live.
-    window.setDateFieldValue('block-date-input', '')
-    if (reasonEl) reasonEl.value = ''
-    const listEl = document.getElementById('block-date-list')
-    if (listEl) listEl.innerHTML = _blockedListHtml(doctorId)
+    toast(`${_pcShort(date)} blocked for ${doctorName}.`)
+    // Stays open on that day (now "Blocked"), so several dates can be
+    // blocked in one go.
+    _pcRefresh()
   } catch (_) {
     toast('Network error — date not blocked.', 'error')
   } finally {
@@ -14187,85 +15983,191 @@ function clinicClosedReason(dateStr) {
   return ''
 }
 window.clinicClosedReason = clinicClosedReason
+
+// ── Full reason for a closed / holiday / blocked calendar day ─────
+// The reason under a day number only fits a line or two (a closure's
+// "Other" reason is often a whole sentence), and a hover title never
+// reaches a phone. So in the booking calendars these days are tappable:
+// a tap marks the day (it is NOT selected, the date still can't be
+// booked) and opens a card across the bottom of that calendar with the
+// full reason. Tapping the day again or the card's close button hides it.
+// The card lives inside the grid, so any re-render (month change) clears
+// it, and amcSwapSelected() clears it when a real date is picked.
+function _calPeekMeta(kind) {
+  return ({
+    closed:  { title: 'Clinic closed',            icon: 'info' },
+    holiday: { title: 'Public holiday',           icon: 'calendar' },
+    blocked: { title: 'Doctor unavailable',       icon: 'user' },
+    off:     { title: 'Not a working day',        icon: 'clock' },
+    past:    { title: 'Past date',                icon: 'clock' },
+    soon:    { title: 'Too soon to book',         icon: 'clock' },
+    far:     { title: 'Not open for booking yet', icon: 'calendar' },
+    nodoc:   { title: 'No doctor available',      icon: 'user' },
+  })[kind] || { title: 'Clinic closed', icon: 'info' }
+}
+// Why a booking calendar marks a day "Too Soon" / "Too Far": the clinic's
+// advance-booking rules (Consultation Settings), with the actual dates.
+// [reason, hint] for calPeekAttrs().
+function calSoonText() {
+  const n = minAdvanceDays()
+  const first = new Date()
+  first.setHours(0, 0, 0, 0)
+  first.setDate(first.getDate() + n)
+  return [
+    `Bookings need at least ${n === 1 ? "a day's" : `${n} days'`} notice, so the earliest date that can be booked is ${first.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric' })}.`,
+    "That's why it's marked Too Soon. Please pick a green date from then on.",
+  ]
+}
+// `openDay`: the clinic (and doctor) works that day, so it can be booked
+// later; `extra`: why it couldn't be booked even then (a day off).
+function calFarText(dateStr, openDay, extra = '') {
+  const fmt   = dt => dt.toLocaleDateString('en-PH', { month: 'long', day: 'numeric' })
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const date  = new Date(dateStr + 'T00:00:00')
+  return [
+    `Bookings open up to ${consultationSettings.maxAdvanceBooking || '3 months'} ahead, so the latest date that can be booked today is ${fmt(maxAdvanceDate(today))}.`
+      + (openDay ? ` Booking for ${fmt(date)} opens on ${fmt(bookingOpensOn(date))}.` : extra ? ` ${extra}` : ''),
+    "That's why it's marked Too Far. Closures and holidays still show so you can plan ahead.",
+  ]
+}
+// `hint` replaces the patient's "can't be booked" line under the reason
+// (staff calendars say what applies to them instead; '' shows none).
+function calPeekAttrs(kind, dateStr, reason, hint) {
+  const meta = _calPeekMeta(kind)
+  return `data-peek-kind="${kind}" data-peek-date="${dateStr}" data-peek-reason="${esc(reason)}"`
+    + (hint !== undefined ? ` data-peek-hint="${esc(hint)}"` : '')
+    + ` role="button" tabindex="0" aria-expanded="false"`
+    + ` aria-label="${esc(meta.title + ': ' + reason)}. Show the full details"`
+    + ` onclick="window.calPeek(this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.calPeek(this)}"`
+}
+// The same card for a side panel (My Schedule's day details).
+function calNoteHtml(kind, reason, hint, title) {
+  const meta = _calPeekMeta(kind)
+  return `
+    <div class="cal-peek cal-peek-${kind} cal-peek-static">
+      <span class="cal-peek-ic">${icon(meta.icon, 'icon-sm')}</span>
+      <div class="cal-peek-body">
+        <div class="cal-peek-title">${esc(title || meta.title)}</div>
+        ${reason ? `<div class="cal-peek-reason">${esc(reason)}</div>` : ''}
+        ${hint ? `<div class="cal-peek-hint">${esc(hint)}</div>` : ''}
+      </div>
+    </div>`
+}
+function calPeek(el) {
+  const grid = el?.parentElement
+  if (!grid) return
+  const wasOpen = el.classList.contains('cal-peeking')
+  calPeekClose(grid)
+  if (wasOpen) return
+  // Doctor Schedule: the card takes the place of a Selected Date banner.
+  if (grid.id?.startsWith('sched-cal-')) {
+    const docId = grid.id.slice('sched-cal-'.length)
+    document.getElementById('sched-cal-banner-' + docId)?.remove()
+    if (window._schedCalState?.[docId]) window._schedCalState[docId].selectedDate = ''
+    grid.querySelectorAll('.cal-selected').forEach(c => c.classList.remove('cal-selected'))
+  }
+  const kind = el.dataset.peekKind
+  const meta = _calPeekMeta(kind)
+  const hint = el.dataset.peekHint ?? "This date can't be booked. Please pick another available date."
+  const dateLbl = new Date(el.dataset.peekDate + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  el.classList.add('cal-peeking')
+  el.setAttribute('aria-expanded', 'true')
+  grid.insertAdjacentHTML('beforeend', `
+    <div class="cal-peek cal-peek-${kind}" role="status" aria-live="polite">
+      <span class="cal-peek-ic">${icon(meta.icon, 'icon-sm')}</span>
+      <div class="cal-peek-body">
+        <div class="cal-peek-title">${meta.title}<span class="cal-peek-date">${dateLbl}</span></div>
+        <div class="cal-peek-reason">${esc(el.dataset.peekReason)}</div>
+        ${hint ? `<div class="cal-peek-hint">${esc(hint)}</div>` : ''}
+      </div>
+      <button type="button" class="cal-peek-x" aria-label="Close" onclick="window.calPeekClose(this.closest('.cal-peek').parentElement, true)">${icon('x', 'icon-sm')}</button>
+    </div>`)
+  // On a phone the card can land below the fold; bring it into view.
+  grid.lastElementChild?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+function calPeekClose(grid, refocus) {
+  if (!grid) return
+  grid.querySelectorAll(':scope > .cal-peek').forEach(c => c.remove())
+  const cell = grid.querySelector('.cal-peeking')
+  if (!cell) return
+  cell.classList.remove('cal-peeking')
+  cell.setAttribute('aria-expanded', 'false')
+  if (refocus) cell.focus()
+}
+window.calPeekAttrs = calPeekAttrs
+window.calPeek = calPeek
+window.calPeekClose = calPeekClose
+window.calNoteHtml = calNoteHtml
+window.calSoonText = calSoonText
+window.calFarText = calFarText
+
 async function _loadClinicClosures() {
+  let ok = false
   try {
     const d = await (await fetch('api/clinic/closures.php')).json()
-    window._clinicClosures = d.success ? (d.closures || []) : []
+    ok = !!d.success
+    window._clinicClosures = ok ? (d.closures || []) : []
   } catch (_) { window._clinicClosures = [] }
-  const el = document.getElementById('cl-list')
-  if (el) el.innerHTML = _clinicClosureListHtml()
+  window._clinicClosuresLoaded = ok
+  if (_pc && document.getElementById('pc-grid')) {
+    _pcRenderGrid()
+    _pcRenderList()
+    // The day's details too, unless they hold a half-filled reason.
+    if (!document.querySelector('#pc-panel .pc-form')) _pcRenderPanel()
+  }
+  const sum = document.getElementById('cl-summary')
+  if (sum) sum.innerHTML = clinicClosureSummaryHtml()
 }
-function _clinicClosureListHtml() {
-  const list = window._clinicClosures || []
-  if (!list.length) return `<div style="font-size:.8rem;color:#9CA3AF;text-align:center;padding:12px 0">No upcoming closures. The clinic is open on its regular days.</div>`
-  return list.map(c => {
-    const label = new Date(c.date + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-    return `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;border:1px solid #FED7AA;background:#FFF7ED;border-radius:8px;margin-bottom:6px">
-      <div style="min-width:0">
-        <div style="font-size:.8rem;font-weight:600;color:#1C1C1C">${label}</div>
-        <div style="font-size:.74rem;color:#9A3412;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.reason || 'Clinic closed')}${c.createdBy ? ` <span style="color:#9CA3AF">· by ${esc(c.createdBy)}</span>` : ''}</div>
-      </div>
-      <button class="btn-icon" title="Reopen the clinic on this date" style="color:#DC2626;flex-shrink:0" onclick="window.doReopenClinic(${c.id},'${c.date}')">${icon('x', 'icon-sm')}</button>
-    </div>`
-  }).join('')
-}
+// Consultation Settings refreshes its Clinic Closures card with this.
+window.loadClinicClosures = _loadClinicClosures
 
+// Upcoming closures for the Settings card: the closures list once it's been
+// fetched (what Manage Closures edits), else the closures every doctor's
+// schedule already carries (loaded with the app).
+function _upcomingClinicClosures() {
+  const today = localDateStr()
+  let list
+  if (window._clinicClosuresLoaded) {
+    list = (window._clinicClosures || []).map(c => ({ date: c.date, reason: c.reason || '' }))
+  } else {
+    const byDate = new Map()
+    ;(typeof doctors !== 'undefined' ? doctors : []).forEach(doc => (doc.blockedDates || []).forEach(b => {
+      if (b.clinicClosure && !byDate.has(b.date)) byDate.set(b.date, b.closureReason || '')
+    }))
+    list = [...byDate].map(([date, reason]) => ({ date, reason }))
+  }
+  return list.filter(c => c.date >= today).sort((a, b) => a.date.localeCompare(b.date))
+}
+// "Next closure: Thu, Dec 25 · Christmas party  +1 more", or none coming up.
+function clinicClosureSummaryHtml() {
+  const up = _upcomingClinicClosures()
+  if (!up.length) return `<span class="ccl-status is-open">${icon('check-circle', 'icon-xs')}No closures coming up</span>`
+  const next = up[0]
+  const d = new Date(next.date + 'T00:00:00')
+  const day = d.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) })
+  const today = next.date === localDateStr()
+  // Full text as a tooltip: a long reason is cut short on narrow screens.
+  const full = (today ? 'Closed today' : `Next closure: ${day}`) + (next.reason ? ` · ${next.reason}` : '')
+  return `<span class="ccl-status" title="${esc(full)}">${icon('calendar', 'icon-xs')}<span class="ccl-status-text">${today ? '<b>Closed today</b>' : `Next closure: <b>${day}</b>`}${next.reason ? ` · ${esc(next.reason)}` : ''}</span>${up.length > 1 ? `<span class="ccl-more">+${up.length - 1} more</span>` : ''}</span>`
+}
+window.clinicClosureSummaryHtml = clinicClosureSummaryHtml
 function openClinicClosureModal() {
-  showModal(`
-    <div class="modal-header">
-      <div class="modal-title">Clinic Closures</div>
-      <button class="modal-close" onclick="window.closeModal()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div style="display:flex;gap:8px;align-items:flex-start;background:#F9FAFB;border:1px solid #F0F0F2;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:.8rem;color:#4B5563;line-height:1.5">
-        <span style="flex-shrink:0;display:flex;margin-top:2px;color:#E8760A">${icon('info','icon-sm')}</span>
-        <span>Closes the clinic for <strong>every doctor</strong> on that date, so no one can book it. Pending or approved appointments on the date must be rescheduled or cancelled first.</span>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Date to Close <span class="req">*</span></label>
-        ${window.dateFieldHtml('cl-date', { min: localDateStr(), max: localDateStr(new Date(new Date().setFullYear(new Date().getFullYear() + 1))) })}
-      </div>
-      <div class="form-group">
-        <label class="form-label">Reason <span class="req">*</span></label>
-        ${reasonFieldHtml('cl-reason', 'clinicClosure')}
-      </div>
-      <div class="form-group" style="margin-bottom:0">
-        <label class="form-label">Upcoming Closures</label>
-        <div id="cl-list" style="margin-top:6px;max-height:220px;overflow-y:auto">
-          <div style="font-size:.8rem;color:#9CA3AF;text-align:center;padding:12px 0">Loading…</div>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-secondary" onclick="window.closeModal()">Done</button>
-      <button class="btn-primary" id="cl-save-btn" onclick="window.doCloseClinic()">${icon('lock','icon-sm')} Close Clinic</button>
-    </div>`)
-  _loadClinicClosures()
+  _openPlanner('clinic', {
+    title: 'Clinic Closures',
+    intro: 'Close the clinic for <b>every doctor</b> on a day, such as a sudden holiday, an outing or an emergency, so no one can book it. Days with pending or approved appointments have to be cleared first.',
+    listTitle: 'Upcoming closures',
+  })
+  _loadClinicClosures()   // the reopen buttons need each closure's id
 }
 window.openClinicClosureModal = openClinicClosureModal
 
-function _showClosureConflicts(conflicts) {
-  const n = conflicts.length
-  const intro = `<strong>This date has ${n} pending or approved appointment${n === 1 ? '' : 's'}.</strong> Reschedule or cancel ${n === 1 ? 'it' : 'them'} first, then close the clinic.`
-  toast(`This date has ${n} appointment${n === 1 ? '' : 's'} to move first.`, 'error')
-  document.getElementById('cl-conflicts')?.remove()
-  document.getElementById('cl-list')?.closest('.form-group')?.insertAdjacentHTML('beforebegin', `<div id="cl-conflicts">${affectedApptsHtml(conflicts, intro)}</div>`)
-}
-
 async function doCloseClinic() {
-  const date   = document.getElementById('cl-date')?.value || ''
+  const date   = _pc?.sel || ''
   const reason = (document.getElementById('cl-reason')?.value || '').trim()
-  if (!date)   { toast('Please select a date.', 'error'); return }
-  if (!reason) { toast('Please choose a reason for closing the clinic.', 'error'); return }
-  document.getElementById('cl-conflicts')?.remove()
+  if (!date)   { toast('Please pick a day on the calendar.', 'error'); return }
+  if (!reason) { markFieldError('cl-reason-preset'); toast('Please choose a reason for closing the clinic.', 'error'); return }
 
-  // Quick local check first (any doctor); the server enforces it too.
-  const onDate = appointments.filter(a => a.date === date && ['pending', 'approved'].includes(a.status))
-  if (onDate.length) {
-    _showClosureConflicts(onDate.map(a => ({ id: a.id, patientName: a.patientName, date: a.date, time: a.time, status: a.status, why: 'Booked on this date' + (a.doctorName ? ' · ' + a.doctorName : '') })))
-    return
-  }
   const btn = document.getElementById('cl-save-btn')
   if (_btnBusy(btn, 'primary', 'Closing…')) return
   try {
@@ -14274,17 +16176,19 @@ async function doCloseClinic() {
       body: JSON.stringify({ action: 'add', date, reason, createdBy: state.user?.name || '' }),
     })).json()
     if (!d.success) {
-      if (d.conflicts) _showClosureConflicts(d.conflicts)
-      else toast(d.message || 'Could not close the clinic on that date.', 'error')
+      if (d.conflicts) {
+        toast(`This date has ${d.conflicts.length} appointment${d.conflicts.length === 1 ? '' : 's'} to move first.`, 'error')
+        _pc.conflicts = d.conflicts
+        _pcRenderPanel()
+      } else toast(d.message || 'Could not close the clinic on that date.', 'error')
       return
     }
     addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
       action: `Closed the clinic on ${date}: ${reason}`, timestamp: nowTimestamp(), type: 'settings' })
     toast(`Clinic closed on ${new Date(date + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })} for all doctors.`)
-    window.setDateFieldValue('cl-date', '')
-    window.setSelectFieldValue('cl-reason-preset', ''); window._rsnCompose('cl-reason')
     await _loadClinicClosures()
     if (window._syncDoctors) await window._syncDoctors()
+    _pcRefresh()
   } catch (_) {
     toast('Network error — the clinic was not closed.', 'error')
   } finally { _btnIdle(btn) }
@@ -14292,31 +16196,28 @@ async function doCloseClinic() {
 window.doCloseClinic = doCloseClinic
 
 async function doReopenClinic(id, date) {
-  const btn = document.querySelector(`#cl-list button[onclick*="(${id},"]`)
-  if (btn) { if (btn.disabled) return; btn.disabled = true; btn.style.opacity = '.5' }
+  const btn = document.getElementById('pc-reopen-btn')
+  if (_btnBusy(btn, 'secondary', 'Reopening…')) return
   try {
     const d = await (await fetch('api/clinic/closures.php', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', id }),
     })).json()
-    if (!d.success) { toast(d.message || 'Could not reopen that date.', 'error'); if (btn) { btn.disabled = false; btn.style.opacity = '' }; return }
+    if (!d.success) { toast(d.message || 'Could not reopen that date.', 'error'); return }
     addActivityLog({ id: 'L' + Date.now(), user: state.user.name, role: state.role,
       action: `Reopened the clinic on ${date}`, timestamp: nowTimestamp(), type: 'settings' })
-    toast('The clinic is open on that date again.')
+    toast(`The clinic is open on ${_pcShort(date)} again.`)
     await _loadClinicClosures()
     if (window._syncDoctors) await window._syncDoctors()
+    _pcRefresh()
   } catch (_) {
     toast('Network error — please try again.', 'error')
-    if (btn) { btn.disabled = false; btn.style.opacity = '' }
-  }
+  } finally { _btnIdle(btn) }
 }
 window.doReopenClinic = doReopenClinic
 
 async function doUnblockDate(doctorId, date) {
-  // Icon-only row button — no label to swap, but still needs to be
-  // disabled for the duration so a fast double-click on the same row
-  // can't fire two unblock requests for the same date.
-  const btn = document.querySelector(`#block-date-list button[onclick*="'${date}'"]`)
-  if (btn) { if (btn.disabled) return; btn.disabled = true; btn.style.opacity = '.5' }
+  const btn = document.getElementById('pc-unblock-btn')
+  if (_btnBusy(btn, 'secondary', 'Unblocking…')) return
   try {
     const r = await fetch('api/doctors/unblock-date.php', {
       method:  'POST',
@@ -14324,21 +16225,18 @@ async function doUnblockDate(doctorId, date) {
       body:    JSON.stringify({ doctorId, date }),
     })
     const d = await r.json()
-    if (!d.success) { toast(d.message || 'Could not unblock date.', 'error'); if (btn) { btn.disabled = false; btn.style.opacity = '' }; return }
+    if (!d.success) { toast(d.message || 'Could not unblock date.', 'error'); return }
 
     if (window._syncDoctors) await window._syncDoctors()
     const docName = doctors.find(dd => dd.id === doctorId)?.name || 'doctor'
     addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
       action: `Unblocked ${date} for ${docName}`,
       timestamp: nowTimestamp(), type:'settings' })
-    toast('Date unblocked.')
-
-    const listEl = document.getElementById('block-date-list')
-    if (listEl) listEl.innerHTML = _blockedListHtml(doctorId)
+    toast(`${_pcShort(date)} unblocked.`)
+    _pcRefresh()
   } catch (_) {
     toast('Network error — date not unblocked.', 'error')
-    if (btn) { btn.disabled = false; btn.style.opacity = '' }
-  }
+  } finally { _btnIdle(btn) }
 }
 window.doUnblockDate = doUnblockDate
 
@@ -14487,6 +16385,60 @@ window.toggleRegPw = toggleRegPw
 //  PHOTO / LOGO UPLOAD (frontend-only, FileReader preview)
 // ════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════
+//  UPLOAD SIZE LIMITS — just enough for each kind of file; the same
+//  numbers the server enforces (UPLOAD_MAX_* in api/helpers.php), checked
+//  here first so a too-big file is turned away before it's sent.
+//  photoPick / galleryPick are the photo as chosen: the browser crops or
+//  resizes it before uploading, so what's saved is far smaller.
+//  Previous Clinic Records have their own: PREV_REC_* (above).
+// ════════════════════════════════════════════════════════════════
+const UPLOAD_LIMITS = {
+  photoPick:   10 * 1024 * 1024,    // profile photo (cropped to 480 px, ~100 KB, before upload)
+  logoPick:    10 * 1024 * 1024,    // PNG / JPG / WebP logo (resized to 1024 px before upload)
+  logoSvg:     2 * 1024 * 1024,     // an SVG logo goes up as-is
+  hero:        5 * 1024 * 1024,     // one 1920 × 1080 photo
+  video:       100 * 1024 * 1024,   // about 2 minutes of 1080p (streamed to visitors)
+  galleryPick: 20 * 1024 * 1024,    // each gallery photo (resized to 1600 px before upload)
+  qrImage:     10 * 1024 * 1024,    // read in the browser only, never uploaded
+  backup:      2048 * 1024 * 1024,  // the database plus every uploaded file, for years
+}
+window.UPLOAD_LIMITS = UPLOAD_LIMITS
+function _uploadSize(n) {
+  return n >= 1048576 ? Math.round(n / 104857.6) / 10 + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'
+}
+// true, with a toast saying why, when the file is over its limit.
+function uploadTooBig(file, limit, what, hint = '') {
+  if (!file || file.size <= limit) return false
+  toast(`${what} is ${_uploadSize(file.size)}. The limit is ${_uploadSize(limit)}.${hint ? ' ' + hint : ''}`, 'error')
+  return true
+}
+window.uploadTooBig = uploadTooBig
+
+// Draws an image file onto a canvas no bigger than maxSide on its long side
+// (never enlarged). background fills behind transparency (for a JPG).
+// Resolves { canvas, scaled }, or null when the file can't be read as an image.
+function _imageToCanvas(file, maxSide, background = '') {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const scale  = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight))
+      const canvas = document.createElement('canvas')
+      canvas.width  = Math.max(1, Math.round(img.naturalWidth * scale))
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
+      const g = canvas.getContext('2d')
+      if (background) { g.fillStyle = background; g.fillRect(0, 0, canvas.width, canvas.height) }
+      g.drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      resolve({ canvas, scaled: scale < 1 })
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
+    img.src = url
+  })
+}
+const _canvasBlob = (canvas, type, quality) => new Promise(resolve => canvas.toBlob(resolve, type, quality))
+
 // Selecting a file no longer uploads it immediately — it opens the crop
 // modal below first (Facebook-style drag-to-reposition + zoom slider), so
 // whatever framing the user picks is what actually gets saved, instead of
@@ -14496,6 +16448,7 @@ function handlePhotoUpload(input, avatarId) {
   const file = input.files[0]
   if (!file) return
   input.value = '' // so re-selecting the exact same file later still fires 'change'
+  if (uploadTooBig(file, UPLOAD_LIMITS.photoPick, 'That photo')) return
 
   const reader = new FileReader()
   reader.onload = e => openPhotoCropModal(e.target.result, avatarId)
@@ -14879,8 +16832,28 @@ function _uploadPhotoBlob(blob, avatarId) {
  * new logo persists and syncs everywhere (dashboard + public pages).
  */
 async function handleLogoUpload(input, previewId) {
-  const file = input.files[0]
+  let file = input.files[0]
   if (!file) return
+  input.value = ''   // so picking the same file again still fires 'change'
+  const isSvg = file.type === 'image/svg+xml' || /\.svg$/i.test(file.name)
+  if (isSvg ? uploadTooBig(file, UPLOAD_LIMITS.logoSvg, 'That SVG logo', 'Save it again without embedded photos.')
+            : uploadTooBig(file, UPLOAD_LIMITS.logoPick, 'That logo')) return
+  // A big PNG / JPG / WebP logo is resized to 1024 px on its long side:
+  // still sharp on high-density screens, and quick to load on every page
+  // it appears on. PNG keeps transparency; a small logo goes up untouched.
+  if (!isSvg) {
+    const drawn = await _imageToCanvas(file, 1024)
+    if (!drawn) { toast('That image couldn\'t be read. Try a PNG or JPG.', 'error'); return }
+    if (drawn.scaled || file.size > 1024 * 1024) {
+      const type = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+      let blob = await _canvasBlob(drawn.canvas, type, 0.92)
+      // A photo-like PNG can stay big; WebP keeps transparency at a fraction of the size.
+      if (blob && blob.size > 1.5 * 1024 * 1024 && type === 'image/png') blob = await _canvasBlob(drawn.canvas, 'image/webp', 0.9) || blob
+      if (!blob) { toast('That image couldn\'t be prepared. Try a PNG or JPG.', 'error'); return }
+      const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png'
+      file = new File([blob], `clinic-logo.${ext}`, { type: blob.type })
+    }
+  }
 
   // Instant local preview — same URL.createObjectURL() pattern the
   // profile-photo cropper already uses (_uploadPhotoBlob) — shows the
@@ -14953,6 +16926,7 @@ window.handleLogoUpload = handleLogoUpload
 async function handleHeroUpload(input) {
   const file = input.files[0]
   if (!file) return
+  if (uploadTooBig(file, UPLOAD_LIMITS.hero, 'That image', 'Save it at 1920 × 1080 as a JPG.')) { input.value = ''; return }
 
   const formData = new FormData()
   formData.append('hero', file)
@@ -14977,6 +16951,7 @@ window.handleHeroUpload = handleHeroUpload
 async function handleVideoUpload(input) {
   const file = input.files[0]
   if (!file) return
+  if (uploadTooBig(file, UPLOAD_LIMITS.video, 'That video', 'Keep it to about 2 minutes and export it at 1080p (H.264).')) { input.value = ''; return }
 
   const formData = new FormData()
   formData.append('video', file)
@@ -15184,14 +17159,7 @@ function loadServicesAdmin() {
   if (!grid) return
 
   if (!CLINIC_SERVICES.length) {
-    grid.innerHTML = `
-      <div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;gap:12px;text-align:center">
-        <div style="width:56px;height:56px;border-radius:14px;background:#FEF3C7;display:flex;align-items:center;justify-content:center">
-          ${icon('package','icon')}
-        </div>
-        <div style="font-size:.85rem;font-weight:700;color:#374151">No services yet</div>
-        <div style="font-size:.75rem;color:#9CA3AF">Use the form above to add your first service.</div>
-      </div>`
+    grid.innerHTML = `<div style="grid-column:1/-1">${emptyState('package', 'No services yet', 'Use the form above to add your first service.')}</div>`
     _svcSelMode = false; _svcSelected.clear()
     const sb = document.getElementById('svc-sel-bar'); if (sb) sb.style.display = 'none'
     return
@@ -15592,20 +17560,7 @@ async function loadGalleryAdmin() {
     if (limitMsg)    limitMsg.style.display    = atLimit ? ''     : 'none';
 
     if (!d.images.length) {
-      grid.innerHTML = `
-        <div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;gap:12px;text-align:center">
-          <div style="width:64px;height:64px;border-radius:16px;background:#FEF3C7;display:flex;align-items:center;justify-content:center">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="3"/>
-              <circle cx="8.5" cy="8.5" r="1.5"/>
-              <polyline points="21 15 16 10 5 21"/>
-            </svg>
-          </div>
-          <div>
-            <div style="font-size:.85rem;font-weight:700;color:#374151;margin-bottom:4px">No photos yet</div>
-            <div style="font-size:.75rem;color:#9CA3AF;line-height:1.5">Use <strong style="color:#D97706">Add Photo</strong> below<br>to start building your gallery.</div>
-          </div>
-        </div>`;
+      grid.innerHTML = `<div style="grid-column:1/-1">${emptyState('image', 'No photos yet', 'Use <strong>Add Photo</strong> below to start building your gallery.')}</div>`;
       _galSelMode = false;
       _galSelected.clear();
       _galleryApplySelMode();
@@ -15675,56 +17630,58 @@ async function loadGalleryAdmin() {
 }
 
 async function _galleryDoUpload(dataUrl) {
-  const d = await fetch('api/clinic/gallery.php', {
+  return fetch('api/clinic/gallery.php', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ imageData: dataUrl, caption: '' })
   }).then(r => r.json());
-  if (!d.success) { toast(d.message || 'Upload failed.', 'error'); return; }
-  addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
-    action: 'Added a photo to the gallery', timestamp: nowTimestamp(), type:'settings' })
-  toast('Photo added to gallery.', 'success');
-  loadGalleryAdmin();
 }
 
+// Several photos can be picked at once. Each is resized to 1600 px (JPG,
+// white behind any transparency) and sent one after another, up to the
+// room left under the gallery's photo count; the button shows progress and
+// one message at the end says what was added and what was skipped.
 async function galleryUploadPhoto(input) {
-  const file = input.files[0];
-  if (!file) return;
+  const files = [...(input.files || [])];
   input.value = '';
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (!['png', 'jpg', 'jpeg', 'svg'].includes(ext)) {
-    toast('Only PNG, JPG or SVG files are accepted.', 'error');
-    return;
+  if (!files.length) return;
+
+  let room = Infinity;
+  try {
+    const g = await fetch('api/clinic/gallery.php').then(r => r.json());
+    if (g.success && g.maxPhotos) room = Math.max(0, g.maxPhotos - g.images.length);
+  } catch (_) {}
+  if (room === 0) { toast('The gallery is full. Remove a photo or raise the limit first.', 'error'); return; }
+
+  const label = document.querySelector('#gallery-upload-label .btn-secondary');
+  const labelHtml = label ? label.innerHTML : '';
+  const queue = files.slice(0, room);
+  const skipped = [];
+  if (files.length > room) skipped.push(`${files.length - room} over the gallery limit`);
+  let added = 0;
+  for (let i = 0; i < queue.length; i++) {
+    const file = queue[i];
+    if (label) { label.textContent = queue.length > 1 ? `Uploading ${i + 1} of ${queue.length}…` : 'Uploading…'; label.style.pointerEvents = 'none'; }
+    // PNG / JPG only — the server accepts nothing else (it checks the content).
+    if (!/\.(png|jpe?g)$/i.test(file.name)) { skipped.push(`"${file.name}" isn't a PNG or JPG`); continue; }
+    if (file.size > UPLOAD_LIMITS.galleryPick) { skipped.push(`"${file.name}" is over ${_uploadSize(UPLOAD_LIMITS.galleryPick)}`); continue; }
+    const drawn = await _imageToCanvas(file, 1600, '#fff');
+    if (!drawn) { skipped.push(`"${file.name}" couldn't be read`); continue; }
+    try {
+      const d = await _galleryDoUpload(drawn.canvas.toDataURL('image/jpeg', 0.85));
+      if (d.success) added++;
+      else { skipped.push(`"${file.name}": ${d.message || 'upload failed'}`); if (/full/i.test(d.message || '')) break; }
+    } catch (_) { skipped.push(`"${file.name}" (network error)`); }
   }
-  // SVG: send as-is (no canvas resize needed)
-  if (ext === 'svg') {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try { await _galleryDoUpload(e.target.result); }
-      catch (_) { toast('Network error — could not upload photo.', 'error'); }
-    };
-    reader.readAsDataURL(file);
-    return;
+  if (label) { label.innerHTML = labelHtml; label.style.pointerEvents = ''; }
+
+  if (added) {
+    addActivityLog({ id:'L'+Date.now(), user: state.user.name, role: state.role,
+      action: `Added ${added} photo${added === 1 ? '' : 's'} to the gallery`, timestamp: nowTimestamp(), type:'settings' })
   }
-  // Raster images: resize to max 1200px via canvas to keep payload small
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const img = new Image();
-    img.onload = async () => {
-      const MAX = 1200;
-      let w = img.width, h = img.height;
-      if (w > MAX || h > MAX) {
-        if (w >= h) { h = Math.round(h * MAX / w); w = MAX; }
-        else        { w = Math.round(w * MAX / h); h = MAX; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      try { await _galleryDoUpload(canvas.toDataURL('image/jpeg', 0.85)); }
-      catch (_) { toast('Network error — could not upload photo.', 'error'); }
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
+  const note = skipped.length ? ` Skipped: ${skipped.join('; ')}.` : '';
+  toast(added ? `${added} photo${added === 1 ? '' : 's'} added to the gallery.${note}` : `No photos were added.${note}`,
+        added ? (skipped.length ? 'info' : 'success') : 'error', skipped.length ? 6000 : 3000);
+  loadGalleryAdmin();
 }
 
 async function galleryDeletePhoto(id) {
@@ -15752,7 +17709,7 @@ async function galleryDeletePhoto(id) {
 function galleryMaxAdjust(delta) {
   const inp = document.getElementById('gallery-max-input');
   if (!inp) return;
-  inp.value = Math.min(20, Math.max(1, (parseInt(inp.value, 10) || 1) + delta));
+  inp.value = Math.min(30, Math.max(1, (parseInt(inp.value, 10) || 1) + delta));
 }
 
 async function _doSaveGalleryMax(max) {
@@ -15789,7 +17746,7 @@ async function _doSaveGalleryMax(max) {
 
 async function saveGalleryMax() {
   const val = document.getElementById('gallery-max-input')?.value.trim();
-  const max  = Math.min(20, Math.max(1, parseInt(val, 10) || 1));
+  const max  = Math.min(30, Math.max(1, parseInt(val, 10) || 1));
 
   // Check if saving would remove any existing photos
   try {
@@ -16457,6 +18414,48 @@ function _buildReportData(key, from, to) {
       }
     }
 
+    // One row per patient with clinical records in the range — each visit's
+    // consultation, examination and prescription (medicalRecordVisits(),
+    // pages.js). A row opens that patient's full medical record, which has
+    // its own Print and Download PDF.
+    case 'medical-records': {
+      const rows = []
+      patients.forEach(pt => {
+        const visits = window.medicalRecordVisits(pt).filter(v => v.date && inRange(v.date))   // newest first
+        if (!visits.length) return
+        // The latest prescription with powers typed in (one saved without
+        // any would only read "OD — · OS —").
+        const hasPower = e => !!(e?.sph || e?.cyl)
+        const rxVisit = visits.find(v => v.rx && (hasPower(v.rx.od) || hasPower(v.rx.os)))
+        rows.push({
+          pid: pt.id, patient: pt.name, visits: visits.length,
+          rawLast: visits[0].date, last: fmtD(visits[0].date),
+          diagnosis: visits.map(v => v.exam?.diagnosis || v.con?.diagnosis || '').find(Boolean) || '',
+          rx: rxVisit ? `OD ${rxEye(rxVisit.rx.od)} · OS ${rxEye(rxVisit.rx.os)}` : '',
+          history: String(pt.medicalHistory || '').trim(),
+        })
+      })
+      rows.sort((a, b) => b.rawLast.localeCompare(a.rawLast))
+      const none = '<span style="color:#9ca3af">—</span>'
+      return {
+        title: 'Patient Medical Records Report',
+        hint: 'Click a patient to open their full medical record, where you can print or download it.',
+        headers: ['Patient', 'Patient ID', 'Visits', 'Last Visit', 'Latest Diagnosis', 'Latest Prescription', 'Medical History'],
+        rows,
+        // Names, diagnoses and history are typed text — escaped. History is
+        // clipped to two lines on screen; Excel gets the full text.
+        render: r => [esc(r.patient), `<span style="font-size:.75rem;color:#6b7280">${r.pid}</span>`,
+                      `<strong>${r.visits}</strong>`, r.last,
+                      r.diagnosis ? esc(r.diagnosis) : none,
+                      r.rx ? `<code style="font-size:.73rem">${esc(r.rx)}</code>` : none,
+                      r.history ? `<span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:240px;overflow-wrap:anywhere" title="${esc(r.history)}">${esc(r.history)}</span>` : none],
+        rowClick: r => `window.openMedicalRecordModal('${r.pid}')`,
+        sortCols: { 0: ['patient', 'text', r => r.patient], 2: ['visits', 'number', r => r.visits],
+                    3: ['date', 'date', r => r.rawLast], 4: ['diagnosis', 'text', r => r.diagnosis] },
+        defaultSort: { key: 'date', type: 'date', dir: -1 }
+      }
+    }
+
     case 'daily-appointment': {
       const rows = appointments
         .filter(a => inRange(a.date))
@@ -16649,6 +18648,28 @@ function _buildReportCharts(key, from, to) {
       }
     }
 
+    case 'medical-records': {
+      const byMonth = Array(N).fill(0)
+      let cons = 0, exams = 0, rxs = 0
+      patients.forEach(pt => {
+        window.medicalRecordVisits(pt).filter(v => inRange(v.date)).forEach(v => {
+          const idx = monthIdx(v.date)
+          if (idx >= 0) byMonth[idx]++
+          if (v.con) cons++
+          if (v.exam) exams++
+          if (v.rx) rxs++
+        })
+      })
+      const parts = [['Consultations', cons, '#E8891C'], ['Examinations', exams, '#2563eb'], ['Prescriptions', rxs, '#7c3aed']].filter(([, n]) => n)
+      return {
+        left:  { title: 'Patient Visits per Month', categoryLabel: 'Month', type: 'bar', labels: monthLabels,
+                 datasets: [{ label: 'Visits', data: byMonth, backgroundColor: '#E8891C', borderRadius: 5 }] },
+        right: { title: 'Records by Type', categoryLabel: 'Record', type: 'doughnut',
+                 labels: parts.map(p => p[0]),
+                 datasets: [{ label: 'Records', data: parts.map(p => p[1]), backgroundColor: parts.map(p => p[2]), borderWidth: 2 }] }
+      }
+    }
+
     case 'daily-appointment': {
       const fromD = from ? new Date(from) : null
       const toD   = to   ? new Date(to + 'T23:59:59') : null
@@ -16736,8 +18757,6 @@ function _buildReportCharts(key, from, to) {
 function generateReport() {
   if (state.role !== 'admin') { toast('Reports are available to administrators only.', 'error'); return }
   const key    = document.getElementById('rpt-type')?.value || ''
-  const from   = document.getElementById('rpt-from')?.value || ''
-  const to     = document.getElementById('rpt-to')?.value   || ''
   const area   = document.getElementById('rpt-table-area')
   const hdr    = document.getElementById('rpt-table-header')
   const btn    = document.getElementById('rpt-gen-btn')
@@ -16749,6 +18768,14 @@ function generateReport() {
     window.toast('Please select a report type.', 'error')
     return
   }
+  // A half-typed or impossible date: stop at the field (its own message
+  // says what's wrong) instead of quietly running on the wrong range. A
+  // fully typed date not yet committed gets committed here, so the range
+  // is read only after this.
+  const badDate = ['rpt-from', 'rpt-to'].find(id => window.dateFieldSync && !window.dateFieldSync(id))
+  if (badDate) { document.getElementById(badDate + '-text')?.focus(); return }
+  const from   = document.getElementById('rpt-from')?.value || ''
+  const to     = document.getElementById('rpt-to')?.value   || ''
 
   // Skeleton loading
   if (btn) { btn.disabled = true; btn.innerHTML = icon('clock','icon-sm') + ' Generating\u2026' }
@@ -16797,6 +18824,7 @@ function generateReport() {
               <span class="rpt-hdr-dot">\u00b7</span>
               <span>Generated: ${now}</span>
             </div>
+            ${def.hint && count > 0 ? `<div class="rpt-hdr-hint">${icon('info', 'icon-sm')}<span>${def.hint}</span></div>` : ''}
           </div>
           <div class="rpt-hdr-actions rpt-no-print">
             <button class="btn-secondary" onclick="window.exportReportXlsx()">
@@ -16868,18 +18896,9 @@ function resetReport() {
   const hdr = document.getElementById('rpt-table-header')
   if (hdr) { hdr.style.display = 'none'; hdr.innerHTML = '' }
 
-  // Byte-identical to the page's own initial empty state (pages.js) —
-  // this used to render at font-size:.88rem instead of .92rem, a small
-  // but real mismatch that made the card visibly shrink by a few pixels
-  // every time Reset was clicked, even from an already-empty state.
+  // The same empty state the page opens with (reportEmptyHtml()).
   const area = document.getElementById('rpt-table-area')
-  if (area) area.innerHTML = `
-    <div style="text-align:center;padding:56px 24px">
-      <div style="font-size:.92rem;font-weight:600;color:#374151;margin-bottom:6px">No report generated yet.</div>
-      <div style="font-size:.8rem;color:#9ca3af;max-width:280px;margin:0 auto;line-height:1.6">
-        Choose a report type and date range above, then click <strong style="color:#6b7280">Generate</strong>.
-      </div>
-    </div>`
+  if (area) area.innerHTML = reportEmptyHtml()
 
   const trends = document.getElementById('rpt-trends-section')
   if (trends) trends.style.display = 'none'
@@ -16888,6 +18907,12 @@ function resetReport() {
   if (_rptChartRight) { _rptChartRight.destroy(); _rptChartRight = null }
 }
 window.resetReport = resetReport
+
+// Reports before anything is generated (page load and Reset).
+function reportEmptyHtml() {
+  return emptyState('bar-chart', 'No report generated yet', 'Choose a report type and date range above, then select <strong>Generate</strong>.')
+}
+window.reportEmptyHtml = reportEmptyHtml
 
 // Table version of a chart config — used by printReport() (pages.js) only.
 // The on-screen Reports page keeps its real bar/doughnut/line charts (see
@@ -16943,7 +18968,7 @@ function renderReportCharts(key, from, to) {
     return side.datasets.some(ds => ds.data && ds.data.some(v => v > 0))
   }
 
-  const chartEmpty = `<div style="display:flex;align-items:center;justify-content:center;padding:20px 0;color:#9ca3af;font-size:.82rem">No data available for this range.</div>`
+  const chartEmpty = emptyState('bar-chart', 'No data for this range', 'Try a wider date range.', { size: 'sm', neutral: true })
 
   const lWrap = document.getElementById('rpt-chart-left-wrap')
   if (lWrap) {
@@ -17025,12 +19050,7 @@ window.renderReportCharts = renderReportCharts
 // sortCols / rowSortAttrs (optional): which header indexes are sortable
 // ({ index: [key, type] }) and each row's data-sort-* attributes.
 function reportTable(headers, rows, rowClicks = null, sortCols = {}, rowSortAttrs = []) {
-  if (!rows.length) return `
-    <div style="text-align:center;padding:48px 24px 40px;color:#9CA3AF">
-      <div style="font-size:.8rem;color:#9ca3af;max-width:300px;margin:0 auto;line-height:1.65">
-        No records match the selected filters. Try widening the date range or choosing a different report type.
-      </div>
-    </div>`
+  if (!rows.length) return emptyState('search', 'No records in this range', 'Try a wider date range or a different report type.', { neutral: true })
   return `
     <div class="table-wrap">
       <table class="tbl">

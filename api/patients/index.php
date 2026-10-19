@@ -148,8 +148,12 @@ try {
         ];
     }
 
+    // ── Previous clinic records (exam results / Rx from other clinics,
+    //    with their uploaded files) — see api/previous_records/ ─────
+    $prevByPt = previousRecordsByPatient($pdo);
+
     // ── Build patient objects ─────────────────────────────────────
-    $result = array_map(function ($p) use ($examsByPt, $rxByPt, $conByPt, $photoMap) {
+    $result = array_map(function ($p) use ($examsByPt, $rxByPt, $conByPt, $prevByPt, $photoMap) {
         $pid = $p['id'];
         return [
             'id'             => $pid,
@@ -181,6 +185,7 @@ try {
             'examinations'   => $examsByPt[$pid] ?? [],
             'prescriptions'  => $rxByPt[$pid]   ?? [],
             'consultations'  => $conByPt[$pid]   ?? [],
+            'previousRecords'=> $prevByPt[$pid]  ?? [],
         ];
     }, $ptRows);
 

@@ -7,11 +7,21 @@
 // ── Shared helpers ──────────────────────────────────────────────
 function ic(name, cls = 'icon')  { return window.icon(name, cls) }
 function st()                    { return window.state }
-function emptyState(iconName, title, desc) {
-  return `<div class="empty-state">
-    <div class="empty-state-desc">${desc}</div>
+// The one empty state for every list with nothing in it (global.css .es):
+// an icon tile, a title, one line on what will appear there, and an
+// optional next step. opts: size 'sm' (dropdowns, dashboard widgets),
+// neutral (grey — "nothing matches", as opposed to "nothing yet"), action
+// (button HTML). title/desc are trusted HTML.
+function emptyState(iconName, title, desc = '', opts = {}) {
+  const cls = ['es', opts.size === 'sm' && 'es-sm', opts.neutral && 'es-neutral'].filter(Boolean).join(' ')
+  return `<div class="${cls}">
+    <div class="es-art" aria-hidden="true"><span class="es-tile">${ic(iconName, 'icon')}</span></div>
+    <div class="es-title">${title}</div>
+    ${desc ? `<div class="es-text">${desc}</div>` : ''}
+    ${opts.action ? `<div class="es-actions">${opts.action}</div>` : ''}
   </div>`
 }
+window.emptyState = emptyState
 
 // badge() is defined in main.js (loads after this file and wins the global
 // binding anyway) — removed the dead duplicate that used to live here.
@@ -94,18 +104,20 @@ function recFilterBar(listId, opts = {}) {
       ${years.length > 1 ? sel('yr', 'All Years', years.map(y => ({ value: y, label: y }))) : ''}
       ${statuses && statuses.length > 1 ? sel('st', statusLabel, statuses.map(([v, l]) => ({ value: v, label: l }))) : ''}
       ${isTable ? `<style>@media (max-width:767px){#sortbar-${listId}{display:none!important}}</style>` : ''}
-      <div class="rec-filter-sel${isTable ? ' rec-sort-mobile-only' : ''}">${window.selectFieldHtml(`${listId}-sort`, {
+      <!-- Sort by the record's date. (A "by when entered" sort was dropped:
+           records are entered on their visit day, so it read the same.) -->
+      <div class="rec-filter-sel rec-filter-sort${isTable ? ' rec-sort-mobile-only' : ''}" title="Sort the list">${window.selectFieldHtml(`${listId}-sort`, {
           value: 'desc', options: [
-            { value: 'desc',     label: 'Date: Newest first' },
-            { value: 'asc',      label: 'Date: Oldest first' },
-            { value: 'num-desc', label: 'Number: High to low' },
-            { value: 'num-asc',  label: 'Number: Low to high' },
+            { value: 'desc', label: 'Newest first' },
+            { value: 'asc',  label: 'Oldest first' },
           ],
-          onchange: onchg, minWidth: 180, style: 'height:40px;font-size:.82rem' })}</div>
+          lead: ic('sort', 'icon-sm'),
+          onchange: `window.applyRecFilter('${listId}', 'sort')`, minWidth: 170, style: 'height:40px;font-size:.82rem' })}</div>
     </div>`
 }
 
-function applyRecFilter(listId) {
+// why: 'sort' when the call comes from the sort dropdown itself.
+function applyRecFilter(listId, why) {
   const root = document.getElementById(listId)
   if (!root) return
   const val = s => (document.getElementById(`${listId}-${s}`)?.value || '')
@@ -123,21 +135,30 @@ function applyRecFilter(listId) {
   // Newest / Oldest first — reorder the rows themselves (lists arrive
   // newest-first, so "desc" is also the original order).
   const sortDir = val('sort')
-  if (sortDir && rows.length > 1) {
+  // A table whose headers also sort (sortable.js; the dropdown is mobile-
+  // only there) keeps the order its headers set while you search or
+  // filter. Picking from the dropdown re-sorts through sortable.js, so the
+  // header arrows follow.
+  const dateTh = root.tagName === 'TBODY' ? root.closest('table')?.querySelector('th.th-sortable[data-sort-type="date"]') : null
+  if (dateTh && window.setTableSort) {
+    if (why === 'sort' && sortDir) window.setTableSort(listId, dateTh.dataset.sortKey, 'date', sortDir === 'asc' ? 1 : -1)
+  } else if (sortDir && rows.length > 1) {
     const parent = rows[0].parentElement
-    const byNum = sortDir.startsWith('num-')
-    const asc   = sortDir === 'asc' || sortDir === 'num-asc'
+    const asc = sortDir === 'asc'
+    // Undated items (a record from another clinic with no exam date) stay
+    // last either way.
+    const undated = r => !/^\d{4}/.test(r.dataset.recDate || '')
     const ordered = [...rows].sort((a, b) => {
-      const c = byNum
-        ? (parseInt(a.dataset.recNum || '0', 10) - parseInt(b.dataset.recNum || '0', 10))
-        : (a.dataset.recDate || '').localeCompare(b.dataset.recDate || '')
+      if (undated(a) !== undated(b)) return undated(a) ? 1 : -1
+      const c = (a.dataset.recDate || '').localeCompare(b.dataset.recDate || '')
       return asc ? c : -c
     })
     const anchor = document.getElementById(listId + '-search-empty')
     ordered.forEach(r => parent.insertBefore(r, anchor && anchor.parentElement === parent ? anchor : null))
   }
   const isTable = root.tagName === 'TBODY'
-  if (isTable && window.pgReset) window.pgReset(listId)
+  // Paged card lists too (a no-op for a list that isn't paged).
+  if (window.pgReset) window.pgReset(listId)
   window._syncSearchEmptyState(listId, rows.length > 0 && !any, isTable ? 'table' : 'div', 'No records match your filters.')
 }
 window.recRowAttrs    = recRowAttrs
@@ -198,7 +219,7 @@ function profilePhotoEditorHtml(idPrefix, name, photoUrl) {
           </span>
         </div>
       </label>
-      <label for="${inputId}" title="Change photo" style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:#E8760A;border:2px solid #fff;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.2);transition:background .15s,transform .1s"
+      <label for="${inputId}" title="Change photo (JPG, PNG or WebP, up to 10 MB)" style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:#E8760A;border:2px solid #fff;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.2);transition:background .15s,transform .1s"
              onmouseover="this.style.opacity='.88'"
              onmouseout="this.style.opacity='1'"
              onmousedown="this.style.transform='scale(.9)'"
@@ -302,14 +323,25 @@ function ownEmailCardHtml(email) {
 // shown on Patient Records in place of the old Active/Inactive status.
 // Online / Walk-in reuse the appointment pills' colours.
 const PATIENT_SOURCE_META = {
-  'online':      { label: 'Online',      bg: '#EFF6FF', fg: '#1D4ED8', tip: 'Registered on the website' },
-  'walk-in':     { label: 'Walk-in',     bg: '#FFF7ED', fg: '#C2410C', tip: 'Added by clinic staff' },
-  'transferred': { label: 'Transfer', bg: '#F5F3FF', fg: '#6D28D9', tip: 'Migrated from another optical clinic' },
-  'referral':    { label: 'Referral',    bg: '#ECFDF5', fg: '#047857', tip: 'Referred to the clinic' },
+  'online':      { label: 'Online',      bg: '#EFF6FF', fg: '#1D4ED8', bd: '#BFDBFE', tip: 'Registered on the website' },
+  'walk-in':     { label: 'Walk-in',     bg: '#FFF7ED', fg: '#C2410C', bd: '#FED7AA', tip: 'Added by clinic staff' },
+  'transferred': { label: 'Transfer',    bg: '#F5F3FF', fg: '#6D28D9', bd: '#DDD6FE', tip: 'Migrated from another optical clinic' },
+  'referral':    { label: 'Referral',    bg: '#ECFDF5', fg: '#047857', bd: '#A7F3D0', tip: 'Referred to the clinic' },
 }
-function patientSourceBadge(p) {
+// Storefront glyph for the "from which clinic" half of the full badge.
+const SRC_CLINIC_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9a3 3 0 0 0 6 0a3 3 0 0 0 6 0a3 3 0 0 0 6 0"/><path d="M5 11.5V20h14v-8.5"/><path d="M10 20v-5h4v5"/></svg>'
+const SRC_PERSON_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>'
+// full: the profile header's segmented pill — [Transfer | ⌂ Ojo Eyewear],
+// same height as the stage tag beside it. Lists keep the short badge with
+// that detail in the tooltip.
+function patientSourceBadge(p, { full = false } = {}) {
   const m = PATIENT_SOURCE_META[p?.source] || PATIENT_SOURCE_META['walk-in']
   const note = p?.sourceNote ? (p.source === 'transferred' ? `From ${p.sourceNote}` : p.source === 'referral' ? `Referred by ${p.sourceNote}` : p.sourceNote) : ''
+  if (full) {
+    const showNote = p?.sourceNote && ['transferred', 'referral'].includes(p.source)
+    return `<span class="src-full" title="${esc(note || m.tip)}" style="--src-bg:${m.bg};--src-fg:${m.fg};--src-bd:${m.bd}">
+      <span class="src-full__type">${m.label}</span>${showNote ? `<span class="src-full__from">${p.source === 'referral' ? SRC_PERSON_ICON : SRC_CLINIC_ICON}<span>${esc(p.sourceNote)}</span></span>` : ''}</span>`
+  }
   return `<span title="${esc(note || m.tip)}" style="display:inline-flex;align-items:center;font-size:.68rem;font-weight:700;letter-spacing:.02em;padding:3px 10px;border-radius:999px;white-space:nowrap;background:${m.bg};color:${m.fg}">${m.label}</span>`
 }
 window.PATIENT_SOURCE_META = PATIENT_SOURCE_META
@@ -318,14 +350,27 @@ window.patientSourceBadge  = patientSourceBadge
 // ── New vs established patient ───────────────────────────────────
 // Not a separate user role: anyone with a patient record is a Patient (they
 // need a Patient ID, QR check-in and booking to get their first visit). The
-// stage only says whether the clinic has records for them yet:
-//   New Patient         — no examination recorded at the clinic, and not a
-//                         Transfer bringing records from another clinic;
-//   Established Patient — at least one examination on file, or a Transfer.
-// Switches on its own the moment their first examination is saved.
+// stage only says whether the clinic has an examination on file for them,
+// the same rule whatever their Registration Type:
+//   New Patient         — no examination on file yet;
+//   Established Patient — at least one examination on file: one done at
+//                         the clinic, or exam results / a prescription from
+//                         a previous clinic uploaded to their profile
+//                         (Previous Clinic Records, api/previous_records/).
+// So a Transfer who brought their old records is Established once those
+// are uploaded; one who brought nothing stays New until examined here.
+// The Transfer badge beside the tag still says where they came from.
+// Switches on its own the moment either kind of record is saved.
+// hasClinicExam() is the narrower "examined here" check (e.g. the exam
+// wizard's "First examination at the clinic" line).
+function hasClinicExam(p) {
+  return !!(p?.examinations || []).length
+}
+function prevClinicRecords(p) {
+  return p?.previousRecords || []
+}
 function isNewPatient(p) {
-  if (!p || p.source === 'transferred') return false
-  return !(p.examinations || []).length
+  return !!p && !hasClinicExam(p) && !prevClinicRecords(p).length
 }
 // ── Stage label (.np-tag, global.css) ──
 // New Patient: the clinic's orange with a small sparkle, the one warm,
@@ -350,7 +395,8 @@ function patientSince(p) {
   return first ? new Date(first + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''
 }
 // One line of context next to the stage, e.g. "First visit: Oct 23, 2026",
-// "No visit booked yet", "Patient since Jun 2026", "Records from another clinic".
+// "No visit booked yet", "Patient since Jun 2026", "Records from Sunrise
+// Optical" (established only by a previous clinic's records so far).
 function patientStageNote(p) {
   if (!p) return ''
   if (isNewPatient(p)) {
@@ -358,7 +404,9 @@ function patientStageNote(p) {
     return fv ? `First visit: ${fmtDate(fv.date)} at ${fv.time}` : 'No visit booked yet'
   }
   const since = patientSince(p)
-  return since ? `Patient since ${since}` : (p.source === 'transferred' ? 'Records from another clinic' : '')
+  if (since) return `Patient since ${since}`
+  const prev = prevClinicRecords(p)[0]
+  return prev ? `Records from ${prev.clinicName}` : ''
 }
 // The note as a small chip with a calendar icon (.np-chip, global.css):
 // booked first visit → cream/orange; no visit booked yet → dashed and quiet,
@@ -372,7 +420,10 @@ function patientStageChip(p) {
 
 function newPatientTag(p, size = 'sm') {
   if (!isNewPatient(p)) return ''
-  const tip = `New Patient: no examination on file at the clinic yet. ${patientStageNote(p)}.`
+  // A transfer's tip also says where they came from: nothing from their old
+  // clinic is on file yet, so the first exam here is the baseline.
+  const from = p.source === 'transferred' ? ` Transferred from ${p.sourceNote || 'another clinic'}.` : ''
+  const tip = `New Patient: no examination on file yet.${from} ${patientStageNote(p)}.`
   // A <b>, not a <span>, so table cells' span styles (e.g. the grey ID line
   // under a name) can't restyle it.
   return `<b class="np-tag np-tag--new np-tag--${size}" title="${esc(tip)}">${NP_ICON_NEW}New Patient</b>`
@@ -392,7 +443,265 @@ window.patientStageNote  = patientStageNote
 window.patientStageChip  = patientStageChip
 window.newPatientPill    = newPatientPill
 window.patientStageBadge = patientStageBadge
+window.hasClinicExam     = hasClinicExam
+window.prevClinicRecords = prevClinicRecords
 
+// ── Previous Clinic Records ──────────────────────────────────────
+// Exam results / prescriptions a patient brings from another optical
+// clinic: the uploaded PDF or scanned images, plus any values staff typed
+// in from them (api/previous_records/). Shown on Patient Profile (own
+// tab), and in the exam wizard (sidebar + a reference line above the
+// Visual Exam fields) so the doctor can compare old and new values.
+// Add / edit / view / delete modals: main.js (openPrevRecordModal etc.).
+const PREV_REC_TYPE_LABEL = { exam: 'Eye Examination', prescription: 'Prescription', other: 'Other Document' }
+// The type as shown: what staff specified for an "Other" document
+// ("Referral letter"), else the standard label. Plain text — escape it.
+function prevRecTypeLabel(r) {
+  const other = r?.type === 'other' ? String(r.typeOther || '').trim() : ''
+  return other ? other.charAt(0).toUpperCase() + other.slice(1) : (PREV_REC_TYPE_LABEL[r?.type] || 'Document')
+}
+
+function prevRecHasRx(r) {
+  return !!r?.pd || ['od', 'os'].some(s => ['sph', 'cyl', 'axis', 'add', 'va'].some(k => (r?.[s]?.[k] || '') !== ''))
+}
+// One eye as written on a prescription: "-1.75 / -0.50 × 180 · ADD +1.00",
+// "-2.00 DS", "Plano". '' when no sphere or cylinder was typed in.
+function prevRecRxLine(e) {
+  if (!e || (!e.sph && !e.cyl)) return ''
+  const sph = e.sph || 'Plano'
+  const noCyl = !e.cyl || /^ds$/i.test(e.cyl) || parseFloat(e.cyl) === 0
+  let s = noCyl ? (/^pl/i.test(sph) ? sph : `${sph} DS`) : `${sph} / ${e.cyl}${e.axis !== '' && e.axis != null ? ' × ' + e.axis : ''}`
+  if (e.add) s += ` · ADD ${e.add}`
+  return s
+}
+function prevRecFileUrl(f, download = false) {
+  return `api/previous_records/file.php?id=${encodeURIComponent(f.id)}${download ? '&dl=1' : ''}`
+}
+function prevRecFileSize(n) {
+  n = +n || 0
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'
+}
+function prevRecIsImage(f) {
+  return String(f?.mime || f?.type || '').startsWith('image/')
+}
+// File row: image thumbnail or a PDF badge, name, kind and size. Opens the
+// in-app preview (openFilePreview, main.js); Ctrl / ⌘-click still opens
+// it in a new tab like any link.
+function prevRecFileChip(f, patientId, recordId) {
+  const url = prevRecFileUrl(f)
+  const img = prevRecIsImage(f)
+  return `<a class="prc-file" href="${url}" target="_blank" rel="noopener" title="Preview ${esc(f.name)}"
+    onclick="return window.previewRecordFile(event,'${patientId}',${recordId},${f.id})">
+    ${img ? `<img class="prc-file-thumb" src="${url}" alt="" loading="lazy">` : '<span class="prc-file-pdf">PDF</span>'}
+    <span class="prc-file-info">
+      <span class="prc-file-name">${esc(f.name)}</span>
+      <span class="prc-file-size">${img ? 'Image' : 'PDF'} · ${prevRecFileSize(f.size)}</span>
+    </span>
+    <span class="prc-file-go" aria-hidden="true">${ic('eye', 'icon-sm')}</span>
+  </a>`
+}
+// The typed-in values as an OD / OS table, eyes in the clinic's prescription
+// colours (OD green, OS amber), PD as its own last row. '' when none.
+const PREV_REC_RX_COLS = [['sph', 'SPH', 'Sphere'], ['cyl', 'CYL', 'Cylinder'], ['axis', 'AXIS', 'Axis'], ['add', 'ADD', 'Add'], ['va', 'VA', 'Visual acuity']]
+function prevRecRxTable(r) {
+  if (!prevRecHasRx(r)) return ''
+  const cell = v => (v !== '' && v != null) ? esc(v) : '<span class="prc-dash" aria-label="Not given">—</span>'
+  const row = (side, abbr, word, e = {}) => `
+        <tr class="is-${side}">
+          <th scope="row"><span class="prc-eye"><i aria-hidden="true"></i><b>${abbr}</b><small>${word}</small></span></th>
+          ${PREV_REC_RX_COLS.map(([k]) => `<td>${cell(e[k])}</td>`).join('')}
+        </tr>`
+  const pd = String(r.pd || '').trim()
+  // "62", "62.5" or "62/60" are millimetres; anything else is shown as typed.
+  const pdMm = /^\d+(\.\d+)?(\s*\/\s*\d+(\.\d+)?)?$/.test(pd)
+  return `<div class="prc-rx-box">
+    <table class="prc-rx">
+      <colgroup><col class="prc-rx-eyecol">${PREV_REC_RX_COLS.map(() => '<col>').join('')}</colgroup>
+      <thead><tr><th scope="col" aria-label="Eye"></th>${PREV_REC_RX_COLS.map(([, s, full]) => `<th scope="col" title="${full}">${s}</th>`).join('')}</tr></thead>
+      <tbody>${row('od', 'OD', 'Right', r.od)}${row('os', 'OS', 'Left', r.os)}</tbody>
+      ${pd ? `<tfoot><tr><th scope="row" title="Pupillary distance">PD</th><td colspan="${PREV_REC_RX_COLS.length}">${esc(pd)}${pdMm ? ' <small>mm</small>' : ''}</td></tr></tfoot>` : ''}
+    </table>
+  </div>`
+}
+// Header: date tile, clinic, type, optometrist. Body: Prescription |
+// Diagnosis & Notes | Documents, side by side on a wide card and stacked on
+// a narrow one (global.css container query). Footer: who added it, actions.
+function prevRecordCardHtml(p, r, canManage) {
+  const d = r.date ? new Date(r.date + 'T00:00:00') : null
+  const rx = prevRecRxTable(r)
+  const foot = [
+    r.createdAt ? `Added by ${esc(r.createdBy || 'staff')} · ${fmtDate(r.createdAt.slice(0, 10))}` : '',
+    r.updatedAt ? `Edited ${fmtDate(r.updatedAt.slice(0, 10))}` : '',
+  ].filter(Boolean).join(' · ')
+  const secs = []
+  if (rx) secs.push(`<section class="prc-sec prc-sec--rx"><div class="prc-lbl">Prescription</div>${rx}</section>`)
+  if (r.diagnosis || r.notes) secs.push(`<section class="prc-sec prc-sec--notes">
+      ${r.diagnosis ? `<div class="prc-field"><div class="prc-lbl">Diagnosis</div><p class="prc-text prc-dx">${esc(r.diagnosis)}</p></div>` : ''}
+      ${r.notes ? `<div class="prc-field"><div class="prc-lbl">Notes</div>
+        <div class="prc-clampbox"><p class="prc-text prc-clamp">${esc(r.notes)}</p>
+          <button type="button" class="prc-more" aria-expanded="false" onclick="window._prcToggleMore(this)">Show more</button></div></div>` : ''}
+    </section>`)
+  secs.push(`<section class="prc-sec prc-sec--docs">
+      <div class="prc-lbl">Documents${r.files.length ? ` <span class="prc-count">${r.files.length}</span>` : ''}</div>
+      ${r.files.length
+        ? `<div class="prc-files">${r.files.map(f => prevRecFileChip(f, p.id, r.id)).join('')}</div>`
+        : '<p class="prc-nofiles">No document attached, only the typed-in values.</p>'}
+    </section>`)
+  // recRowAttrs: what the tab's filter bar searches, filters (type) and sorts by.
+  const searchText = [r.clinicName, r.optometrist, r.diagnosis, prevRecTypeLabel(r), r.notes, r.date ? fmtDate(r.date) : ''].filter(Boolean).join(' ')
+  return `
+  <article class="prc-card" ${recRowAttrs({ search: searchText, date: r.date, status: r.type, id: r.id })}>
+    <header class="prc-card-head">
+      <div class="prc-date" title="Exam or issue date">${d
+        ? `<b>${d.getDate()}</b><span>${d.toLocaleString('en', { month: 'short' })}</span><i>${d.getFullYear()}</i>`
+        : '<span class="prc-nodate">No<br>date</span>'}</div>
+      <div class="prc-title">
+        <div class="prc-title-row">
+          <span class="prc-clinic">${esc(r.clinicName)}</span>
+          <span class="prc-type prc-type--${esc(r.type)}">${esc(prevRecTypeLabel(r))}</span>
+        </div>
+        ${r.optometrist ? `<div class="prc-sub">${ic('user', 'icon-xs')}<span>${esc(r.optometrist)}</span></div>` : ''}
+      </div>
+    </header>
+    <div class="prc-card-body">${secs.join('')}</div>
+    <footer class="prc-card-foot">
+      ${foot ? `<span class="prc-added">${foot}</span>` : ''}
+      <div class="prc-actions">
+        <button type="button" class="btn-ghost prc-act" onclick="window.viewPrevRecord('${p.id}',${r.id})">${ic('eye', 'icon-sm')} View</button>
+        ${canManage ? `
+        <button type="button" class="btn-ghost prc-act" onclick="window.openPrevRecordModal('${p.id}',${r.id})">${ic('edit', 'icon-sm')} Edit</button>
+        <button type="button" class="btn-icon prc-arc" title="Move to Archives" aria-label="Move to Archives" onclick="window.confirmArchivePrevRecord('${p.id}',${r.id})">${ic('archive', 'icon-sm')}</button>` : ''}
+      </div>
+    </footer>
+  </article>`
+}
+// Long notes start clamped to 4 lines; "Show more" appears only when the
+// text really is cut off. A ResizeObserver re-checks when the card first
+// becomes visible (its tab opens) and whenever its width changes.
+let _prcClampRO = null
+const _prcClampEls = new Set()
+function prcWatchClamps(root = document) {
+  if (typeof ResizeObserver === 'undefined') {
+    root.querySelectorAll('.prc-clampbox').forEach(b => b.classList.add('is-clamped'))
+    return
+  }
+  _prcClampRO = _prcClampRO || new ResizeObserver(entries => entries.forEach(({ target: el }) => {
+    const box = el.closest('.prc-clampbox')
+    if (!box || box.classList.contains('is-open') || !el.clientHeight) return
+    box.classList.toggle('is-clamped', el.scrollHeight > el.clientHeight + 1)
+  }))
+  // Forget cards a re-render removed, so they can be garbage-collected.
+  _prcClampEls.forEach(el => { if (!el.isConnected) { _prcClampRO.unobserve(el); _prcClampEls.delete(el) } })
+  root.querySelectorAll('.prc-clamp').forEach(el => {
+    if (_prcClampEls.has(el)) return
+    _prcClampEls.add(el)
+    _prcClampRO.observe(el)
+  })
+}
+function _prcToggleMore(btn) {
+  const open = btn.closest('.prc-clampbox').classList.toggle('is-open')
+  btn.textContent = open ? 'Show less' : 'Show more'
+  btn.setAttribute('aria-expanded', String(open))
+}
+// Patient Profile → "Previous Clinic Records" tab.
+function prevRecordsPanelHtml(p, role) {
+  const recs = prevClinicRecords(p)
+  const canManage = ['admin', 'staff', 'doctor'].includes(role)
+  const who  = esc(p.firstName || p.name || 'This patient')
+  const from = p.source === 'transferred' && p.sourceNote ? ` from ${esc(p.sourceNote)}` : ''
+  return `
+    <div class="prc-toolbar">
+      <div>
+        <div class="patient-section-label muted" style="margin-bottom:2px">Records from Other Clinics (${recs.length})</div>
+        <div class="prc-intro">Exam results or prescriptions from previous optical clinics, kept as PDF or scanned images.</div>
+      </div>
+      ${canManage && recs.length ? `<button class="btn-primary prc-add-btn" onclick="window.openPrevRecordModal('${p.id}')">${ic('upload', 'icon-sm')} Add Record</button>` : ''}
+    </div>
+    ${recs.length
+      // Search, year, type and Newest / Oldest first — the same bar as the
+      // other record tabs — once there's more than one; 5 cards a page
+      // after that (prcInitPaging).
+      ? `${recs.length > 1 ? recFilterBar('prc-list', {
+            items: recs, getDoctor: () => '', getDate: r => r.date, placeholder: 'Search clinic, optometrist or diagnosis…',
+            statusLabel: 'All Types',
+            statuses: [['exam', PREV_REC_TYPE_LABEL.exam], ['prescription', PREV_REC_TYPE_LABEL.prescription], ['other', 'Other']].filter(([v]) => recs.some(r => r.type === v)) }) : ''}
+         <div class="prc-pg" data-pg-host><div class="prc-list" id="prc-list">${recs.map(r => prevRecordCardHtml(p, r, canManage)).join('')}</div></div>`
+      : emptyState('folder', 'No records from other clinics yet',
+          p.source === 'transferred'
+            ? `${who} transferred${from || ' from another clinic'}. If they brought exam results or a prescription, upload the PDF or a scan or photo of it here.`
+            : `If ${who} brought exam results or a prescription from another optical clinic, upload the PDF or a scan or photo of it here.`,
+          { action: canManage ? `<button class="btn-primary" onclick="window.openPrevRecordModal('${p.id}')">${ic('upload', 'icon-sm')} Upload Records</button>` : '' })}`
+}
+// Exam wizard sidebar box. Re-rendered in place by refreshPrevRecordViews()
+// (main.js) when a record is added mid-exam, so nothing typed is lost.
+function prevRecordsSideHtml(p) {
+  const recs = prevClinicRecords(p)
+  const canAdd = ['admin', 'staff', 'doctor'].includes(window.state?.role)
+  const addBtn = canAdd ? `<button type="button" class="btn-ghost prc-side-add" onclick="window.openPrevRecordModal('${p.id}')">${ic('upload', 'icon-sm')} Add Record</button>` : ''
+  if (!recs.length) {
+    // Only nudged for transfers; anyone else just gets no box.
+    if (p.source !== 'transferred') return ''
+    return `<div class="prc-side">
+      <div class="prc-side-title">${ic('folder', 'icon-sm')} Previous Clinic Records</div>
+      <div class="prc-side-empty">Transferred${p.sourceNote ? ' from ' + esc(p.sourceNote) : ' from another clinic'}. No records from their old clinic are on file yet.</div>
+      ${addBtn}
+    </div>`
+  }
+  const shown = recs.slice(0, 3)
+  return `<div class="prc-side">
+    <div class="prc-side-title">${ic('folder', 'icon-sm')} Previous Clinic Records <span class="prc-side-count">${recs.length}</span></div>
+    ${shown.map(r => {
+      const lines = [['OD', prevRecRxLine(r.od)], ['OS', prevRecRxLine(r.os)]].filter(([, l]) => l)
+      const meta  = [r.date ? fmtDate(r.date) : 'No date', esc(prevRecTypeLabel(r)), r.files.length ? `${r.files.length} file${r.files.length === 1 ? '' : 's'}` : '']
+      return `
+      <button type="button" class="prc-side-item" onclick="window.viewPrevRecord('${p.id}',${r.id})">
+        <span class="prc-side-clinic">${esc(r.clinicName)}</span>
+        <span class="prc-side-meta">${meta.filter(Boolean).join(' · ')}</span>
+        ${lines.length ? `<span class="prc-side-rx">${lines.map(([k, l]) => `<b>${k}</b> ${esc(l)}`).join('<br>')}</span>` : ''}
+      </button>`
+    }).join('')}
+    ${recs.length > shown.length ? `<button type="button" class="prc-side-more" onclick="window.openPrevRecordsListModal('${p.id}')">View all ${recs.length} records</button>` : ''}
+    ${addBtn}
+  </div>`
+}
+// Visual Exam step: the latest previous-clinic prescription that has values,
+// right above the measurement fields ('' when there's none).
+function prevRecordRefHtml(p) {
+  const r = prevClinicRecords(p).find(prevRecHasRx)
+  if (!r) return ''
+  const eye = (k, e = {}) => {
+    const l = prevRecRxLine(e)
+    const parts = [l && esc(l), e.va && `VA ${esc(e.va)}`].filter(Boolean)
+    return parts.length ? `<span><b>${k}</b> ${parts.join(', ')}</span>` : ''
+  }
+  const vals = [eye('OD', r.od), eye('OS', r.os), r.pd ? `<span><b>PD</b> ${esc(r.pd)}</span>` : ''].filter(Boolean)
+  return `<div class="prc-ref">
+    <span class="prc-ref-ic">${ic('folder', 'icon-sm')}</span>
+    <div class="prc-ref-body">
+      <div class="prc-ref-title">Previous ${r.type === 'prescription' ? 'prescription' : r.type === 'exam' ? 'exam' : 'record'} · ${esc(r.clinicName)}${r.date ? ' · ' + fmtDate(r.date) : ''}</div>
+      <div class="prc-ref-vals">${vals.join('')}</div>
+    </div>
+    <button type="button" class="btn-ghost prc-ref-btn" onclick="window.viewPrevRecord('${p.id}',${r.id})">${ic('eye', 'icon-sm')} View</button>
+  </div>`
+}
+window.PREV_REC_TYPE_LABEL  = PREV_REC_TYPE_LABEL
+window.prevRecTypeLabel     = prevRecTypeLabel
+window.prevRecHasRx         = prevRecHasRx
+window.prevRecRxLine        = prevRecRxLine
+window.prevRecFileUrl       = prevRecFileUrl
+window.prevRecFileSize      = prevRecFileSize
+window.prevRecIsImage       = prevRecIsImage
+window.prevRecFileChip      = prevRecFileChip
+window.prevRecRxTable       = prevRecRxTable
+window.prevRecordCardHtml   = prevRecordCardHtml
+window.prcWatchClamps       = prcWatchClamps
+window._prcToggleMore       = _prcToggleMore
+window.prevRecordsPanelHtml = prevRecordsPanelHtml
+window.prevRecordsSideHtml  = prevRecordsSideHtml
+window.prevRecordRefHtml    = prevRecordRefHtml
+
+// 'Previous Record' (a previous clinic record) stays short so it fits the
+// Archives table's Type column; its View dialog spells it out.
 function archiveTypeLabel(r) {
   if (r?.type === 'Account' && r.data?.role) return `${r.data.role} Account`
   return r?.type || ''
@@ -676,11 +985,14 @@ function outsideScheduleLabel(a) {
 
 function appointmentsTable(list, role, tbodyId = 'appt-tbody', hidePatient = false, activeFilter = null) {
   if (!list.length) {
-    const emptyMsg = activeFilter === 'today'  ? 'No appointments scheduled for today.'
-      : activeFilter === 'all'                 ? 'No appointments have been recorded yet.'
-      : activeFilter                           ? `No ${activeFilter} appointments found.`
-      : 'No appointments scheduled.'
-    return emptyState('calendar', 'No appointments found', emptyMsg)
+    const title = activeFilter === 'today' ? 'No appointments today'
+      : activeFilter === 'all'             ? 'No appointments yet'
+      : activeFilter                       ? `No ${activeFilter} appointments`
+      : 'No appointments yet'
+    const desc = activeFilter === 'today' ? 'Today’s schedule is clear.'
+      : activeFilter && activeFilter !== 'all' ? 'Nothing in this view right now.'
+      : 'Appointments booked online or at the front desk are listed here.'
+    return emptyState('calendar', title, desc)
   }
   const hasActions = role !== 'patient'
   return `
@@ -1068,7 +1380,8 @@ function pageAdminUsers() {
             </div></td>
           </tr>`).join('')}
         </tbody>
-      </table>` : `<div class="table-empty">No users found.</div>`}
+      </table>` : emptyState('users', filter === 'all' ? 'No accounts yet' : `No ${titleMap[filter] ? titleMap[filter].toLowerCase() : 'accounts'} yet`,
+          'Admin, staff and doctor accounts you create will be listed here.')}
     </div>
   </div>`
 }
@@ -1208,7 +1521,7 @@ function pagePatientList() {
         <div class="table-actions">
           <div class="np-seg" role="group" aria-label="Filter by patient stage">
             ${stageSeg.map(([v, l, n]) => `<button type="button" class="np-seg-btn${v === 'new' ? ' np-seg-btn--new' : ''}${stage === v ? ' is-active' : ''}" aria-pressed="${stage === v}"
-              title="${v === 'new' ? 'No examination on file yet' : v === 'established' ? 'Has examination records, or transferred records' : 'Every patient'}"
+              title="${v === 'new' ? 'No examination on file yet' : v === 'established' ? 'Has an examination on file, from the clinic or a previous clinic' : 'Every patient'}"
               onclick="window.state.ptStage='${v}';window.renderPage()">${v === 'new' ? NP_ICON_NEW : ''}${l}<span class="np-seg-count">${n}</span></button>`).join('')}
           </div>
           <div class="search-input-wrap">
@@ -1262,7 +1575,10 @@ function pagePatientList() {
             </div></td>
           </tr>`).join('')}
         </tbody>
-      </table>` : `<div class="table-empty">No patients found.</div>`}
+      </table>` : patients.length
+        ? emptyState('search', 'No patients match this view', 'Try another filter, or switch back to All.', { neutral: true })
+        : emptyState('users', 'No patients yet', 'Patients you register are listed here, ready for booking and QR check-in.',
+            { action: role !== 'doctor' ? `<button class="btn-primary" onclick="window.openAddPatientModal()">${ic('plus','icon-sm')} Add Patient</button>` : '' })}
     </div>
   </div>`
 }
@@ -1270,6 +1586,378 @@ function pagePatientList() {
 // ════════════════════════════════════════════════════════════════
 //  SHARED — PATIENT VIEW (Admin, Staff, Doctor)
 // ════════════════════════════════════════════════════════════════
+// ── Medical Record (Patient Profile's first tab) ─────────────────
+// One view of everything on file: each visit's three linked records
+// (consultation = why they came and the plan, examination = what was
+// measured and found, prescription = what was issued), the medical history,
+// and records from previous clinics. Newest visit first. Printable and
+// downloadable as one document (printMedicalRecord /
+// downloadMedicalRecordPDF, main.js), which uses the same helpers below.
+const _mrDay = d => (d ? String(d).slice(0, 10) : '')
+
+// Visits, newest first: each exam with its consultation and prescription.
+// A consultation or prescription not tied to an exam (older records) is a
+// visit of its own, so nothing on file is ever left out.
+function medicalRecordVisits(p) {
+  const exams = p?.examinations || [], cons = p?.consultations || [], rxs = p?.prescriptions || []
+  const usedCon = new Set(), usedRx = new Set()
+  const visits = exams.map(e => {
+    const con = cons.find(c => c.id === e.consultationId) || cons.find(c => c.examId === e.id) || null
+    const rx  = rxs.find(r => r.examId === e.id) || null
+    if (con) usedCon.add(con.id)
+    if (rx) usedRx.add(rx.id)
+    return { date: _mrDay(e.date || con?.date), exam: e, con, rx }
+  })
+  cons.filter(c => !usedCon.has(c.id)).forEach(c => visits.push({ date: _mrDay(c.date), exam: null, con: c, rx: null }))
+  rxs.filter(r => !usedRx.has(r.id)).forEach(r => visits.push({ date: _mrDay(r.date), exam: null, con: null, rx: r }))
+  visits.forEach(v => {
+    v.doctor = v.exam?.doctor || v.con?.doctor || v.rx?.doctor || ''
+    v.type   = v.con?.type || (v.exam ? 'Eye Examination' : 'Prescription')
+    v.key    = v.exam?.id || v.con?.id || v.rx?.id
+  })
+  return visits.sort((a, b) => b.date.localeCompare(a.date) || recIdNum(b.key) - recIdNum(a.key))
+}
+// A prescription's last valid day: its expiry date, or 1 year from issue.
+function rxExpiryDay(rx) {
+  if (!rx) return ''
+  if (rx.expiryDate) return _mrDay(rx.expiryDate)
+  const d = new Date(_mrDay(rx.date) + 'T00:00:00')
+  d.setFullYear(d.getFullYear() + 1)
+  return localDateStr(d)
+}
+function rxIsValid(rx) {
+  return !!rx && rx.status !== 'expired' && rxExpiryDay(rx) >= localDateStr()
+}
+const _mrHasRx = e => !!e && ['sph', 'cyl'].some(k => (e.od?.[k] || e.os?.[k] || '') !== '')
+// Refraction across time: the clinic's own exams (or the prescription when
+// the exam has no refraction typed in) plus previous clinics' records.
+function medicalRecordRefraction(p, visits = medicalRecordVisits(p)) {
+  const rows = []
+  visits.forEach(v => {
+    const src = _mrHasRx(v.exam) ? v.exam : (_mrHasRx(v.rx) ? v.rx : null)
+    if (!src) return
+    rows.push({
+      date: v.date, previous: false, who: v.doctor, ref: src.id,
+      od: { ...src.od, va: v.exam?.od?.va || '' }, os: { ...src.os, va: v.exam?.os?.va || '' },
+      iop: v.exam?.iop || {}, pd: src.pd || v.exam?.pd || '',
+    })
+  })
+  prevClinicRecords(p).forEach(r => {
+    if (!_mrHasRx(r)) return
+    rows.push({ date: _mrDay(r.date), previous: true, who: r.clinicName, recordId: r.id, od: r.od || {}, os: r.os || {}, iop: {}, pd: r.pd || '' })
+  })
+  // Undated previous-clinic records go last.
+  return rows.sort((a, b) => (!a.date) - (!b.date) || b.date.localeCompare(a.date))
+}
+// Sphere and cylinder change per eye, from the oldest to the newest dated
+// reading. Plain numbers only, no clinical interpretation.
+function medicalRecordTrend(rows) {
+  // Plano / PL = 0 sphere; a blank or "DS" cylinder = 0 (no cylinder).
+  const sphNum = v => (/^pl/i.test(v || '') ? 0 : parseFloat(v))
+  const cylNum = v => (!v || /^ds$/i.test(v) ? 0 : parseFloat(v))
+  const dated = rows.filter(r => r.date).slice().reverse()
+  const out = []
+  for (const [k, eye] of [['od', 'Right eye (OD)'], ['os', 'Left eye (OS)']]) {
+    const pts = dated.filter(r => !isNaN(sphNum(r[k]?.sph)) || (r[k]?.cyl && !isNaN(cylNum(r[k].cyl))))
+    if (pts.length < 2 || pts[0].date === pts[pts.length - 1].date) continue
+    const a = pts[0][k], b = pts[pts.length - 1][k]
+    const diff = (x, y, f) => (isNaN(f(x)) || isNaN(f(y)) ? null : Math.round((f(y) - f(x)) * 100) / 100)
+    out.push({
+      eye, since: pts[0].date,
+      sph: { from: a.sph || 'Plano', to: b.sph || 'Plano', diff: diff(a.sph, b.sph, sphNum) },
+      cyl: { from: a.cyl || 'none', to: b.cyl || 'none', diff: diff(a.cyl, b.cyl, cylNum) },
+    })
+  }
+  return out
+}
+// The change line under Refraction History, e.g. "Since Mar 14, 2023:
+// Right eye (OD) cylinder -0.75 → -1.25 (-0.50 D) · Left eye (OS) …".
+// fmtDay formats the start date; esc-ed for HTML.
+function medicalRecordTrendText(trend, fmtDay) {
+  if (!trend.length) return ''
+  const d = n => `${n > 0 ? '+' : ''}${n.toFixed(2)} D`
+  const parts = trend.map(t => {
+    const ch = [['sphere', t.sph], ['cylinder', t.cyl]]
+      .filter(([, c]) => c.diff)
+      .map(([name, c]) => `${name} ${esc(c.from)} → ${esc(c.to)} (${d(c.diff)})`)
+    return ch.length ? `${t.eye} ${ch.join(', ')}` : ''
+  }).filter(Boolean)
+  return parts.length
+    ? `Since ${fmtDay(trend[0].since)}: ${parts.join(' · ')}`
+    : `No change in sphere or cylinder since ${fmtDay(trend[0].since)}.`
+}
+window.medicalRecordTrendText = medicalRecordTrendText
+// What's next: the earliest upcoming appointment, and the earliest
+// follow-up date a doctor advised that hasn't passed yet.
+function medicalRecordNext(p) {
+  const today = localDateStr()
+  const appt = (window.appointments || [])
+    .filter(a => a.patientId === p.id && ['pending', 'approved'].includes(a.status) && a.date >= today)
+    .sort((x, y) => x.date.localeCompare(y.date) || (window._clockToMinutes?.(x.time) || 0) - (window._clockToMinutes?.(y.time) || 0))[0] || null
+  const fu = (p.consultations || []).filter(c => c.followUpDate && _mrDay(c.followUpDate) >= today)
+    .sort((x, y) => x.followUpDate.localeCompare(y.followUpDate))[0] || null
+  return { appt, fu }
+}
+window.medicalRecordVisits     = medicalRecordVisits
+window.medicalRecordRefraction = medicalRecordRefraction
+window.medicalRecordTrend      = medicalRecordTrend
+window.medicalRecordNext       = medicalRecordNext
+window.rxExpiryDay             = rxExpiryDay
+window.rxIsValid               = rxIsValid
+
+// One eye's refraction for the tables: "-2.25 / -0.75 × 180", ADD below.
+function _mrEyeCell(e) {
+  const line = prevRecRxLine({ ...e, add: '' })
+  return line
+    ? `<span class="mr-rxv">${esc(line)}</span>${e.add ? `<span class="mr-add">ADD ${esc(e.add)}</span>` : ''}`
+    : '<span class="prc-dash">—</span>'
+}
+function _mrField(label, value) {
+  return value ? `<div class="mr-f"><dt>${label}</dt><dd>${esc(value)}</dd></div>` : ''
+}
+
+// uid: id prefix for the panel's lists, so the profile tab ('mr') and the
+// dialog ('mrm') never clash. Long lists page (mrInitPaging, below).
+function medicalRecordPanelHtml(p, role, { uid = 'mr' } = {}) {
+  const visits  = medicalRecordVisits(p)
+  const examVis = visits.filter(v => v.exam)
+  const latestExam = examVis[0]?.exam || null
+  const rx      = visits.find(v => v.rx)?.rx || null
+  const rows    = medicalRecordRefraction(p, visits)
+  const trend   = medicalRecordTrend(rows)
+  const { appt, fu } = medicalRecordNext(p)
+  const prev    = prevClinicRecords(p)
+  const canHx   = ['doctor', 'admin', 'staff'].includes(role)
+  const firstDay = examVis.length ? examVis[examVis.length - 1].date : ''
+
+  // ── At a glance ──
+  const card = (iconName, label, body, foot = '') => `
+    <div class="mr-card">
+      <div class="mr-card-lbl">${ic(iconName, 'icon-xs')}${label}</div>
+      <div class="mr-card-body">${body}</div>
+      ${foot ? `<div class="mr-card-foot">${foot}</div>` : ''}
+    </div>`
+  const visitsCard = card('calendar', 'Visits at the clinic',
+    `<span class="mr-big">${examVis.length}</span><span class="mr-big-sub">${examVis.length === 1 ? 'examination' : 'examinations'}</span>`,
+    examVis.length
+      ? `Since ${fmtDate(firstDay)} · last ${fmtDate(examVis[0].date)}${prev.length ? `<br>+ ${prev.length} from other clinic${prev.length === 1 ? '' : 's'}` : ''}`
+      : (prev.length ? `${prev.length} record${prev.length === 1 ? '' : 's'} from other clinics` : 'First examination not done yet'))
+  // ADD on its own line so the distance Rx never gets cut off.
+  const rxAdd = rx && (rx.od?.add || rx.os?.add)
+    ? (rx.od?.add === rx.os?.add ? `ADD ${rx.od.add}` : `ADD ${rx.od?.add || '—'} / ${rx.os?.add || '—'}`) : ''
+  const rxCard = card('file-text', 'Current prescription',
+    rx ? `<div class="mr-rxline"><b>OD</b> ${esc(prevRecRxLine({ ...(rx.od || {}), add: '' }) || '—')}</div>
+          <div class="mr-rxline"><b>OS</b> ${esc(prevRecRxLine({ ...(rx.os || {}), add: '' }) || '—')}</div>
+          ${rxAdd ? `<div class="mr-rxadd">${esc(rxAdd)}</div>` : ''}`
+       : emptyVal('No prescription issued yet'),
+    rx ? `<span class="mr-badge ${rxIsValid(rx) ? 'is-ok' : 'is-off'}">${rxIsValid(rx) ? 'Valid until' : 'Expired'} ${fmtDate(rxExpiryDay(rx))}</span> · ${esc(rx.id)}` : '')
+  const dxCard = card('activity', 'Latest diagnosis',
+    latestExam ? `<div class="mr-dx">${latestExam.diagnosis ? esc(latestExam.diagnosis) : emptyVal('No diagnosis recorded')}</div>` : emptyVal('No examination yet'),
+    latestExam ? `${fmtDate(latestExam.date)} · ${esc(latestExam.doctor || '')}` : '')
+  const nextCard = card('clock', 'Next step',
+    appt ? `<div class="mr-next">${fmtDate(appt.date)}, ${esc(appt.time)}</div><div class="mr-next-sub">${esc(appt.type || 'Appointment')}</div>`
+      : fu ? `<div class="mr-next">Follow-up ${fmtDate(fu.followUpDate)}${fu.followUpTime ? ', ' + esc(fu.followUpTime) : ''}</div><div class="mr-next-sub">Advised, not booked yet</div>`
+      : emptyVal('Nothing scheduled'),
+    appt ? `${appt.status === 'approved' ? 'Approved' : 'Pending'} · ${esc(appt.doctorName || 'Doctor to be assigned')}` : (fu ? `By ${esc(fu.doctor || 'the doctor')}` : ''))
+
+  // ── Medical history ──
+  const hx = p.medicalHistory ? `
+    <div class="mr-hx">
+      <div class="mr-hx-head">
+        <span class="mr-hx-ic">${ic('alert-circle', 'icon-sm')}</span>
+        <span class="mr-hx-title">Medical History</span>
+        ${window.medHxReportedTag ? window.medHxReportedTag(p) : ''}
+        ${canHx ? `<button type="button" class="btn-ghost mr-hx-edit" onclick="window.editMedicalHistory('${p.id}')">${ic('edit', 'icon-sm')} Edit</button>` : ''}
+      </div>
+      <div class="mr-hx-text">${esc(p.medicalHistory)}</div>
+    </div>` : `
+    <div class="mr-hx is-empty">
+      <span class="mr-hx-ic">${ic('alert-circle', 'icon-sm')}</span>
+      <span class="mr-hx-none">${window.medHxEmptyText ? window.medHxEmptyText(p, false) : 'No medical history on file.'}</span>
+      ${canHx ? `<button type="button" class="btn-ghost mr-hx-edit" onclick="window.editMedicalHistory('${p.id}')">${ic('plus', 'icon-sm')} Add</button>` : ''}
+    </div>`
+
+  // ── Refraction history ──
+  // Newest / Oldest first (same control as the record lists) — read
+  // oldest-first to follow the change over time.
+  const refrSort = rows.length > 1 ? `<div class="rec-filter-sel rec-filter-sort mr-sec-sort" title="Sort the readings">${window.selectFieldHtml(`${uid}-refr-sort`, {
+      value: 'desc', options: [{ value: 'desc', label: 'Newest first' }, { value: 'asc', label: 'Oldest first' }],
+      lead: ic('sort', 'icon-sm'), onchange: `window.applyRecFilter('${uid}-refr', 'sort')`, minWidth: 150, style: 'height:34px;font-size:.78rem' })}</div>` : ''
+  const refraction = rows.length ? `
+    <div class="mr-sec">
+      <div class="mr-sec-head"><h3>Refraction History</h3><span>${rows.length} reading${rows.length === 1 ? '' : 's'}</span>${refrSort}</div>
+      ${trend.length ? `<div class="mr-trend">${ic('activity', 'icon-xs')}<span>${medicalRecordTrendText(trend, fmtDate)}</span></div>` : ''}
+      <div class="mr-pg" data-pg-host>
+      <div class="mr-table-wrap">
+        <table class="mr-table">
+          <thead><tr><th>Date</th><th>From</th><th class="is-od">OD (Right)</th><th class="is-os">OS (Left)</th><th>VA OD / OS</th><th>IOP OD / OS</th></tr></thead>
+          <tbody id="${uid}-refr">${rows.map((r, i) => `
+            <tr ${recRowAttrs({ date: r.date, id: r.ref || '' })}>
+              <td class="mr-nowrap">${r.date ? fmtDate(r.date) : emptyVal('No date')}${i === 0 ? ' <span class="mr-latest">Latest</span>' : ''}</td>
+              <td class="mr-nowrap">${r.previous
+                ? `<button type="button" class="mr-src is-prev" onclick="window.viewPrevRecord('${p.id}',${r.recordId})" title="View the record from ${esc(r.who)}">${esc(r.who)}</button>`
+                : `<span class="mr-src">${esc(r.who || 'Clinic')}</span>`}</td>
+              <td>${_mrEyeCell(r.od)}</td>
+              <td>${_mrEyeCell(r.os)}</td>
+              <td class="mr-nowrap">${r.od.va || r.os.va ? `${esc(r.od.va || '—')} / ${esc(r.os.va || '—')}` : '<span class="prc-dash">—</span>'}</td>
+              <td class="mr-nowrap">${r.iop.od || r.iop.os ? `${esc(r.iop.od || '—')} / ${esc(r.iop.os || '—')}` : '<span class="prc-dash">—</span>'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      </div>
+    </div>` : ''
+
+  // ── Visit history ──
+  const eyeRow = (label, od, os) => (od || os) ? `<tr><th>${label}</th><td>${od ? esc(od) : '<span class="prc-dash">—</span>'}</td><td>${os ? esc(os) : '<span class="prc-dash">—</span>'}</td></tr>` : ''
+  const visitHtml = (v, i) => {
+    const d = new Date(v.date + 'T00:00:00')
+    const e = v.exam, c = v.con, r = v.rx
+    const { plain: tests, ishihara } = window._splitIshihara ? window._splitIshihara(e?.testResults) : { plain: e?.testResults || '', ishihara: null }
+    const conSec = c ? `<dl class="mr-dl">
+        ${_mrField('Chief complaint', c.chiefComplaint)}
+        ${_mrField('History', c.historyPresentIllness)}
+        ${_mrField("Doctor's assessment", c.assessment)}
+        ${_mrField('Plan', c.recommendation)}
+        ${c.followUpDate ? `<div class="mr-f"><dt>Follow-up</dt><dd>${fmtDate(c.followUpDate)}${c.followUpTime ? ', ' + esc(c.followUpTime) : ''}</dd></div>` : ''}
+      </dl>${[c.chiefComplaint, c.historyPresentIllness, c.assessment, c.recommendation, c.followUpDate].some(Boolean) ? '' : '<div class="mr-none">No notes were written for this visit.</div>'}`
+      : '<div class="mr-none">No consultation notes for this visit.</div>'
+    const examSec = e ? `
+      <table class="mr-eye">
+        <thead><tr><th></th><th class="is-od">OD</th><th class="is-os">OS</th></tr></thead>
+        <tbody>
+          ${eyeRow('VA unaided', e.od?.vaUncorrected, e.os?.vaUncorrected)}
+          ${eyeRow('VA corrected', e.od?.va, e.os?.va)}
+          ${eyeRow('Refraction', prevRecRxLine({ ...(e.od || {}), add: '' }), prevRecRxLine({ ...(e.os || {}), add: '' }))}
+          ${eyeRow('ADD', e.od?.add, e.os?.add)}
+          ${eyeRow('IOP (mmHg)', e.iop?.od, e.iop?.os)}
+        </tbody>
+      </table>
+      <dl class="mr-dl">
+        ${_mrField('Diagnosis', e.diagnosis)}
+        ${_mrField('PD', e.pd ? e.pd + ' mm' : '')}
+        ${_mrField('Findings', e.externalFindings)}
+        ${_mrField('Color vision (Ishihara)', ishihara || '')}
+        ${_mrField('Test results', tests)}
+        ${_mrField('Remarks', e.remarks)}
+      </dl>`
+      : '<div class="mr-none">No examination at this visit.</div>'
+    const rxSec = r ? `
+      <table class="mr-eye">
+        <thead><tr><th></th><th class="is-od">OD</th><th class="is-os">OS</th></tr></thead>
+        <tbody>
+          ${eyeRow('Rx', prevRecRxLine({ ...(r.od || {}), add: '' }), prevRecRxLine({ ...(r.os || {}), add: '' }))}
+          ${eyeRow('ADD', r.od?.add, r.os?.add)}
+        </tbody>
+      </table>
+      <dl class="mr-dl">
+        ${_mrField('Lens', [r.lensType, r.lensMaterial].filter(Boolean).join(', '))}
+        ${_mrField('Coating', (r.lensCoating || []).join(', '))}
+        ${_mrField('Frame', r.frameSelection)}
+        <div class="mr-f"><dt>Validity</dt><dd><span class="mr-badge ${rxIsValid(r) ? 'is-ok' : 'is-off'}">${rxIsValid(r) ? 'Valid until' : 'Expired'} ${fmtDate(rxExpiryDay(r))}</span></dd></div>
+        ${_mrField('Dispensed', r.dispensedDate ? fmtDate(r.dispensedDate) + (r.receivedBy ? ` to ${r.receivedBy}` : '') : '')}
+      </dl>`
+      : `<div class="mr-none">${e ? 'No prescription was issued at this visit.' : 'No prescription for this visit.'}</div>`
+    const chips = [c && 'Consultation', e && 'Examination', r && 'Prescription'].filter(Boolean)
+    // recRowAttrs: what the Visit History filter bar searches, filters and sorts by.
+    const searchText = [v.type, v.doctor, e?.diagnosis, c?.diagnosis, fmtDate(v.date), c?.id, e?.id, r?.id].filter(Boolean).join(' ')
+    return `
+    <details class="mr-visit" ${recRowAttrs({ search: searchText, doctor: v.doctor, date: v.date, id: v.key })}${i === 0 ? ' open' : ''}>
+      <summary class="mr-vsum">
+        <span class="mr-vdate"><b>${d.getDate()}</b><span>${d.toLocaleString('en', { month: 'short' })}</span><i>${d.getFullYear()}</i></span>
+        <span class="mr-vmain">
+          <span class="mr-vtitle">${esc(v.type)}${i === 0 ? ' <span class="mr-latest">Latest</span>' : ''}</span>
+          <span class="mr-vmeta">${[esc(v.doctor), e?.diagnosis ? esc(e.diagnosis) : ''].filter(Boolean).join(' · ')}</span>
+        </span>
+        <span class="mr-vchips">${chips.map(x => `<span class="mr-chip">${x}</span>`).join('')}</span>
+        <span class="mr-vchev">${ic('chevron-down', 'icon-sm')}</span>
+      </summary>
+      <div class="mr-vbody">
+        <div class="mr-vcols">
+          <section class="mr-vsec"><h4>${ic('message-square', 'icon-xs')} Consultation</h4>${conSec}</section>
+          <section class="mr-vsec"><h4>${ic('eye', 'icon-xs')} Examination</h4>${examSec}</section>
+          <section class="mr-vsec"><h4>${ic('file-text', 'icon-xs')} Prescription</h4>${rxSec}</section>
+        </div>
+        <div class="mr-vactions">
+          ${c ? `<button type="button" class="btn-ghost" onclick="window.viewConsultationDetail('${p.id}','${c.id}')">${ic('message-square', 'icon-sm')} Consultation ${esc(c.id)}</button>` : ''}
+          ${e ? `<button type="button" class="btn-ghost" onclick="window.viewExamDetail('${p.id}','${e.id}')">${ic('eye', 'icon-sm')} Exam ${esc(e.id)}</button>` : ''}
+          ${r ? `<button type="button" class="btn-ghost" onclick="window.viewPrescriptionDetail('${p.id}','${r.id}')">${ic('file-text', 'icon-sm')} Prescription ${esc(r.id)}</button>` : ''}
+        </div>
+      </div>
+    </details>`
+  }
+  // Search, doctor, year and Newest / Oldest first — the same bar as the
+  // Examination History and Consultations tabs — once there's more than one.
+  const visitFilter = visits.length > 1 ? recFilterBar(`${uid}-visits`, {
+    items: visits, getDoctor: v => v.doctor, getDate: v => v.date, placeholder: 'Search diagnosis, doctor or visit type…' }) : ''
+  const visitList = visits.length ? `
+    <div class="mr-sec">
+      <div class="mr-sec-head"><h3>Visit History</h3><span>${visits.length} visit${visits.length === 1 ? '' : 's'}</span>
+        ${visits.length > 1 ? `<button type="button" class="mr-toggle-all" onclick="window._mrToggleAll(this)">Expand all</button>` : ''}</div>
+      ${visitFilter}
+      <div class="mr-pg" data-pg-host><div class="mr-visits" id="${uid}-visits">${visits.map(visitHtml).join('')}</div></div>
+    </div>` : `
+    <div class="mr-sec">
+      <div class="mr-sec-head"><h3>Visit History</h3></div>
+      ${emptyState('clipboard', 'No visits recorded yet', `Consultations, examinations and prescriptions from visits at the clinic will appear here once ${esc(p.firstName || 'the patient')} is examined.`)}
+    </div>`
+
+  // ── Previous clinics ──
+  const prevList = prev.length ? `
+    <div class="mr-sec">
+      <div class="mr-sec-head"><h3>Records from Other Clinics</h3><span>${prev.length}</span>
+        <button type="button" class="mr-toggle-all mr-prev-manage" onclick="window.switchPatientTab('previous')">Manage</button></div>
+      <div class="mr-prev">${prev.map(r => `
+        <button type="button" class="mr-prev-item" onclick="window.viewPrevRecord('${p.id}',${r.id})">
+          <span class="mr-prev-main"><b>${esc(r.clinicName)}</b><span>${[r.date ? fmtDate(r.date) : 'No date', esc(prevRecTypeLabel(r)), r.files.length ? `${r.files.length} file${r.files.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}</span></span>
+          ${_mrHasRx(r) ? `<span class="mr-prev-rx"><b>OD</b> ${esc(prevRecRxLine(r.od) || '—')}<br><b>OS</b> ${esc(prevRecRxLine(r.os) || '—')}</span>` : ''}
+        </button>`).join('')}
+      </div>
+    </div>` : ''
+
+  return `
+    <div class="mr-toolbar">
+      <div>
+        <div class="patient-section-label muted" style="margin-bottom:2px">Medical Record</div>
+        <div class="prc-intro">Visits, examinations, prescriptions and medical history in one place, newest first.</div>
+      </div>
+      <div class="mr-toolbar-actions">
+        <button type="button" class="btn-secondary" onclick="window.printMedicalRecord('${p.id}')">${ic('printer', 'icon-sm')} Print</button>
+        <button type="button" class="btn-primary" onclick="window.downloadMedicalRecordPDF('${p.id}', this)">${ic('download', 'icon-sm')} Download PDF</button>
+      </div>
+    </div>
+    <div class="mr-cards">${visitsCard}${rxCard}${dxCard}${nextCard}</div>
+    ${hx}
+    ${refraction}
+    ${visitList}
+    ${prevList}`
+}
+window.medicalRecordPanelHtml = medicalRecordPanelHtml
+
+// A long record pages through its visits (5 at a time) and readings (10)
+// with the app's pager; a short one shows everything, with no bar. Called
+// once the panel is on screen (profile afterRender, the record dialog).
+function mrInitPaging(uid = 'mr') {
+  ;[[`${uid}-visits`, 5], [`${uid}-refr`, 10]].forEach(([id, per]) => {
+    const el = document.getElementById(id)
+    if (el && el.querySelectorAll(':scope > [data-search]').length > per) window.initPagination(id, per)
+  })
+}
+window.mrInitPaging = mrInitPaging
+// Previous Clinic Records tab: 5 cards a page once there are more.
+function prcInitPaging() {
+  const el = document.getElementById('prc-list')
+  if (el && el.querySelectorAll(':scope > [data-search]').length > 5) window.initPagination('prc-list', 5)
+}
+window.prcInitPaging = prcInitPaging
+// Visit History's "Expand all" / "Collapse all".
+window._mrToggleAll = btn => {
+  const list = btn.closest('.mr-sec')?.querySelectorAll('details.mr-visit') || []
+  const open = btn.textContent.trim() === 'Expand all'
+  list.forEach(d => { d.open = open })
+  btn.textContent = open ? 'Collapse all' : 'Expand all'
+}
+
 function pagePatientView() {
   const { role, params, user } = st()
   const p = getPatientById(params.patientId)
@@ -1279,14 +1967,21 @@ function pagePatientView() {
   // in the app (Appointments page's default view, Dashboard's Recent
   // Appointments, etc.); this tab was the one place still left in
   // whatever order the API happened to return, which read oldest-first.
+  // Same-day ties go by clock time ("9:30 AM" before "10:00 AM", which a
+  // plain string compare gets backwards).
   const patientAppts = appointments.filter(a => a.patientId === p.id)
-    .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))
+    .sort((a, b) => b.date.localeCompare(a.date) || (window._clockToMinutes(b.time) || 0) - (window._clockToMinutes(a.time) || 0))
   const canEdit      = role === 'admin' || role === 'staff'
   const pStatus      = p.status || 'active'
 
   window.state.afterRender = () => {
+    // No initSortable here: the Appointments tab sorts with the same
+    // Newest / Oldest first dropdown as the other tabs, on every screen
+    // size, instead of clickable headers that could disagree with it.
     window.initPagination('pv-appt-tbody')
-    window.initSortable('pv-appt-tbody', { key: 'date', type: 'date', dir: -1 })
+    window.mrInitPaging('mr')
+    window.prcInitPaging()
+    window.prcWatchClamps()
     if (params.tab) window.switchPatientTab(params.tab)
   }
 
@@ -1316,7 +2011,7 @@ function pagePatientView() {
           <button class="btn-icon" title="View Details" onclick="window.viewConsultationDetail('${p.id}','${c.id}')">${ic('eye','icon-sm')}</button>
         </div>
       </div>`).join('')}
-    </div>` : emptyState('message-square', 'No consultation records', 'No consultation records on file.')
+    </div>` : emptyState('message-square', 'No consultations yet', 'Notes from each visit appear here after the patient’s first consultation.')
 
   // ── Prescriptions panel ────────────────────────────────────────
   const rxList   = p.prescriptions || []
@@ -1350,7 +2045,7 @@ function pagePatientView() {
           <button class="btn-icon" title="Download PDF" onclick="window.downloadRxRecordPDF('${p.id}','${rx.id}',this)">${ic('download','icon-sm')}</button>
         </div>
       </div>`}).join('')}
-    </div>` : emptyState('file-text', 'No prescriptions on file', 'No prescription records on file for this patient.')
+    </div>` : emptyState('file-text', 'No prescriptions yet', 'Prescriptions issued after an examination appear here.')
 
   // ── Examinations nested in consultations ───────────────────────
   const sortedExams = [...p.examinations].sort((a,b)=>b.date.localeCompare(a.date))
@@ -1381,7 +2076,10 @@ function pagePatientView() {
           <!-- No Archive/Delete: examination records are permanent medical records. -->
         </div>
       </div>`).join('')}
-    </div>` : emptyState('eye', 'No examination records', 'No examination records on file.')
+    </div>` : prevClinicRecords(p).length
+      // Exams from another clinic live in their own tab; point there.
+      ? `<div class="prc-hint">${ic('folder', 'icon-sm')}<span>No examinations at the clinic yet. ${prevClinicRecords(p).length === 1 ? 'A record' : prevClinicRecords(p).length + ' records'} from ${prevClinicRecords(p).length === 1 ? esc(prevClinicRecords(p)[0].clinicName) : 'other clinics'} ${prevClinicRecords(p).length === 1 ? 'is' : 'are'} under <button type="button" class="prc-link" onclick="window.switchPatientTab('previous')">Previous Clinic Records</button>.</span></div>`
+      : emptyState('eye', 'No examinations yet', 'Examination results appear here once the patient is examined.')
 
   return `
   <div class="page-header">
@@ -1467,7 +2165,7 @@ function pagePatientView() {
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
             <div style="font-size:1.4rem;font-weight:800;color:#1C1C1C;letter-spacing:-.02em">${p.name}</div>
             ${patientStageTag(p, 'lg')}
-            ${patientSourceBadge(p)}
+            ${patientSourceBadge(p, { full: true })}
             <!-- Right up top next to the name/status, not buried in the
                  Personal Info tab — this is the one thing on the whole
                  page a doctor genuinely can't afford to miss walking in. -->
@@ -1525,6 +2223,8 @@ function pagePatientView() {
           ['prescriptions', 'Prescriptions'],
           ['history',       'Examination History'],
           ['consultations', 'Consultations'],
+          ['record',        'Medical Record'],
+          ['previous',      `Previous Clinic Records${prevClinicRecords(p).length ? ` (${prevClinicRecords(p).length})` : ''}`],
           ['appointments',  'Appointments']
         ].map(([key, lbl], i) => `
           <button class="filter-tab ptab-btn${i===0?' active':''}" data-tab="${key}"
@@ -1532,6 +2232,9 @@ function pagePatientView() {
       </div>
 
       <div class="patient-tab-body">
+
+        <!-- The whole record at a glance (medicalRecordPanelHtml). -->
+        ${panel('record', medicalRecordPanelHtml(p, role))}
 
         ${panel('personal', `
           <div class="profile-two-col" style="gap:0 32px">
@@ -1544,6 +2247,9 @@ function pagePatientView() {
               ['Email Address',   orEmpty(p.email, 'No email address')],
               ['Address',         orEmpty(p.address, 'No address set')],
               ['Occupation',      orEmpty(p.occupation, 'Not specified')],
+              ['Registration Type', patientSourceBadge(p)],
+              ...(p.source === 'transferred' ? [['Previous Optical Clinic', orEmpty(p.sourceNote, 'Not recorded')]]
+                : p.source === 'referral' ? [['Referred By', orEmpty(p.sourceNote, 'Not recorded')]] : []),
               ['Registered',      p.registeredDate ? fmtDate(p.registeredDate) : emptyVal('Not recorded')],
               ['Last Visit',      p.lastVisit && p.lastVisit !== '—' ? fmtDate(p.lastVisit) : emptyVal('No visits yet')],
               ['No-Shows', (() => {
@@ -1583,6 +2289,8 @@ function pagePatientView() {
           <div class="patient-section-label muted">Optical Examination Records (${p.examinations.length})</div>
           ${examsContent}`)}
 
+        ${panel('previous', prevRecordsPanelHtml(p, role))}
+
         ${panel('consultations', `
           <div class="patient-section-label muted">Consultation Records (${p.consultations.length})</div>
           ${consultationsPanel}`)}
@@ -1598,7 +2306,7 @@ function pagePatientView() {
               ${ic('plus','icon-sm')} New Appointment
             </button>` : ''}
           </div>
-          ${patientAppts.length ? recFilterBar('pv-appt-tbody', { isTable: true, items: patientAppts, getDoctor: a => a.doctorName, placeholder: 'Search doctor, type or ID…', statuses: APPT_STATUS_OPTS.filter(([v]) => patientAppts.some(a => a.status === v)) }) : ''}
+          ${patientAppts.length ? recFilterBar('pv-appt-tbody', { items: patientAppts, getDoctor: a => a.doctorName, placeholder: 'Search doctor, type or ID…', statuses: APPT_STATUS_OPTS.filter(([v]) => patientAppts.some(a => a.status === v)) }) : ''}
           <div class="table-wrap" style="box-shadow:none;border:1px solid #f3f4f6">${appointmentsTable(patientAppts, role, 'pv-appt-tbody', true)}</div>`)}
 
       </div>
@@ -1797,7 +2505,7 @@ function pageQRScanner() {
             <div id="qr-upload-idle">
               <div style="color:#9CA3AF;margin-bottom:8px">${ic('upload','icon-lg')}</div>
               <div style="font-size:.85rem;font-weight:600;color:#374151;margin-bottom:3px">Click to upload or drag &amp; drop</div>
-              <div style="font-size:.74rem;color:#9CA3AF">Any QR code image in PNG, JPG, or WEBP</div>
+              <div style="font-size:.74rem;color:#9CA3AF">Any QR code image in PNG, JPG, or WEBP, up to 10 MB</div>
             </div>
             <img id="qr-upload-preview" style="display:none;width:88px;height:88px;border-radius:8px;margin:0 auto;object-fit:contain;background:#fff;border:1px solid #E5E7EB;padding:6px">
             <div id="qr-upload-status" style="display:none;margin-top:10px"></div>
@@ -1999,13 +2707,16 @@ function pageSchedule() {
                 <div style="width:10px;height:10px;background:#ECFDF5;border:1.5px solid #10B981;border-radius:2px"></div>Available
               </div>
               <div style="display:flex;align-items:center;gap:6px;font-size:.75rem;color:#6B7280">
-                <div style="width:10px;height:10px;background:#FFEBEE;border-radius:2px"></div>Unavailable
+                <div style="width:10px;height:10px;background:#F3F4F6;border-radius:2px"></div>Unavailable
               </div>
               <div style="display:flex;align-items:center;gap:6px;font-size:.75rem;color:#6B7280">
                 <div style="width:10px;height:10px;background:#FEE2E2;border:1.5px solid #B91C1C;border-radius:2px"></div>Blocked
               </div>
               <div style="display:flex;align-items:center;gap:6px;font-size:.75rem;color:#6B7280">
                 <div style="width:10px;height:10px;background:#FFF1F2;border:1.5px solid #fda4af;border-radius:2px"></div>PH Holiday
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:.75rem;color:#6B7280">
+                <div style="width:10px;height:10px;background:#FFEDD5;border:1.5px solid #FDBA74;border-radius:2px"></div>Clinic Closed
               </div>
               <div style="display:flex;align-items:center;gap:6px;font-size:.72rem;color:#6B7280">
                 <div style="width:6px;height:6px;border-radius:50%;background:#065F46;opacity:.6;margin:3px"></div> Has Appointments
@@ -2015,6 +2726,7 @@ function pageSchedule() {
                      Blocked/Holiday) — this swatch shows the common case. -->
               </div>
             </div>
+            <p class="cal-tap-hint">${ic('info', 'icon-xs')}Tap any day to see its details.</p>
           </div>
         </div>
         <div class="card">
@@ -2028,7 +2740,7 @@ function pageSchedule() {
                     <td data-label="Type" style="font-size:.78rem;color:#6B7280">${apptTypeCell(a)}</td>
                   </tr>`).join('')}
                 </tbody></table>`
-              : `<div class="table-empty">No appointments today for this doctor.</div>`}
+              : emptyState('calendar', 'No appointments today', 'This doctor’s schedule is clear for today.', { size: 'sm' })}
           </div>
         </div>
       </div>
@@ -2397,6 +3109,7 @@ function pageAdminReports() {
                 { value: 'patient-visit',       label: 'Patient Visit History' },
                 { value: 'diagnosis-history',   label: 'Diagnosis History' },
                 { value: 'prescription-records',label: 'Prescription Records' },
+                { value: 'medical-records',     label: 'Patient Medical Records' },
                 { value: 'daily-appointment',   label: 'Daily Appointment Report' },
                 { value: 'completed-appts',     label: 'Completed Appointments' },
                 { value: 'cancelled-appts',     label: 'Cancelled / Disapproved Appointments' }
@@ -2407,9 +3120,9 @@ function pageAdminReports() {
           <div class="form-group filter-grid-full">
             <label style="display:block;font-size:.68rem;font-weight:700;color:#6b7280;margin-bottom:6px">Date range</label>
             <div style="display:flex;align-items:center;gap:8px">
-              ${window.dateFieldHtml('rpt-from', { value: monthStart, style: 'width:142px' })}
+              ${window.dateFieldHtml('rpt-from', { value: monthStart, style: 'width:142px', errorHost: 'rpt-date-err', errorLabel: 'Start date' })}
               <span style="font-size:.75rem;color:#9ca3af;font-weight:600;flex-shrink:0">\u2192</span>
-              ${window.dateFieldHtml('rpt-to', { value: today, style: 'width:142px' })}
+              ${window.dateFieldHtml('rpt-to', { value: today, style: 'width:142px', errorHost: 'rpt-date-err', errorLabel: 'End date' })}
             </div>
           </div>
           <div class="filter-grid-actions" style="display:flex;gap:8px;align-items:center">
@@ -2430,6 +3143,8 @@ function pageAdminReports() {
               ${ic('x','icon-sm')}
             </button>
           </div>
+          <!-- Date range messages: their own line, so the fields stay put -->
+          <div id="rpt-date-err" class="dob-err-host"></div>
         </div>
       </div>
     </div>
@@ -2438,12 +3153,7 @@ function pageAdminReports() {
     <div class="card" id="rpt-results-wrap" style="margin-bottom:20px;overflow:hidden">
       <div id="rpt-table-header" style="display:none;padding:18px 22px 14px;border-bottom:1px solid #f3f4f6"></div>
       <div id="rpt-table-area">
-        <div style="text-align:center;padding:56px 24px">
-          <div style="font-size:.92rem;font-weight:600;color:#374151;margin-bottom:6px">No report generated yet.</div>
-          <div style="font-size:.8rem;color:#9ca3af;max-width:280px;margin:0 auto;line-height:1.6">
-            Choose a report type and date range above, then click <strong style="color:#6b7280">Generate</strong>.
-          </div>
-        </div>
+        ${window.reportEmptyHtml ? window.reportEmptyHtml() : ''}
       </div>
     </div>
 
@@ -2636,7 +3346,7 @@ function pageAdminSettings() {
                     ${ic('upload','icon-sm')} Upload New Logo
                   </div>
                 </label>
-                <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">PNG, JPG, SVG. Shown in the sidebar, topbar, public navbar, footer, favicon, and login screen, since this is the clinic's most visible branding, so it comes first here too.</div>
+                <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">PNG or JPG up to 10 MB (big ones are resized automatically), or SVG up to 2 MB. Shown in the sidebar, topbar, public navbar, footer, favicon, and login screen, since this is the clinic's most visible branding, so it comes first here too.</div>
                 <input type="file" id="ci-logo-input" accept="image/*" style="display:none"
                        onchange="window.handleLogoUpload(this,'ci-logo-preview')">
               </div>
@@ -2728,7 +3438,7 @@ function pageAdminSettings() {
               </label>
               ${clinicInfo.videoUrl ? `<button class="btn-ghost" style="font-size:.8rem;padding:7px 10px;color:#DC2626" onclick="window.removeClinicVideo()">${ic('trash-2','icon-sm')} Remove</button>` : ''}
             </div>
-            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">MP4 or WebM, up to 2GB. Shown as a video player on the public homepage; leave unset to hide the section.</div>
+            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">MP4 or WebM, up to 100 MB (about 2 minutes of 1080p). Shown as a video player on the public homepage; leave unset to hide the section.</div>
             <input type="file" id="ci-video-input" accept="video/mp4,video/webm" style="display:none"
                    onchange="window.handleVideoUpload(this)">
           </div>
@@ -2746,7 +3456,7 @@ function pageAdminSettings() {
                 ${ic('upload','icon-sm')} Upload Hero Image
               </div>
             </label>
-            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">PNG, JPG, WebP. Recommended size: 1920×1080</div>
+            <div style="font-size:.72rem;color:#9CA3AF;margin-top:4px">PNG, JPG or WebP, up to 5 MB. Recommended size: 1920×1080</div>
             <input type="file" id="ci-hero-input" accept="image/png,image/jpeg,image/webp" style="display:none"
                    onchange="window.handleHeroUpload(this)">
           </div>
@@ -2774,7 +3484,7 @@ function pageAdminSettings() {
               <button onclick="window.galleryMaxAdjust(-1)"
                       style="width:28px;height:30px;border:none;border-right:1.5px solid #E5E7EB;background:transparent;cursor:pointer;color:#6B7280;font-size:1.1rem;font-weight:600;display:flex;align-items:center;justify-content:center;transition:background 0.15s"
                       onmouseover="this.style.background='#F3F4F6'" onmouseout="this.style.background='transparent'">−</button>
-              <input type="number" id="gallery-max-input" min="1" max="20"
+              <input type="number" id="gallery-max-input" min="1" max="30"
                      value="${clinicInfo.galleryMaxPhotos ?? 10}"
                      style="width:30px;border:none;outline:none;text-align:center;font-size:.82rem;font-weight:700;color:#111827;background:transparent;padding:0">
               <button onclick="window.galleryMaxAdjust(1)"
@@ -2794,9 +3504,9 @@ function pageAdminSettings() {
                 ${ic('upload','icon-sm')} Add Photo
               </div>
             </label>
-            <span id="gallery-type-hint" style="font-size:.72rem;color:#9CA3AF">PNG or JPG</span>
+            <span id="gallery-type-hint" style="font-size:.72rem;color:#9CA3AF">PNG or JPG, up to 20 MB each. Pick several at once.</span>
             <span id="gallery-limit-msg" style="font-size:.72rem;color:#EF4444;display:none">Limit reached. Remove a photo first.</span>
-            <input type="file" id="gallery-upload-input" accept=".png,.jpg,.jpeg" style="display:none"
+            <input type="file" id="gallery-upload-input" accept=".png,.jpg,.jpeg" multiple style="display:none"
                    onchange="window.galleryUploadPhoto(this)">
             <button id="gallery-sel-btn" onclick="window.galleryToggleSelMode()"
                     style="margin-left:auto;font-size:.8rem;font-weight:600;color:#6B7280;background:none;border:1.5px solid #E5E7EB;border-radius:20px;padding:6px 16px;cursor:pointer;font-family:inherit;transition:color .15s,border-color .15s,background .15s;display:flex;align-items:center;gap:6px"
@@ -2884,6 +3594,8 @@ function pageAdminSettings() {
   // ── Section: Consultation Settings ──────────────────────────
   function sectionConsultation() {
     const cs = consultationSettings
+    // The Clinic Closures card's "next closure" line, fresh from the server.
+    window.state.afterRender = () => window.loadClinicClosures?.()
     // Returns a plain array of "h:mm AM/PM" labels for timeFieldHtml()'s
     // popover list (not <option> HTML — the native <select> these used to
     // build for was swallowing most of the viewport height with 30+ options).
@@ -3032,13 +3744,17 @@ function pageAdminSettings() {
         </div>
       </div>
 
-      <!-- Clinic Closures: close the whole clinic on a date (every doctor) -->
-      <div class="card" style="padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
-        <div style="min-width:0">
-          <div style="font-size:.9rem;font-weight:700;color:#1C1C1C;margin-bottom:4px">Clinic Closures</div>
-          <div style="font-size:.78rem;color:#9CA3AF;line-height:1.5;max-width:560px">Close the clinic for every doctor on a specific date, such as a sudden holiday, clinic outing or emergency, instead of blocking each doctor one by one.</div>
+      <!-- Clinic Closures: close the whole clinic on a date (every doctor).
+           In the calendars' "Clinic Closed" peach, so it reads as the thing
+           that closes those days; the next closure is shown at a glance. -->
+      <div class="card ccl-card">
+        <span class="ccl-ic">${ic('lock','icon')}</span>
+        <div class="ccl-body">
+          <div class="ccl-title">Clinic Closures</div>
+          <div class="ccl-text">Close the clinic for every doctor on a specific date, such as a sudden holiday, clinic outing or emergency, instead of blocking each doctor one by one.</div>
+          <div id="cl-summary">${window.clinicClosureSummaryHtml ? window.clinicClosureSummaryHtml() : ''}</div>
         </div>
-        <button class="btn-secondary" onclick="window.openClinicClosureModal()">${ic('lock','icon-sm')} Manage Closures</button>
+        <button class="btn-secondary" onclick="window.openClinicClosureModal()">${ic('calendar','icon-sm')} Manage Closures</button>
       </div>
     </div>`
   }
@@ -3126,7 +3842,10 @@ function pageAdminSettings() {
     // No 'Examination' tab: exam records can't be archived (permanent
     // medical records), and older archived ones were restored
     // (database/restore_archived_examinations.sql).
-    const tabs = ['all','Patient','Account','Service']
+    // 'Previous Record': records from other clinics archived from a patient's
+    // profile (api/previous_records/archive.php).
+    const tabs = ['all','Patient','Account','Service','Previous Record']
+    const tabLabel = t => t === 'all' ? 'All' : t === 'Previous Record' ? 'Previous Clinic Records' : t + 's'
     // Accounts tab: a role filter (All roles / Admin / Staff / Doctor), so a
     // long list of archived accounts stays easy to narrow down.
     const arcRole = arcFilter === 'Account' ? (st().archivesRole || '') : ''
@@ -3134,7 +3853,7 @@ function pageAdminSettings() {
       .filter(r => !arcRole || (r.data?.role || '') === arcRole)
     const roleCount = role => archivedRecords.filter(r => r.type === 'Account' && (!role || (r.data?.role || '') === role)).length
     const typeBadge = r => {
-      const map = { Patient:'#DBEAFE:#1D4ED8', Account:'#EDE9FE:#5B21B6', Examination:'#D1FAE5:#065F46', Service:'#FCE7F3:#9D174D' }
+      const map = { Patient:'#DBEAFE:#1D4ED8', Account:'#EDE9FE:#5B21B6', Examination:'#D1FAE5:#065F46', Service:'#FCE7F3:#9D174D', 'Previous Record':'#FFEDD5:#9A3412' }
       const [bg, col] = (map[r.type] || '#F3F4F6:#374151').split(':')
       return `<span style="background:${bg};color:${col};font-size:.68rem;font-weight:700;padding:2px 10px;border-radius:20px;letter-spacing:.04em">${archiveTypeLabel(r)}</span>`
     }
@@ -3149,7 +3868,7 @@ function pageAdminSettings() {
       <div class="table-wrap">
         <div class="filter-tabs" style="padding:12px 20px 0;border-bottom:1px solid #f3f4f6">
           ${tabs.map(t => `<button class="filter-tab${arcFilter===t||(t==='all'&&arcFilter==='all')?' active':''}"
-            onclick="window.state.archivesFilter='${t}';window.state.archivesRole='';window.renderPage()">${t==='all'?'All':t+'s'}</button>`).join('')}
+            onclick="window.state.archivesFilter='${t}';window.state.archivesRole='';window.renderPage()">${tabLabel(t)}</button>`).join('')}
         </div>
         <div class="table-toolbar" style="padding:12px 20px">
           <span class="table-title">${list.length} archived record${list.length!==1?'s':''}</span>
@@ -3166,7 +3885,7 @@ function pageAdminSettings() {
         ${list.length ? `
         <table class="tbl archives-tbl">
           <colgroup>
-            <col style="width:13%"><col style="width:24%"><col style="width:13%"><col style="width:26%"><col style="width:12%"><col style="width:12%">
+            <col style="width:14%"><col style="width:24%"><col style="width:13%"><col style="width:25%"><col style="width:12%"><col style="width:12%">
           </colgroup>
           <thead><tr>
             <th>Type</th>
@@ -3176,130 +3895,137 @@ function pageAdminSettings() {
             <th>Actions</th>
           </tr></thead>
           <tbody id="archives-tbody">
-            ${list.map(r => `<tr data-search="${r.name.toLowerCase()} ${r.refId.toLowerCase()} ${r.archivedBy.toLowerCase()}" data-sort-name="${r.name.toLowerCase()}" data-sort-date="${r.date}">
+            ${list.map(r => {
+              // A previous clinic record's ref_id is its row number; the
+              // patient ID next to the name says more.
+              const shownId = r.type === 'Previous Record' ? (r.data?.patientId || '') : r.refId
+              // As a '…' JS string inside a "…" attribute.
+              const jsName = esc(String(r.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"))
+              return `<tr data-search="${esc(`${r.name} ${shownId} ${r.archivedBy}`.toLowerCase())}" data-sort-name="${esc(String(r.name || '').toLowerCase())}" data-sort-date="${esc(r.date)}">
               <td data-label="Type" style="white-space:nowrap">${typeBadge(r)}</td>
               <td data-label="Name / ID" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0">
-                <span style="font-size:.82rem;font-weight:600;color:#1f2937">${r.name}</span>
-                <span style="font-size:.72rem;color:#9ca3af;margin-left:5px">${r.refId}</span>
+                <span style="font-size:.82rem;font-weight:600;color:#1f2937">${esc(r.name)}</span>
+                <span style="font-size:.72rem;color:#9ca3af;margin-left:5px">${esc(shownId)}</span>
               </td>
-              <td data-label="Archived By" style="font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0">${r.archivedBy}</td>
-              <td data-label="Reason" style="font-size:.78rem;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0" title="${r.reason}">${r.reason}</td>
-              <td data-label="Date" style="font-size:.78rem;white-space:nowrap">${r.date}</td>
+              <td data-label="Archived By" style="font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0">${esc(r.archivedBy)}</td>
+              <td data-label="Reason" style="font-size:.78rem;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0" title="${esc(r.reason)}">${esc(r.reason)}</td>
+              <td data-label="Date" style="font-size:.78rem;white-space:nowrap">${esc(r.date)}</td>
               <td data-label="Actions" style="white-space:nowrap">
                 <div style="display:flex;gap:4px;align-items:center;flex-wrap:nowrap">
                   <button class="btn-icon" title="View" onclick="window.viewArchivedRecord('${r.id}')">${ic('eye','icon-sm')}</button>
-                  <button class="btn-icon" title="Restore" style="color:#16a34a;border-color:#d1fae5" onclick="window.confirmRestore('${r.id}','${r.name.replace(/'/g,"\\'")}')">${ic('rotate-ccw','icon-sm')}</button>
-                  ${r.type === 'Examination' ? '' : `<button class="btn-icon" title="Delete Forever" style="color:#dc2626;border-color:#fee2e2" onclick="window.confirmPermDelete('${r.id}','${r.name.replace(/'/g,"\\'")}')">${ic('trash','icon-sm')}</button>`}
+                  <button class="btn-icon" title="Restore" style="color:#16a34a;border-color:#d1fae5" onclick="window.confirmRestore('${r.id}','${jsName}')">${ic('rotate-ccw','icon-sm')}</button>
+                  ${r.type === 'Examination' ? '' : `<button class="btn-icon" title="Delete Forever" style="color:#dc2626;border-color:#fee2e2" onclick="window.confirmPermDelete('${r.id}','${jsName}')">${ic('trash','icon-sm')}</button>`}
                 </div>
               </td>
-            </tr>`).join('')}
+            </tr>`}).join('')}
           </tbody>
         </table>` : `
-        <div class="table-empty">${arcFilter !== 'all' ? 'No archived records of this type.' : 'No archived records.'}</div>`}
+        ${emptyState('archive', arcFilter !== 'all' ? `No archived ${tabLabel(arcFilter).toLowerCase()}` : 'Nothing in Archives',
+            'Archived patients, accounts, services and clinic records appear here, ready to restore or delete for good.')}`}
       </div>
     </div>`
   }
 
   // ── Section: Backup & Restore ────────────────────────────────
   function sectionBackup() {
-    // Small green-check row used for the "what's included" list — same
-    // visual language as a completed checklist item, not a generic bullet.
-    const includedItem = (label) => `
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="width:18px;height:18px;border-radius:50%;background:#ECFDF5;color:#16A34A;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('check', 'icon-xs')}</span>
-        <span style="font-size:.8rem;color:#374151">${label}</span>
-      </div>`
+    // When the system was last backed up / restored, and the video's size.
+    window.state.afterRender = () => window.loadBackupStatus?.()
+    const included = ['Patients &amp; medical records', 'Appointments &amp; consultations', 'Accounts',
+      'Clinic settings &amp; services', 'Logo, gallery, &amp; profile photos', 'Portable SQL dump, any MySQL tool']
 
     return `
-    <style>
-      /* Side by side once there's room for both cards to breathe (~420px
-         each); stacked below that, same as every other responsive
-         settings grid in this app (sectionProfile's .ad-sett-col). */
-      @media (min-width: 900px) {
-        .bk-grid { display: grid !important; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
-      }
-    </style>
     <div class="page-header">
       <div class="page-header-left">
         <h1 class="page-title">Backup &amp; Restore</h1>
         <p class="page-subtitle">Export a full backup of the system, or restore one onto this system.</p>
       </div>
     </div>
-    <div class="page-body bk-grid" style="display:flex;flex-direction:column;gap:20px">
+    <div class="page-body bk-grid">
 
       <!-- Create Backup -->
-      <div class="card" style="padding:28px;display:flex;flex-direction:column">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px">
-          <div style="width:36px;height:36px;border-radius:50%;background:#E8760A;color:white;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('download', 'icon-sm')}</div>
+      <section class="card bk-card">
+        <div class="bk-head">
+          <span class="bk-ic">${ic('download', 'icon')}</span>
           <div>
-            <div style="font-size:.95rem;font-weight:700;color:#1C1C1C">Create Backup</div>
-            <div style="font-size:.75rem;color:#6B7280;margin-top:1px">Everything needed to restore the system elsewhere, or recover it if it ever goes down</div>
+            <h2 class="bk-title">Create Backup</h2>
+            <p class="bk-sub">Everything needed to restore the system elsewhere, or recover it if it ever goes down.</p>
           </div>
         </div>
+        <div class="bk-last" id="bk-last-backup" aria-live="polite"></div>
 
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px 18px;background:#F9FAFB;border:1px solid #F3F4F6;border-radius:10px;padding:16px 18px;margin-bottom:16px">
-          ${includedItem('Patients &amp; medical records')}
-          ${includedItem('Appointments &amp; consultations')}
-          ${includedItem('Accounts')}
-          ${includedItem('Clinic settings &amp; services')}
-          ${includedItem('Logo, gallery, &amp; profile photos')}
-          ${includedItem('Portable SQL dump, any MySQL tool')}
+        <div>
+          <div class="bk-label">What's included</div>
+          <ul class="bk-incl">${included.map(t => `<li>${ic('check', 'icon-xs')}${t}</li>`).join('')}</ul>
+          <p class="bk-note">Active sign-in sessions and one-time verification codes are left out on purpose. They're short-lived and meaningless to restore later.</p>
         </div>
-        <p style="font-size:.76rem;color:#9CA3AF;line-height:1.6;margin:0 0 18px">
-          Active sign-in sessions and one-time verification codes are left out on purpose.
-          They're short-lived and meaningless to restore later.
-        </p>
 
-        <label for="bk-include-video" style="display:flex;align-items:flex-start;gap:10px;font-size:.8rem;color:#6B7280;line-height:1.55;padding:12px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;margin-bottom:20px;cursor:pointer">
-          <input type="checkbox" id="bk-include-video" class="chk" style="margin-top:1px">
-          <span><strong style="color:#92400E">Include the clinic hero video.</strong> This adds a large amount of size, so leave it unchecked unless you specifically need it backed up (it can always be re-uploaded separately from Clinic Information).</span>
+        <label class="bk-opt" for="bk-include-video">
+          <input type="checkbox" id="bk-include-video" class="chk">
+          <span class="bk-opt-text">
+            <b>Include the homepage video</b>
+            <span id="bk-video-size">It's large, so leave it off unless you need it. It can always be re-uploaded from Clinic Information.</span>
+          </span>
         </label>
 
-        <button class="btn-primary" style="width:100%;justify-content:center;margin-top:auto" onclick="window.downloadSystemBackup(this)">
-          ${ic('download', 'icon-sm')} Download Backup
-        </button>
-      </div>
+        <div class="bk-actions">
+          <button class="btn-primary bk-btn" id="bk-download-btn" onclick="window.downloadSystemBackup(this)">
+            ${ic('download', 'icon-sm')} Download Backup
+          </button>
+          <div class="bk-prog" id="bk-download-prog" hidden>
+            <div class="bk-prog-row"><span id="bk-download-label"></span><b id="bk-download-pct"></b></div>
+            <div class="bk-bar"><i id="bk-download-bar"></i></div>
+          </div>
+        </div>
+      </section>
 
       <!-- Restore -->
-      <div class="card" style="padding:28px;border:1.5px solid #FECACA;display:flex;flex-direction:column">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-          <div style="width:36px;height:36px;border-radius:50%;background:#DC2626;color:white;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('alert-triangle', 'icon-sm')}</div>
+      <section class="card bk-card bk-card-danger">
+        <div class="bk-head">
+          <span class="bk-ic bk-ic-danger">${ic('rotate-ccw', 'icon')}</span>
           <div>
-            <div style="font-size:.95rem;font-weight:700;color:#1C1C1C">Restore from Backup</div>
-            <div style="font-size:.75rem;color:#6B7280;margin-top:1px">Replaces all current data to recover after data loss, or to move everything to a new installation</div>
+            <h2 class="bk-title">Restore from Backup</h2>
+            <p class="bk-sub">Recover after data loss, or move everything to a new installation.</p>
           </div>
         </div>
-        <p style="font-size:.8rem;color:#6B7280;line-height:1.6;margin:0 0 18px">
-          You'll see exactly what's in the file and have to confirm before anything is changed.
-          Nothing is touched by choosing one below.
-        </p>
+        <div class="bk-warn">
+          ${ic('alert-triangle', 'icon-sm')}
+          <span><b>Replaces all current data and signs everyone out.</b> Nothing changes until you review the backup and confirm with your password.</span>
+        </div>
 
-        <input type="file" accept=".zip" id="bk-restore-file" style="display:none" onchange="window._bkFileChosen(this)">
-        <div id="bk-restore-dropzone"
-             style="border:2px dashed #E5E7EB;border-radius:10px;padding:26px 16px;text-align:center;
-                    cursor:pointer;transition:border-color .15s,background .15s;background:#FAFAFA;margin-bottom:18px"
+        <ol class="bk-steps" id="bk-steps" aria-label="Restore steps">
+          <li class="is-active"><span class="bk-step-n">1</span>Choose file</li>
+          <li><span class="bk-step-n">2</span>Upload &amp; check</li>
+          <li><span class="bk-step-n">3</span>Confirm</li>
+        </ol>
+
+        <input type="file" accept=".zip,application/zip" id="bk-restore-file" hidden onchange="window._bkFileChosen(this)">
+        <div class="bk-drop" id="bk-restore-dropzone" role="button" tabindex="0" aria-label="Choose a backup file"
              onclick="document.getElementById('bk-restore-file').click()"
-             ondragover="event.preventDefault();this.style.borderColor='#DC2626';this.style.background='#FEF2F2'"
-             ondragleave="this.style.borderColor='#E5E7EB';this.style.background='#FAFAFA'"
-             ondrop="event.preventDefault();this.style.borderColor='#E5E7EB';this.style.background='#FAFAFA';window._bkFileDropped(event.dataTransfer.files[0])">
-          <div id="bk-restore-idle">
-            <div style="color:#9CA3AF;margin-bottom:8px">${ic('upload', 'icon-lg')}</div>
-            <div style="font-size:.85rem;font-weight:600;color:#374151;margin-bottom:3px">Click to choose or drag &amp; drop a backup file</div>
-            <div style="font-size:.74rem;color:#9CA3AF">A .zip file created by Download Backup, above</div>
+             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"
+             ondragover="event.preventDefault();this.classList.add('is-over')"
+             ondragleave="this.classList.remove('is-over')"
+             ondrop="event.preventDefault();this.classList.remove('is-over');window._bkFileDropped(event.dataTransfer.files[0])">
+          <span class="bk-drop-ic">${ic('upload', 'icon')}</span>
+          <span class="bk-drop-title">Drop a backup file here, or <u>browse</u></span>
+          <span class="bk-drop-hint">The .zip from Download Backup, up to 2 GB</span>
+        </div>
+        <div class="bk-file" id="bk-restore-chosen" hidden>
+          <span class="bk-file-ic">ZIP</span>
+          <div class="bk-file-main">
+            <div class="bk-file-name" id="bk-restore-filename"></div>
+            <div class="bk-file-meta" id="bk-restore-filesize" aria-live="polite"></div>
+            <div class="bk-bar" id="bk-restore-bar" hidden><i></i></div>
           </div>
-          <div id="bk-restore-chosen" style="display:none;align-items:center;justify-content:center;gap:10px">
-            <div style="width:38px;height:38px;border-radius:8px;background:#FEE2E2;color:#DC2626;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('file-text', 'icon-sm')}</div>
-            <div style="text-align:left;min-width:0">
-              <div id="bk-restore-filename" style="font-size:.84rem;font-weight:600;color:#1C1C1C;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px"></div>
-              <div id="bk-restore-filesize" style="font-size:.72rem;color:#9CA3AF"></div>
-            </div>
-          </div>
+          <button type="button" class="btn-icon bk-file-x" id="bk-restore-clear" title="Choose a different file" aria-label="Choose a different file" onclick="window._bkClearFile()">${ic('x', 'icon-sm')}</button>
         </div>
 
-        <button class="btn-danger" id="bk-restore-review-btn" disabled style="width:100%;justify-content:center;padding:9px 20px;border-radius:8px;font-size:.85rem;opacity:.5;cursor:not-allowed;margin-top:auto" onclick="window.inspectBackupFile(this)">
-          ${ic('upload', 'icon-sm')} Choose &amp; Review Backup
-        </button>
-      </div>
+        <div class="bk-actions">
+          <button class="btn-danger-outline bk-btn" id="bk-restore-review-btn" disabled onclick="window.inspectBackupFile(this)">
+            ${ic('upload', 'icon-sm')} Upload &amp; Review
+          </button>
+          <div class="bk-last bk-last-quiet" id="bk-last-restore"></div>
+        </div>
+      </section>
 
     </div>`
   }
@@ -3395,11 +4121,11 @@ function pageActivityLog() {
         </div>
         <div class="form-group" style="margin:0;flex:0 0 auto">
           <label class="form-label" style="font-size:.72rem">From Date</label>
-          ${window.dateFieldHtml('log-date-from', { value: monthStart, style: 'width:150px;padding:7px 10px;font-size:.82rem', onchange: 'window.applyLogFilters()' })}
+          ${window.dateFieldHtml('log-date-from', { value: monthStart, style: 'width:150px;padding:7px 10px;font-size:.82rem', onchange: 'window.applyLogFilters()', errorHost: 'log-date-err', errorLabel: 'From date' })}
         </div>
         <div class="form-group" style="margin:0;flex:0 0 auto">
           <label class="form-label" style="font-size:.72rem">To Date</label>
-          ${window.dateFieldHtml('log-date-to', { value: today, style: 'width:150px;padding:7px 10px;font-size:.82rem', onchange: 'window.applyLogFilters()' })}
+          ${window.dateFieldHtml('log-date-to', { value: today, style: 'width:150px;padding:7px 10px;font-size:.82rem', onchange: 'window.applyLogFilters()', errorHost: 'log-date-err', errorLabel: 'To date' })}
         </div>
         <div class="search-input-wrap" style="flex:1;min-width:180px;align-self:flex-end">
           ${ic('search','icon-sm')}
@@ -3414,6 +4140,8 @@ function pageActivityLog() {
             ${ic('trash-2','icon-sm')} Clear All Logs
           </button>
         </div>
+        <!-- Date messages: their own line, so the filters stay put -->
+        <div id="log-date-err" class="dob-err-host"></div>
       </div>
 
       ${activityLog.length ? `
@@ -3456,12 +4184,12 @@ function pageActivityLog() {
               <td data-label="IP Address" style="font-size:.75rem;color:#9CA3AF;font-family:monospace;white-space:nowrap">${l.ip || '—'}</td>
             </tr>`
           }).join('')}
-          <tr id="log-empty-row" style="display:none;pointer-events:none">
-            <td colspan="7" style="padding:24px;text-align:center;border:none;color:#9CA3AF;font-size:.85rem">No activities found.</td>
+          <tr id="log-empty-row" class="es-row" style="display:none">
+            <td colspan="7">${emptyState('search', 'No log entries match these filters', 'Try another role, type or date range.', { size: 'sm', neutral: true })}</td>
           </tr>
         </tbody>
       </table>
-      ` : `<div class="table-empty">No activity logged.</div>`}
+      ` : emptyState('activity', 'No activity recorded yet', 'Bookings, examinations, account changes and settings updates are logged here as they happen.')}
     </div>
   </div>`
 }
@@ -3603,7 +4331,7 @@ function pageDoctorDashboard() {
           </tr>`).join('')}
         </tbody>
       </table>
-      </div>` : `<div class="table-empty">No patients scheduled for today.</div>`}
+      </div>` : emptyState('calendar', 'No patients scheduled today', 'Today’s approved appointments will show up here.', { size: 'sm' })}
     </div>
 
     <!-- Recent Completed Appointments -->
@@ -3633,7 +4361,7 @@ function pageDoctorDashboard() {
           </tr>`).join('')}
         </tbody>
       </table>
-      </div>` : `<div class="table-empty">No completed appointments yet.</div>`}
+      </div>` : emptyState('check-circle', 'No completed appointments yet', 'Appointments you complete will be listed here.', { size: 'sm' })}
     </div>
 
   </div>`
@@ -3755,7 +4483,7 @@ function pageDoctorAppointments() {
             <td data-label="Actions">${docActions(a)}</td>
           </tr>`).join('')}
         </tbody>
-      </table>` : `<div class="table-empty">No appointments found.</div>`}
+      </table>` : emptyState('calendar', 'No appointments here', 'Appointments assigned to you will be listed here.')}
     </div>
   </div>`
 }
@@ -3855,6 +4583,9 @@ function pageDoctorSchedule() {
               <div style="width:12px;height:12px;border-radius:3px;background:#FFF1F2;border:1px solid #fda4af"></div> PH Holiday
             </div>
             <div style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#6B7280">
+              <div style="width:12px;height:12px;border-radius:3px;background:#FFEDD5;border:1px solid #FDBA74"></div> Clinic Closed
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#6B7280">
               <div style="width:6px;height:6px;border-radius:50%;background:#065F46;opacity:.6;margin:3px"></div> Has Appointments
               <!-- The real dot (.has-appts::before, global.css) uses
                    currentColor, so it actually takes on whatever text
@@ -3862,6 +4593,7 @@ function pageDoctorSchedule() {
                    Blocked/Holiday) — this swatch shows the common case. -->
             </div>
           </div>
+          <p class="cal-tap-hint">${ic('info', 'icon-xs')}Tap any day to see its details.</p>
         </div>
       </div>
 
@@ -4284,7 +5016,7 @@ function pageExamRecords() {
             </td>
           </tr>`).join('')}
         </tbody>
-      </table>` : `<div class="table-empty">No examination records.</div>`}
+      </table>` : emptyState('eye', 'No examination records yet', 'Examinations the doctors save are listed here.')}
     </div>
   </div>`
 }
@@ -4725,10 +5457,11 @@ function pageNewExamination() {
     ${STEPS.map((s, i) => `
       <div class="wiz-step-wrap" style="display:flex;align-items:center;flex:1 1 100px;min-width:100px">
         <div id="wiz-pill-${s.n}" class="wiz-pill" onclick="examWizJump(${s.n})"
-             style="display:flex;align-items:center;gap:8px;cursor:pointer;min-width:0;padding:4px 4px;border-radius:8px;transition:background 0.2s;overflow:hidden"
-             onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='transparent'">
+             role="button" tabindex="0" aria-label="Step ${s.n}: ${s.label}"
+             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();examWizJump(${s.n})}"
+             style="display:flex;align-items:center;gap:8px;cursor:pointer;min-width:0;padding:4px 4px;border-radius:8px;overflow:hidden">
           <div id="wiz-circle-${s.n}"
-               style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:700;flex-shrink:0;transition:all 0.3s;${s.n === 1 ? 'background:#E8760A;color:white' : 'background:#f3f4f6;color:#9ca3af;border:2px solid #e5e7eb'}">${s.n}</div>
+               style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:700;flex-shrink:0;transition:background-color .3s ease, box-shadow .3s ease, transform .3s cubic-bezier(.34,1.56,.64,1);${s.n === 1 ? 'background:#E8760A;color:white;box-shadow:0 2px 8px rgba(232,137,28,0.35)' : 'background:#f3f4f6;color:#9ca3af;border:2px solid #e5e7eb'}">${s.n}</div>
           <div class="wiz-pill-text" style="min-width:60px;overflow:hidden">
             <div class="wiz-pill-label" style="font-size:.72rem;font-weight:${s.n === 1 ? '700' : '500'};color:${s.n === 1 ? '#1f2937' : '#9ca3af'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color 0.3s">${s.label}</div>
             <div class="wiz-pill-sub" style="font-size:.62rem;color:${s.n === 1 ? '#6b7280' : '#d1d5db'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color 0.3s">${s.sub}</div>
@@ -4949,6 +5682,8 @@ function pageNewExamination() {
         <div style="font-size:.75rem;color:#6b7280;margin-top:1px">Enter optical measurements for both eyes</div>
       </div>
     </div>
+    <!-- Latest previous-clinic prescription, for comparison (prevRecordRefHtml) -->
+    <div id="prc-ref-slot">${prevRecordRefHtml(p)}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div style="border:1px solid #e5e7eb;border-left:4px solid #22c55e;border-radius:12px;padding:20px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
@@ -5256,8 +5991,8 @@ function pageNewExamination() {
       <div style="width:72px;height:72px;border-radius:50%;background:#E8760A;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:1.5rem;font-weight:800;color:#fff;letter-spacing:-.02em;overflow:hidden">${p.photoUrl ? `<img src="${p.photoUrl}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block" onerror="${avatarFallbackAttr(p.name)}">` : initials(p.name)}</div>
       <div style="font-size:1rem;font-weight:800;color:#1f2937;margin-bottom:2px">${p.name}</div>
       <div style="font-size:.75rem;font-family:monospace;color:#9CA3AF;margin-bottom:6px">${p.id}</div>
-      <div class="np-card-tags">${patientSourceBadge(p)}${newPatientTag(p, 'md')}</div>
-      ${isNewPatient(p) ? '<div class="np-first-exam">' + NP_ICON_NEW + 'First examination at the clinic</div>' : ''}
+      <div class="np-card-tags" id="exam-np-tags">${patientSourceBadge(p)}${newPatientTag(p, 'md')}</div>
+      ${!hasClinicExam(p) ? '<div class="np-first-exam">' + NP_ICON_NEW + 'First examination at the clinic</div>' : ''}
       ${p.occupation ? `<div style="font-size:.72rem;color:#9CA3AF;margin-top:6px">${p.occupation}</div>` : ''}
     </div>
     <div style="display:flex;flex-direction:column;gap:12px">
@@ -5275,6 +6010,10 @@ function pageNewExamination() {
           </div>
         </div>`).join('')}
     </div>
+    <!-- The whole medical record in a dialog, so nothing typed here is lost -->
+    <button type="button" class="btn-ghost mr-open-btn" onclick="window.openMedicalRecordModal('${p.id}')">${ic('clipboard', 'icon-sm')} Medical record</button>
+    <!-- Records from previous clinics (prevRecordsSideHtml) -->
+    <div id="prc-side-slot">${prevRecordsSideHtml(p)}</div>
   </div>
   `
 
@@ -5376,7 +6115,7 @@ function pageNewExamination() {
        at the 768px breakpoint. Each step owns a fixed 100px column so
        labels never need clipping; #wiz-stepper still scrolls horizontally
        if 7 columns genuinely don't fit the available width. */
-    #wiz-stepper { padding: 16px 12px; gap: 0; overflow-x: auto; width: 100%; box-sizing: border-box; }
+    #wiz-stepper { position: relative; padding: 16px 12px; gap: 0; overflow-x: auto; width: 100%; box-sizing: border-box; }
     .wiz-step-wrap {
       position: relative !important;
       flex-direction: column !important;
@@ -5411,14 +6150,23 @@ function pageNewExamination() {
       line-height: 1.3;
     }
     .wiz-pill-sub { display: block !important; font-size: .56rem !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
-    /* Line: spans only between circle edges with a 4px white gap on each side */
+    /* Hover / keyboard focus / press act on the circle itself, so no
+       grey box gets drawn over the connector lines. */
+    .wiz-pill:hover > div:first-child { transform: scale(1.08); }
+    .wiz-pill:active > div:first-child { transform: scale(.94); }
+    .wiz-pill:focus-visible { outline: none; }
+    .wiz-pill:focus-visible > div:first-child { outline: 2px solid #E8760A; outline-offset: 3px; }
+    /* Line: runs from this circle's centre to the next one's (every column
+       is the same width), tucked behind both opaque circles, so it meets
+       each circle exactly with no gap. top = half the 30px circle - 1px. */
     .wiz-step-line {
       position: absolute !important;
-      top: 15px !important;
-      left: calc(50% + 19px) !important;
-      width: calc(100% - 38px) !important;
+      top: 14px !important;
+      left: 50% !important;
+      width: 100% !important;
       height: 2px !important;
       margin: 0 !important;
+      border-radius: 0 !important;
       flex: none !important;
       z-index: 1;
       min-width: unset !important;
@@ -5560,11 +6308,8 @@ function pagePatientExamHistory() {
 
     ` : `
     <div class="card">
-      <div style="text-align:center;padding:60px 24px">
-        <div style="font-size:.95rem;font-weight:700;color:#1C1C1C;margin-bottom:6px">No Examinations Yet</div>
-        <div style="font-size:.82rem;color:#6B7280;margin-bottom:20px">Your examination records will appear here after your first optical consultation.</div>
-        <button class="btn-primary" onclick="window.navigate('patient-request-appt')">${ic('plus','icon-sm')} Book an Appointment</button>
-      </div>
+      ${emptyState('eye', 'No examinations yet', 'Your examination results will appear here after your first visit.',
+        { action: `<button class="btn-primary" onclick="window.navigate('patient-request-appt')">${ic('plus','icon-sm')} Book an Appointment</button>` })}
     </div>`}
   </div>`
 }
@@ -5679,7 +6424,7 @@ function pagePatientDashboard() {
             onmouseout="this.style.background='rgba(255,255,255,.1)';this.style.borderColor='rgba(255,255,255,.18)';this.style.color='rgba(255,255,255,.85)';this.style.transform='translateY(0)'"
             onmousedown="this.style.transform='translateY(0)'"
             onmouseup="this.style.transform='translateY(-2px)'">
-            ${ic('stethoscope','icon-sm')} Our Doctors
+            ${ic('stethoscope','icon-sm')} Doctor Availability
           </button>
           <button onclick="window.navigate('patient-prescriptions')"
             style="display:flex;align-items:center;justify-content:center;gap:6px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:rgba(255,255,255,.85);padding:8px 14px;border-radius:8px;font-size:.8rem;font-weight:500;cursor:pointer;font-family:inherit;transition:background .18s ease,border-color .18s ease,transform .18s ease,color .18s ease"
@@ -5738,10 +6483,8 @@ function pagePatientDashboard() {
             </tr>`).join('')}
           </tbody>
         </table>
-        </div>` : `
-        <div class="table-empty">No upcoming appointments.<br>
-          <button class="btn-primary" style="margin-top:12px" onclick="window.navigate('patient-appts',{filter:'request'})">Book an Appointment</button>
-        </div>`}
+        </div>` : emptyState('calendar', 'No upcoming appointments', 'Book a visit and it will show up here.',
+          { size: 'sm', action: `<button class="btn-primary" onclick="window.navigate('patient-appts',{filter:'request'})">${ic('plus','icon-sm')} Book an Appointment</button>` })}
       </div>
 
       <div class="gap-y">
@@ -5829,7 +6572,7 @@ function appointmentWizardHtml(mode) {
       /* ── Progress stepper ── */
       .wiz-stepper { display:flex; align-items:center; margin-bottom:24px; }
       .wiz-step-item { display:flex; flex-direction:column; align-items:center; flex:1; position:relative; }
-      .wiz-step-item:not(:last-child)::after { content:''; position:absolute; top:14px; left:50%; width:100%;
+      .wiz-step-item:not(:last-child)::after { content:''; position:absolute; top:13px; left:50%; width:100%;
         height:2px; background:#e5e7eb; z-index:0; transition:background .3s; }
       .wiz-step-item.done:not(:last-child)::after { background:#E8760A; }
       .wiz-circle { width:28px; height:28px; border-radius:50%; border:2px solid #e5e7eb; background:#fff;
@@ -5925,19 +6668,19 @@ function appointmentWizardHtml(mode) {
         transition:background-color .15s, color .15s; }
       .amc-day:hover:not(.amc-past):not(.amc-empty):not(.amc-far) { background:#FFF0DC; }
       .amc-day.amc-avail { background:#ECFDF5; color:#065F46; font-weight:600; }
-      .amc-day.amc-unavailable { background:#F3F4F6; color:#9CA3AF; cursor:not-allowed; }
+      .amc-day.amc-unavailable { background:#F3F4F6; color:#9CA3AF; cursor:default; }
       .amc-day.amc-today { outline:2px solid #E8760A; font-weight:700; }
       .amc-day.amc-selected { background:#E8760A !important; color:#fff !important; font-weight:700; }
       /* Solid, legible muted colors instead of opacity — opacity fades the
          day NUMBER along with the background, and stacked with the already-
          muted unavailable/holiday colors it made whole months (e.g. every
          date past the Maximum Advance Booking window) nearly unreadable. */
-      .amc-day.amc-past { color:#C1C7D0; cursor:not-allowed; }
-      .amc-day.amc-far { color:#C1C7D0; cursor:not-allowed; background:#f9fafb; }
+      .amc-day.amc-past { color:#C1C7D0; cursor:default; }
+      .amc-day.amc-far { color:#C1C7D0; cursor:default; background:#f9fafb; }
       .amc-day.amc-empty { cursor:default; }
-      .amc-day.amc-holiday { background:#FFF1F2; color:#f43f5e; cursor:not-allowed; font-weight:600; }
+      .amc-day.amc-holiday { background:#FFF1F2; color:#f43f5e; cursor:default; font-weight:600; }
       .amc-holiday-lbl { position:absolute; left:2px; right:2px; top:calc(50% + 8px); font-size:.7rem; line-height:1.15; text-align:center; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; font-weight:600; padding:0 1px; }
-      .amc-day.amc-blocked { background:#FEE2E2; color:#B91C1C; cursor:not-allowed; font-weight:700; text-decoration:line-through; text-decoration-color:rgba(185,28,28,0.5); }
+      .amc-day.amc-blocked { background:#FEE2E2; color:#B91C1C; cursor:default; font-weight:700; text-decoration:line-through; text-decoration-color:rgba(185,28,28,0.5); }
       .amc-nodoc-lbl { position:absolute; left:2px; right:2px; top:calc(50% + 8px); font-size:.7rem; line-height:1.15; text-align:center; overflow:hidden; white-space:nowrap; font-weight:600; color:#6B7280; }
       @media (max-width:480px) {
         .amc-day.amc-holiday { font-size:.7rem; }
@@ -6066,6 +6809,8 @@ function appointmentWizardHtml(mode) {
               ${['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=>`<div class="amc-hdr">${d}</div>`).join('')}
             </div>
             <div class="appt-mini-cal" id="amc-cells"></div>
+            <!-- Shown in months past the booking window (amcRender(), main.js) -->
+            <div id="amc-far-note" class="amc-far-note" hidden>${ic('info','icon-sm')}<span></span></div>
             <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">
               <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#ECFDF5;border:1px solid #6EE7B7;display:inline-block"></span>Available</span>
               <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#fff;border:2px solid #E8760A;box-sizing:border-box;display:inline-block"></span>Today</span>
@@ -6074,6 +6819,7 @@ function appointmentWizardHtml(mode) {
               <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFF1F2;border:1px solid #fda4af;display:inline-block"></span>PH Holiday</span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:#6B7280"><span style="width:10px;height:10px;border-radius:3px;background:#FFEDD5;border:1px solid #FDBA74;display:inline-block"></span>Clinic Closed</span>
             </div>
+            <p class="cal-tap-hint">${ic('info', 'icon-xs')}Tap a day that can't be picked to see why.</p>
             <div class="wiz-nav">
               ${isStaff ? '<span></span>' : `
               <button class="wiz-btn-back" id="wiz-back-pref-0" onclick="window.wizBackToPref()">${ic('chevron-left','icon-sm')} Back</button>`}
@@ -6325,7 +7071,7 @@ function pageCreateAppointment() {
           <div id="cap-patient-list" style="max-height:380px;overflow-y:auto;border:1px solid #E5E7EB;border-radius:8px;margin-top:8px">
             ${patients.length
               ? patients.map(p => window._renderPatientResult(p, window._capPatientOnclick(p))).join('')
-              : `<div style="padding:24px;text-align:center;font-size:.85rem;color:#9CA3AF">No patients on file yet.</div>`}
+              : emptyState('users', 'No patients on file yet', 'Register the patient first, then book for them here.', { size: 'sm' })}
           </div>
         </div>
       </div>
@@ -6489,7 +7235,10 @@ function pagePatientAppts() {
             </td>
           </tr>`}).join('')}
         </tbody>
-      </table>` : `<div class="table-empty">${tab === 'today' ? 'No appointments scheduled for today.' : `No ${statusFilter || ''} appointments found.`}</div>`}
+      </table>` : emptyState('calendar',
+          tab === 'today' ? 'No appointments today' : statusFilter ? `No ${statusFilter} appointments` : 'No appointments yet',
+          tab === 'all' || !tab ? 'Appointments you book will be listed here.' : 'Nothing in this view right now.',
+          { action: (tab === 'all' || !tab) ? `<button class="btn-primary" onclick="window.navigate('patient-request-appt')">${ic('plus','icon-sm')} Book an Appointment</button>` : '' })}
     </div>`}
   </div>`
 }
@@ -6575,11 +7324,8 @@ function pagePatientConsultations() {
 
     ` : `
     <div class="card">
-      <div style="text-align:center;padding:60px 24px">
-        <div style="font-size:.95rem;font-weight:700;color:#1C1C1C;margin-bottom:6px">No Consultations Yet</div>
-        <div style="font-size:.82rem;color:#6B7280;margin-bottom:20px">Your consultation records will appear here after your visit.</div>
-        <button class="btn-primary" onclick="window.navigate('patient-request-appt')">${ic('plus','icon-sm')} Book an Appointment</button>
-      </div>
+      ${emptyState('message-square', 'No consultations yet', 'Notes from your visits will appear here after your first consultation.',
+        { action: `<button class="btn-primary" onclick="window.navigate('patient-request-appt')">${ic('plus','icon-sm')} Book an Appointment</button>` })}
     </div>`}
   </div>`
 }
@@ -7031,11 +7777,8 @@ function pagePatientPrescriptions() {
 
     ` : `
     <div class="card">
-      <div style="text-align:center;padding:64px 24px">
-        <div style="font-size:.95rem;font-weight:700;color:#1C1C1C;margin-bottom:6px">No Prescriptions Yet</div>
-        <div style="font-size:.82rem;color:#9CA3AF;margin-bottom:20px;max-width:300px;margin-left:auto;margin-right:auto;line-height:1.6">Prescription records are generated after your optical examination with a doctor.</div>
-        <button class="btn-primary" onclick="window.navigate('patient-request-appt')">${ic('plus','icon-sm')} Book an Appointment</button>
-      </div>
+      ${emptyState('file-text', 'No prescriptions yet', 'Your prescription appears here after an eye examination with one of our doctors.',
+        { action: `<button class="btn-primary" onclick="window.navigate('patient-request-appt')">${ic('plus','icon-sm')} Book an Appointment</button>` })}
     </div>`}
   </div>`
 }
@@ -7060,11 +7803,7 @@ function pagePatientNotifications() {
 
   const unreadCount = notifs.filter(n => !n.isRead).length
 
-  const emptyHtml = `
-    <div style="text-align:center;padding:56px 24px">
-      <p style="margin:0 0 4px;font-size:.9rem;font-weight:600;color:#6B7280">No notifications</p>
-      <p style="font-size:.8rem;margin:0;color:#9CA3AF">You're all caught up!</p>
-    </div>`
+  const emptyHtml = emptyState('bell', 'You’re all caught up', 'Appointment updates, reminders and messages will show up here.')
 
   const _dashByRole = { admin:'admin-dashboard', staff:'staff-dashboard', doctor:'doctor-dashboard', patient:'patient-dashboard' }
   return `
@@ -7229,7 +7968,7 @@ function pagePatientSettings() {
           <div class="form-row-2">
             <div class="form-group">
               <label class="form-label">Date of Birth</label>
-              ${window.dobFieldHtml('sett-dob', { value: patient?.dob || '', max: window.maxDobFor13(), onchange: 'window._syncSettAge()' })}
+              ${window.dobFieldHtml('sett-dob', { value: patient?.dob || '', max: window.maxDobFor13(), maxMsg: 'Account holders must be at least 13 years old. Please check the year you were born.', onchange: 'window._syncSettAge()' })}
             </div>
             <div class="form-group">
               <label class="form-label" style="display:flex;align-items:center;gap:4px;color:#9CA3AF">
@@ -7423,7 +8162,7 @@ function pageComingSoon() {
       'exam-records':          'Examination Records',
       'doctor-schedule':       'My Schedule',
       'doctor-settings':       'Settings',
-      'doctor-availability':   'Our Doctors',
+      'doctor-availability':   'Doctor Availability',
       'patient-prescriptions': 'Prescriptions',
       'patient-exam-history':  'Examination History',
       'patient-notifications': 'Notifications',
@@ -7537,33 +8276,35 @@ function pagePatientDoctorAvail() {
       else                                cls += ' blocked'
 
       const dotCls    = dayAppts.length ? ' has-appts' : ''
-      // Too-soon dates stay dimmed but, unlike past/out-of-range dates,
-      // remain clickable — the click surfaces a toast (synced to the live
-      // minAdvanceTooltip()) so patients on touch devices, who never see the
-      // hover title="" tooltip, still get told why the date isn't bookable.
-      const tooSoonOnly = tooSoon && !isToday && !isPast && !isFar && !isHoliday && !isBlocked
-      const dimStyle  = isPast ? 'pointer-events:none;'
-                       : (tooSoon && !isToday) ? 'cursor:not-allowed;' : ''
-      const styleAttr = dimStyle ? ` style="${dimStyle}"` : ''
+      const styleAttr = isPast ? ' style="pointer-events:none;"' : ''
       const titleAttr = tooSoon   ? `title="${minAdvanceTooltip()}"` :
                         isBlocked ? `title="Doctor unavailable: ${String(blockedReason).replace(/"/g,'&quot;')}"` :
-                        isHoliday ? `title="Clinic closed: ${holidayName}"` :
+                        isHoliday ? `title="Clinic closed: ${esc(holidayName)}"` :
+                        (isFar && avail) ? `title="Booking opens on ${window.bookingOpensOn(new Date(viewYear, viewMonth, d)).toLocaleDateString('en-PH', { month: 'long', day: 'numeric' })}"` :
                         isFar     ? `title="Beyond the maximum booking window."` : ''
       const hoverEvt  = !tooSoon && !isPast && !isFar && !isHoliday && dayAppts.length
         ? `onmouseenter="window.showCalTip(this,'${JSON.stringify(dayAppts).replace(/'/g,'&#39;').replace(/"/g,'&quot;')}')" onmouseleave="window.hideCalTip()"`
         : ''
+      // Every upcoming day that can't be picked explains itself when tapped
+      // (calPeek(), main.js) — closed, holiday, blocked, Too Soon, Too Far
+      // (with the day booking opens) and the doctor's days off; the label
+      // under the number is clipped and a hover title never reaches a phone.
+      const offWhy    = `${doctor.name} doesn't work on ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dow]}s.`
       const clickEvt  = avail && !isBlocked && !tooSoon && !isPast && !isFar && !isHoliday
         ? `onclick="window.patCalSelectDate('${doctor.id}','${dateStr}')"`
-        : tooSoonOnly
-          ? `onclick="window.toast(window.minAdvanceTooltip(), 'error')"`
-          : ''
+        : isPast    ? ''
+        : isBlocked ? window.calPeekAttrs('blocked', dateStr, blockedReason)
+        : isHoliday ? window.calPeekAttrs(closedReason ? 'closed' : 'holiday', dateStr, holidayName)
+        : tooSoon   ? window.calPeekAttrs('soon', dateStr, ...window.calSoonText())
+        : isFar     ? window.calPeekAttrs('far', dateStr, ...window.calFarText(dateStr, avail, avail ? '' : offWhy.replace("doesn't", "also doesn't")))
+        : window.calPeekAttrs('off', dateStr, offWhy, 'Please pick one of the green days.')
 
       // Same inline-label convention as the booking wizard's own calendar
       // (amcRender(), main.js) — a hover title="" alone never reaches a
       // touch-screen patient, so every reason a date is blocked gets a
       // short label under the day number, not just a tooltip.
       const inner = isHoliday && !isPast
-        ? `${d}<span class="cal-holiday-lbl">${holidayName}</span>`
+        ? `${d}<span class="cal-holiday-lbl">${esc(holidayName)}</span>`
         : (tooSoon && !isPast)
           ? `${d}<span class="cal-nodoc-lbl">Too Soon</span>`
           : (isFar && !isPast)
@@ -7767,6 +8508,7 @@ function pagePatientDoctorAvail() {
                 <div style="width:10px;height:10px;background:#FFEDD5;border:1px solid #FDBA74;border-radius:2px"></div>Clinic Closed
               </div>
             </div>
+            <p class="cal-tap-hint">${ic('info', 'icon-xs')}Tap a day that can't be picked to see why.</p>
           </div>
 
           <!-- Right: schedule details — doctor-specific only. Generic clinic-wide
@@ -7802,8 +8544,8 @@ function pagePatientDoctorAvail() {
   return `
   <div class="page-header">
     <div class="page-header-left">
-      <h1 class="page-title">Our Doctors</h1>
-      <p class="page-subtitle">See each doctor's schedule and book with the one you prefer</p>
+      <h1 class="page-title">Doctor Availability</h1>
+      <p class="page-subtitle">See when each doctor is available and book with the one you prefer</p>
     </div>
   </div>
   <div class="page-body">

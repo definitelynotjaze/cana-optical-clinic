@@ -98,7 +98,9 @@
     var tbody = document.getElementById(tbodyId)
     if (!tbody) return
 
-    var allRows = Array.from(tbody.querySelectorAll('tr[data-search]'))
+    // Direct children with data-search: a table's rows, or the items of a
+    // card list (Medical Record visits, Previous Clinic Records).
+    var allRows = Array.from(tbody.querySelectorAll(':scope > [data-search]'))
 
     // Step 1: Remove pg-hidden so we can see the true filter state
     allRows.forEach(function (r) { r.classList.remove('pg-hidden') })
@@ -130,7 +132,9 @@
     var tbody = document.getElementById(tbodyId)
     if (!tbody) return
 
-    var wrap = tbody.closest('.table-wrap')
+    // The bar goes at the end of the table card, or of whatever wrapper a
+    // card list marks with data-pg-host.
+    var wrap = tbody.closest('.table-wrap, [data-pg-host]')
     if (!wrap) return
 
     var barId = 'pg-bar-' + tbodyId

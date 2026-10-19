@@ -152,7 +152,7 @@ const SIDEBAR_CONFIG = {
         { key: 'patient-appts', filter: 'no-show',     label: 'No-show',     color: '#6D28D9' },
       ]
     },
-    { key: 'doctor-availability',  label: 'Our Doctors',         icon: 'stethoscope' },
+    { key: 'doctor-availability',  label: 'Doctor Availability', icon: 'stethoscope' },
     { key: 'patient-records',      label: 'My Records',       icon: 'file-text',
       children: [
         { key: 'patient-prescriptions',  label: 'Prescriptions' },
@@ -224,7 +224,7 @@ const PAGE_LABELS = {
   'patient-request-appt': 'Request Appointment',
   'patient-records':       'My Records',
   'patient-qr':            'My QR Code',
-  'doctor-availability':   'Our Doctors',
+  'doctor-availability':   'Doctor Availability',
   'patient-prescriptions': 'Prescriptions',
   'patient-exam-history':  'Examination History',
   'patient-consultations': 'Consultations',
@@ -860,7 +860,7 @@ function _buildNotifDropdownHtml() {
   const notifs = window._notifications || []
   const recent = notifs.slice(0, 5)
   if (!recent.length) {
-    return `<div class="table-empty">No notifications yet.</div>`
+    return window.emptyState('bell', 'You’re all caught up', 'New notifications will appear here.', { size: 'sm' })
   }
   return recent.map(n => `
     <div class="notify-item${n.isRead ? '' : ' unread'}" onclick="window._markNotifDropdown(${n.id})" style="cursor:pointer">

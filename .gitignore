@@ -24,3 +24,9 @@ node_modules/
 /storage/backups/**
 !/storage/backups/
 !/storage/backups/.gitkeep
+
+# Patients' uploaded records from other clinics (api/previous_records/) —
+# private medical documents, never committed — and the pieces of files
+# still being uploaded (cleared after a day).
+/storage/previous_records/
+/storage/upload_staging/

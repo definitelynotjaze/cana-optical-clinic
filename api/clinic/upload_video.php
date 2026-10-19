@@ -36,24 +36,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
 
 requireMethod('POST');
 
-if (empty($_FILES['video']) || $_FILES['video']['error'] !== UPLOAD_ERR_OK) {
-    jsonResponse(['success' => false, 'message' => 'No file uploaded.']);
-}
-
-$file     = $_FILES['video'];
+// 100 MB: about 2 minutes of 1080p — plenty for a homepage clip, which
+// visitors stream (a 2 GB file would stall the page on mobile data).
+$file     = requireUploadedFile('video', UPLOAD_MAX_VIDEO, 'That video',
+    'Keep it to about 2 minutes and export it at 1080p (H.264).');
 $mimeType = mime_content_type($file['tmp_name']);
 $allowed  = ['video/mp4', 'video/webm'];
 
 if (!in_array($mimeType, $allowed, true)) {
     jsonResponse(['success' => false, 'message' => 'Invalid file type. Use MP4 or WebM.']);
-}
-
-// A generous but real ceiling — large enough for a proper clinic tour video,
-// small enough that one bad/oversized upload can't fill the disk or hang
-// the server indefinitely (matches this server's 2048M ini limit).
-$maxBytes = 2048 * 1024 * 1024;
-if ($file['size'] > $maxBytes) {
-    jsonResponse(['success' => false, 'message' => 'Video is too large. Please keep it under 2GB.']);
 }
 
 $ext = $mimeType === 'video/webm' ? 'webm' : 'mp4';

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=block" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/global.css?v=2026101702">
+  <link rel="stylesheet" href="assets/css/global.css?v=2026101940">
   <style>
     .badge-no-show {
       display: inline-flex !important;
@@ -218,7 +218,8 @@
       </div>
 
       <div id="login-error" class="lf-error" style="display:none">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12" y2="16"/></svg>
+        <svg class="lf-ic-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12" y2="16"/></svg>
+        <svg class="lf-ic-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         <span id="login-error-msg">The email or password you entered is incorrect. Please try again.</span>
       </div>
 
@@ -656,7 +657,8 @@
 
           <div class="reg-group">
             <label class="reg-label">Date of Birth <span class="reg-req">*</span></label>
-            <div class="dob-picker" id="reg-dob-wrap" data-max="" data-min="" data-placeholder="mm/dd/yyyy">
+            <div class="dob-picker" id="reg-dob-wrap" data-max="" data-min="" data-placeholder="mm/dd/yyyy"
+                 data-max-msg="You must be at least 13 years old to register. Please check the year you were born.">
               <input type="hidden" id="reg-dob" value="">
               <div id="reg-dob-trigger" class="reg-input dob-picker-trigger">
                 <span class="dob-picker-text-wrap">
@@ -916,13 +918,13 @@
 <script src="assets/js/clinic-data.js"></script>
 <script src="assets/js/analytics-data.js"></script>
 <script src="assets/js/db.js?v=2026101502"></script>
-<script src="assets/js/auth.js?v=2026101505"></script>
+<script src="assets/js/auth.js?v=2026101930"></script>
 <script src="assets/js/charts.js"></script>
-<script src="assets/js/pagination.js?v=2026101401"></script>
-<script src="assets/js/sortable.js?v=2026101401"></script>
-<script src="assets/js/router.js?v=2026101702"></script>
-<script src="assets/js/pages.js?v=2026101707"></script>
-<script src="assets/js/main.js?v=2026101710"></script>
+<script src="assets/js/pagination.js?v=2026101901"></script>
+<script src="assets/js/sortable.js?v=2026101901"></script>
+<script src="assets/js/router.js?v=2026101901"></script>
+<script src="assets/js/pages.js?v=2026101940"></script>
+<script src="assets/js/main.js?v=2026101940"></script>
 <script>
   // If navigated here with #register, set a flag so restoreSession()
   // opens the register screen instead of login when no session exists

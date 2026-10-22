@@ -7540,6 +7540,14 @@ async function requestAppointment() {
 
     const dt = new Date(_wiz.selectedDate + 'T00:00:00')
     const dateShort = dt.toLocaleDateString('en-PH', { month:'long', day:'numeric', year:'numeric' })
+    // "Request Another" only while the patient is still under Max Upcoming
+    // Appointments Per Patient (same count as the Request tab, pages.js):
+    // with the usual limit of 1 they can't book another until this one's done.
+    const today   = localDateStr()
+    const maxOpen = Math.max(1, parseInt(consultationSettings.maxUpcomingApptsPerPatient, 10) || 1)
+    const openOwn = appointments.filter(a => a.patientId === user.id && a.source !== 'walk-in'
+      && ['pending', 'approved'].includes(a.status) && a.date >= today).length
+    const canBookMore = openOwn < maxOpen
     showModal(`
       <div class="modal-body" style="text-align:center;padding:32px 24px">
         <div style="width:56px;height:56px;border-radius:50%;background:#ECFDF5;border:2px solid #16a34a;
@@ -7553,10 +7561,12 @@ async function requestAppointment() {
           <div style="font-size:.82rem;color:#6B7280;margin-top:4px">${dateShort} at ${_wiz.time}</div>
           <div style="font-size:.82rem;color:#6B7280">${_wiz.type}</div>
         </div>
-        <div style="font-size:.8rem;color:#9CA3AF;margin-bottom:20px">has been submitted successfully. The clinic will review and confirm your schedule shortly.</div>
+        <div style="font-size:.8rem;color:#9CA3AF;margin-bottom:20px">has been submitted successfully. The clinic will review and confirm your schedule shortly.${canBookMore ? '' : ' You can book another appointment once this one is done.'}</div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          ${canBookMore ? `
           <button class="btn-secondary" onclick="window.closeModal();window.navigate('patient-appts',{filter:'pending'})">View My Appointments</button>
-          <button class="btn-primary" onclick="window.closeModal();window.navigate('patient-appts',{filter:'request'})">Request Another</button>
+          <button class="btn-primary" onclick="window.closeModal();window.navigate('patient-appts',{filter:'request'})">Request Another</button>` : `
+          <button class="btn-primary" onclick="window.closeModal();window.navigate('patient-appts',{filter:'pending'})">View My Appointments</button>`}
         </div>
       </div>`)
   } catch (_) {

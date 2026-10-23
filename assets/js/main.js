@@ -3146,18 +3146,33 @@ function _patientHasAccount(patientId) {
 //  'input' event fires on it whenever it changes (for listeners that
 //  enable a submit button).
 // ════════════════════════════════════════════════════════════════
+// Same idea worded the same way wherever it appears (patient and clinic
+// side), e.g. "Duplicate account", "Requested account deletion",
+// "Doctor unavailable on that date". Saved reasons are plain text, so
+// rewording a preset never changes what older records say.
+// Only reasons the system can actually produce: a pending request or a
+// reschedule's preferred time already holds its slot, and full, closed,
+// blocked or overlapping times can't be picked at all, so "fully booked",
+// "overlapping" or "duplicate request" never apply at review time. There's
+// no downpayment either, so "too close to the date" isn't a reason. Only
+// bookable services are offered, so "service unavailable" doesn't apply.
+// What can change after a patient books is the doctor's or clinic's
+// availability on that day. A patient books one appointment online at a
+// time, but one the clinic booked for them (e.g. a follow-up) doesn't count
+// toward that, so they can still end up with two: hence "already has an
+// appointment booked by the clinic" for disapproving / cancelling.
 const REASON_PRESETS = {
-  patientCancel:     ['Schedule conflict', 'Feeling unwell', 'Personal or family matter', 'Transportation issue', 'Booked by mistake', 'Will book another date'],
+  patientCancel:     ['Schedule conflict', 'Feeling unwell', 'Personal or family matter', 'Transportation issue', 'Booked by mistake', "I'll book another date"],
   patientReschedule: ['Schedule conflict', 'Feeling unwell', 'Personal or family matter', 'Transportation issue'],
   patientDecline:    ["The new time doesn't work for me", 'I prefer my original schedule', "I'd like a different date"],
-  patientDelete:     ['I no longer need the account', 'Moving to another clinic', 'Privacy concerns', 'Duplicate account'],
-  clinicCancel:      ['Doctor unavailable', 'Clinic closed (holiday or emergency)', 'Patient requested by phone', 'Duplicate booking'],
-  clinicDisapprove:  ['Selected time is fully booked', 'Doctor unavailable on that date', 'Duplicate request', 'Incomplete or invalid details'],
-  clinicReschedule:  ['Doctor unavailable', "Doctor's schedule changed", 'Clinic closed', 'Overlapping appointment'],
-  clinicDeclineResched: ['Requested time is unavailable', 'Doctor unavailable then', 'Too close to the appointment'],
+  patientDelete:     ['I no longer need the account', 'Moving to another clinic', 'Duplicate account'],
+  clinicCancel:      ['Doctor unavailable on that date', 'Clinic closed on that date', 'Patient asked to cancel', 'Patient already has an appointment booked by the clinic'],
+  clinicDisapprove:  ['Doctor unavailable on that date', 'Clinic closed on that date', 'Patient already has an appointment booked by the clinic'],
+  clinicReschedule:  ['Doctor unavailable on that date', "Doctor's schedule changed", 'Clinic closed on that date', 'Patient asked to reschedule'],
+  clinicDeclineResched: ['Doctor unavailable on the requested date', 'Clinic closed on the requested date'],
   blockDate:         ['Leave or vacation', 'Seminar or training', 'Holiday', 'Sick leave'],
-  revertNoShow:      ['Patient was seen, exam not saved', 'Marked by mistake', 'Patient arrived late but was seen'],
-  archivePatient:    ['Duplicate record', 'Requested account deletion', 'Inactive or test record'],
+  revertNoShow:      ['Patient was seen, exam not saved', 'Patient arrived late but was seen', 'Marked by mistake'],
+  archivePatient:    ['Duplicate account', 'Requested account deletion', 'Inactive or test record'],
   archiveAccount:    ['Staff left the clinic', 'Duplicate account', 'Requested account deletion', 'Test account'],
   archiveService:    ['No longer offered', 'Merged with another service', 'Temporarily unavailable'],
   archivePrevRecord: ['Uploaded to the wrong patient', 'Duplicate record', 'Wrong or unreadable document', 'Patient asked to remove it'],
